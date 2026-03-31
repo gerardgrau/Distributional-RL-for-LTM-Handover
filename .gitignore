@@ -1,1 +1,13 @@
-venv-RL
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+venv-RL/
+.env
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store

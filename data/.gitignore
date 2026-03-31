@@ -1,2 +1,3 @@
+# Ignore the large channel gains dataset and raw data
 /ChannelGains/
 /ChannelGains.rar
