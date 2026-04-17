@@ -1,0 +1,24 @@
+# Global Configuration for Distributional RL for LTM Handover
+
+system:
+  tx_power: 45                # dBm
+  noise_level: -174           # dBm
+  receiver_sensitivity: -95   # dBm
+
+simulation:
+  total_sim_time: 60          # seconds
+  time_step: 0.01             # 10 ms (10e-3)
+  ue_number: 246              # Number of UEs
+  bs_number: 20               # Number of Base Stations
+
+ho_prep:
+  periodicity_rsrp_measurement: 0.02   # 20 ms
+  average_rsrp_measurement_nl1: 10      # FIR filter length
+  kl3: 8                                # L3 IIR constant
+  preparation_power_offset: -3          # dB
+  preparation_time: 0.04                # 40 ms
+  exec_power_offset: 5                  # dB
+  max_number_prepared_bs: 5             # Max prepared cells
+
+paths:
+  channel_data_directory: "data/ChannelGains"

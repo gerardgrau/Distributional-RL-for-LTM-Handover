@@ -26,36 +26,41 @@ Leverage the "Distributional" aspect of the agents to implement risk-aware polic
 
 ---
 
-## 🏗️ System Architecture
+## 🏗️ Repository Structure
 
-To ensure modularity and scalability, the reinforcement learning implementation is divided into two core components:
+The project is organized as a modular Python package to ensure scalability and clear separation of concerns:
 
-### 1. Agents (`agents/`)
-The **Agent** handles the high-level **learning logic** and interaction with the environment. It is responsible for:
-*   Experience Replay management and sampling.
-*   Loss calculation (e.g., Quantile Huber Loss).
-*   Hyperparameter management (learning rate, discount factor, epsilon-greedy).
-*   Action selection and training loops.
-
-### 2. Models (`models/`)
-The **Model** defines the **neural network architecture** (the "brain"). It maps input observations (e.g., SINR vectors or Atari images) to the appropriate output format (e.g., Q-value distributions). 
-
-**Benefit:** This modularity allows us to use the same Agent logic for both complex 5G handover simulations and standard Atari baselines simply by swapping the Model architecture.
+- `src/`: Source code directory.
+    - `main.py`: Main entry point for training and simulations.
+    - `distrl/`: Core framework package.
+        - `agents/`: Learning logic and algorithm implementations (C51, IQN, etc.).
+        - `models/`: Neural network architectures (decoupled from agent logic).
+        - `envs/`: Gymnasium environment wrappers and LTM-HO simulation logic.
+        - `utils/`: Shared utilities, configuration management, and data loading.
+- `data/`: Data storage for simulation artifacts.
+    - `ChannelGains/`: Storage for generated channel gain datasets.
+- `conductor/`: Local project management and planning (untracked).
+- `config.yaml`: Global configuration file for hyperparameters and simulation settings.
 
 ---
 
-## 🚀 Roadmap
+## 🚀 Getting Started
 
-- [ ] **Phase 1: Baseline Verification (Atari)**
-    - [ ] Modify and test original algorithms in standard **Atari (ALE)** environments.
-    - [ ] Establish performance baselines to verify algorithm correctness.
-- [ ] **Phase 2: LTM-HO Gymnasium Wrapper**
-    - [ ] Wrap the `ltm_ho.py` simulation into a standard `Gymnasium` environment.
-- [ ] **Phase 3: Integration & Training**
-    - [ ] Adapt DistRL agents to the 5G handover observation and action spaces.
-    - [ ] Benchmark agents against classical rule-based handover strategies.
-- [ ] **Phase 4: Risk-Aware Policy Evaluation**
-    - [ ] Implement and evaluate risk-aware decision-making policies (e.g., CVaR) for network stability.
+### 1. Installation
+Ensure you have Python 3.8+ and install the required dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Running the Project
+The project uses a centralized entry point in `src/main.py`. To run it, ensure the `src/` directory is in your `PYTHONPATH`:
+```bash
+export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+python3 src/main.py
+```
+
+### 3. Configuration
+Hyperparameters and simulation settings are managed via `config.yaml` in the root directory.
 
 ---
 
@@ -65,8 +70,8 @@ The **Model** defines the **neural network architecture** (the "brain"). It maps
 *   PyTorch
 *   Gymnasium
 *   NumPy / SciPy
-*   SUMO (for trajectory generation)
-*   Pandas / NetworkX
+*   PyYAML
+*   ale-py (for Atari baselines)
 
 ---
 
