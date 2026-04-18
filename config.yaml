@@ -8,8 +8,23 @@ system:
 simulation:
   total_sim_time: 60          # seconds
   time_step: 0.01             # 10 ms (10e-3)
-  ue_number: 246              # Number of UEs
-  bs_number: 20               # Number of Base Stations
+  ue_number: 5                # Reduced for quick testing
+  bs_number: 7                # Set to 7 for hexagonal cells
+
+agent:
+  type: "qrdqn"               # "dqn" or "qrdqn"
+  hidden_dims: [128, 128]
+  lr: 1e-3
+  gamma: 0.9
+  tau: 0.01
+  target_update_freq: 500
+  buffer_size: 5000
+  batch_size: 64
+  num_quantiles: 50           # Only for qrdqn
+  epsilon_start: 1.0
+  epsilon_end: 0.05
+  epsilon_decay: 5000
+  num_episodes: 50
 
 ho_prep:
   periodicity_rsrp_measurement: 0.02   # 20 ms
@@ -17,7 +32,7 @@ ho_prep:
   kl3: 8                                # L3 IIR constant
   preparation_power_offset: -3          # dB
   preparation_time: 0.04                # 40 ms
-  exec_power_offset: 5                  # dB
+  exec_power_offset: 3                  # dB
   max_number_prepared_bs: 5             # Max prepared cells
 
 paths:
