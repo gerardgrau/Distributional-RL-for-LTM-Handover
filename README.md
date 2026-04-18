@@ -59,8 +59,8 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 python3 src/main.py
 ```
 
-### 3. Configuration
-Hyperparameters and simulation settings are managed via `config.yaml` in the root directory.
+### 4. Verification
+To ensure everything is working correctly, follow the [Environment Verification Guide](docs/verification.md).
 
 ---
 

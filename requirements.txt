@@ -1,3 +1,9 @@
 gymnasium[atari,accept-rom-license]
 numpy
 torch
+scipy
+PyYAML
+sumolib
+matplotlib
+networkx
+pandas

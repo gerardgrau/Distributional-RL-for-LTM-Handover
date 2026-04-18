@@ -4,17 +4,17 @@ from scipy.signal import lfilter
 import os
 import glob
 
-ChannelDirectory = r"D:\Python_GitHub\MEC\MEC-1\Channels"
+ChannelDirectory = "data/ChannelGains"
 
 # Buscar todos los archivos
 # TODO
-files = glob.glob(os.path.join(ChannelDirectory, "Channel_User_veh*.npy"))
+files = glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat"))
 
 # UE_Number = len(files)
 # TODO
-UE_Number = 246  # To test, limitar a 5 UEs
+UE_Number = 5  # To test, limitar a 5 UEs
 
-print(f"Detected {UE_Number} UE channel files.")
+print(f"Detected {len(files)} UE channel files.")
 
 # ============================================================
 # CONFIGURACIÓN POR DEFECTO
@@ -27,23 +27,23 @@ ReceiverSensitivity = -95
 System = {
     "TxPower": 45,  # dBm
     "NoiseLevel": -174,  # dBm
-    # "SINRThreshold": np.array([
-    # -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
-    # 22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
-    # ]),
-    # "SpectralEff": np.array([
-    # 0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
-    # 2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
-    # 5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
-    # ])
     "SINRThreshold": np.array([
-    -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
-    12.5, 14.5, 16.5, 19.0, 21.5, 24.0
+    -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
+    22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
     ]),
     "SpectralEff": np.array([
-    0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
-    2.73, 3.32, 3.90, 4.52, 5.12, 5.55
+    0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
+    2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
+    5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
     ])
+    # "SINRThreshold": np.array([
+    # -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
+    # 12.5, 14.5, 16.5, 19.0, 21.5, 24.0
+    # ]),
+    # "SpectralEff": np.array([
+    # 0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
+    # 2.73, 3.32, 3.90, 4.52, 5.12, 5.55
+    # ])
 }
 
 # Parámetros temporales
@@ -53,31 +53,31 @@ Time = {
 }
 
 # Parámetros de BS
-BS = {"Number": 20}  # 20 BS (CANVIAR A 7 SI ES FA SERVIR LES CEL·LES HEXAGONALS)
+BS = {"Number": 7}  # 20 BS (CANVIAR A 7 SI ES FA SERVIR LES CEL·LES HEXAGONALS)
 NBS = BS["Number"] * 3  # 3 sectores por BS
 HO = {}
 
-# HO["Prep"] = {
-#     "PeriodicityRSRPMeasurement": 20e-3,     # 20 ms
-#     "AverageRSRPMeasument_NL1": 10,          # FIR filter length
-#     "kL3": 8,                                 # L3 IIR constant
-#     "alphaIIRfilter": 2 ** (-8 / 4),          # 2^(-kL3/4)
-#     "PreparationPowerOffset": -3,             # dB
-#     "PreparationTime": 40e-3,                 # 40 ms
-#     "ExecPowerOffset": 3,                     # dB
-#     "MaxNumberPreparedBS": 5                  # Max prepared cells
-# }
-
 HO["Prep"] = {
-    "PeriodicityRSRPMeasurement": 20e-3,      # 20 ms
-    "AverageRSRPMeasument_NL1": 10,           # FIR filter length
+    "PeriodicityRSRPMeasurement": 20e-3,     # 20 ms
+    "AverageRSRPMeasument_NL1": 10,          # FIR filter length
     "kL3": 8,                                 # L3 IIR constant
+    "alphaIIRfilter": 2 ** (-8 / 4),          # 2^(-kL3/4)
     "PreparationPowerOffset": -3,             # dB
     "PreparationTime": 40e-3,                 # 40 ms
-    "ExecPowerOffset": 5,                     # dB
+    "ExecPowerOffset": 3,                     # dB
     "MaxNumberPreparedBS": 5                  # Max prepared cells
 }
-HO["Prep"]["alphaIIRfilter"] = 2 ** (-HO["Prep"]["kL3"] / 4)      # 2^(-kL3/4)
+
+# HO["Prep"] = {
+#     "PeriodicityRSRPMeasurement": 20e-3,      # 20 ms
+#     "AverageRSRPMeasument_NL1": 10,           # FIR filter length
+#     "kL3": 8,                                 # L3 IIR constant
+#     "PreparationPowerOffset": -3,             # dB
+#     "PreparationTime": 40e-3,                 # 40 ms
+#     "ExecPowerOffset": 5,                     # dB
+#     "MaxNumberPreparedBS": 5                  # Max prepared cells
+# }
+# HO["Prep"]["alphaIIRfilter"] = 2 ** (-HO["Prep"]["kL3"] / 4)      # 2^(-kL3/4)
 
 # Time variables
 Time_PingPong = 1 # Ping-pong event: HO is successful, but UE HO to previous cell within 1 second
@@ -226,6 +226,7 @@ def CheckHO_Failure(serving_sector, channels, System):
     # # Temporary debug line
     # # Inter_Noise = 10**(System["NoiseLevel"]/10)
     Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
+    # print(f"Serving channel (dB): {serving_channel:.2f}, Interference+Noise (dB): {10*np.log10(Inter_Noise):.2f}, ICIC active: {icic_on}")
     SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)    
     idx = np.where(SNR_level <= SNIR)[0]
     Pe = BLER[idx[-1]]
@@ -259,9 +260,10 @@ def run_simulation():
     Metrics = []
 
     for indUE in range(0, UE_Number):
-        print(f"Simulando UE {indUE}/{UE_Number}...")
-        filename = f"{ChannelDirectory}/Channel_User_veh{indUE}.npy"
-        Channel = np.load(filename) # shape = (T, BS, sectores)
+        print(f"Simulando UE {indUE+1}/{UE_Number}...")
+        filename = os.path.join(ChannelDirectory, f"ChannelGainBSUE_User{indUE+1}.mat")
+        mat_data = loadmat(filename)
+        Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)
 
         NBS = BS["Number"] * 3
         ChBS2UE = np.zeros((NBS, Channel.shape[0]))
@@ -548,20 +550,29 @@ if __name__ == "__main__":
     import pandas as pd
     Performance_all, Metrics = run_simulation()
     print("Simulación completada.")
-    net_file = r"C:\Users\Usuari\Sumo\2026-03-05-12-24-49\osm.net.xml"
-    G, pos, bounds, off_x, off_y = network_loader(net_file)
-    bs_df = pd.read_csv(r"D:\Python_GitHub\MEC\MEC-1\sumo_5g_base_stations.csv")
-    traj_file = r"D:\Python_GitHub\MEC\MEC-1\SUMO_Network\fcd.pkl"
     
-    df = pd.read_pickle(traj_file)
-    veh_list = df["vehicle"].unique()
+    # Path updates with existence checks for Linux/Local environment
+    net_file = "data/SUMO_Network/osm.net.xml"
+    if os.path.exists(net_file):
+        G, pos, bounds, off_x, off_y = network_loader(net_file)
+    
+    bs_file = "data/sumo_5g_base_stations.csv"
+    if os.path.exists(bs_file):
+        bs_df = pd.read_csv(bs_file)
+        
+    traj_file = "data/SUMO_Network/fcd.pkl"
+    if os.path.exists(traj_file):
+        df = pd.read_pickle(traj_file)
+        veh_list = df["vehicle"].unique()
+        
     # Print summaries
     print("\n===== PERFORMANCE SUMMARY =====")
     for ue_id, perf in enumerate(Performance_all):
-        print(f"\nUE {ue_id} ({len(perf['Capacity']) * Time["TimeStep"] / 60:.3f} minutes):")
+        print(f"\nUE {ue_id+1} ({len(perf['Capacity']) * Time['TimeStep'] / 60:.3f} minutes):")
         print(f"  Capacity (avg MCS): {np.mean(perf['Capacity']):.2f}")
 
         for key, value in perf.items():
+            if key == "Capacity": continue
             if isinstance(value, float):
                 print(f"  {key}: {value:.4f}")
             else:
