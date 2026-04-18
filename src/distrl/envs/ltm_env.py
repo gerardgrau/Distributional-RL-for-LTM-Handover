@@ -7,14 +7,12 @@ import glob
 ChannelDirectory = "data/ChannelGains"
 
 # Buscar todos los archivos
-# TODO
 files = glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat"))
 
 # UE_Number = len(files)
-# TODO
 UE_Number = 5  # To test, limitar a 5 UEs
 
-print(f"Detected {len(files)} UE channel files.")
+print(f"Detected {len(files)} UE channel files. Simulating {UE_Number} UEs.")
 
 # ============================================================
 # CONFIGURACIÓN POR DEFECTO
@@ -23,26 +21,25 @@ print(f"Detected {len(files)} UE channel files.")
 ReceiverSensitivity = -95
 
 # Parámetros del sistema
-# TODO
 System = {
     "TxPower": 45,  # dBm
     "NoiseLevel": -174,  # dBm
     "SINRThreshold": np.array([
-    -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
-    22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
+        -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
+        22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
     ]),
     "SpectralEff": np.array([
-    0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
-    2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
-    5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
+        0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
+        2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
+        5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
     ])
     # "SINRThreshold": np.array([
-    # -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
-    # 12.5, 14.5, 16.5, 19.0, 21.5, 24.0
+    #     -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
+    #     12.5, 14.5, 16.5, 19.0, 21.5, 24.0
     # ]),
     # "SpectralEff": np.array([
-    # 0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
-    # 2.73, 3.32, 3.90, 4.52, 5.12, 5.55
+    #     0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
+    #     2.73, 3.32, 3.90, 4.52, 5.12, 5.55
     # ])
 }
 
@@ -329,8 +326,10 @@ def run_simulation():
             t += 1
 
             while NextBSSector == -1:
-                
-                # TODO !!!!!!!!!!
+
+                # GREEDY SELECTION: Pick the strongest Base Station.
+                # Note: In the RL simulation (ltm_gym.py), this hardcoded greedy 
+                # logic is bypassed to allow the agent to make the decision.
 
                 Pbest = np.max(ChBS2UE[:, t])
                 Best = np.argmax(ChBS2UE[:, t])
@@ -457,8 +456,10 @@ def run_simulation():
                 t0 = t
                 HO_event[t0] = 1
 
-                # Elegir mejor célula candidata
-                # TODO
+                # GREEDY SELECTION: Choose the best candidate cell based on signal strength.
+                # Note: This greedy selection is bypassed in the RL simulation (ltm_gym.py)
+                # to allow the agent to learn more robust handover policies.
+
                 metric = (10 ** (PL1_report / 10)) * HO_condition
                 I = np.argmax(metric)
 
@@ -551,7 +552,7 @@ if __name__ == "__main__":
     Performance_all, Metrics = run_simulation()
     print("Simulación completada.")
     
-    # Path updates with existence checks for Linux/Local environment
+    # Minimal check for optional SUMO files
     net_file = "data/SUMO_Network/osm.net.xml"
     if os.path.exists(net_file):
         G, pos, bounds, off_x, off_y = network_loader(net_file)
