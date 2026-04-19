@@ -118,7 +118,7 @@ if __name__ == "__main__":
     parser.add_argument("--mode", type=str, default="benchmark", choices=["benchmark", "quantiles"])
     args = parser.parse_args()
 
-    results_root = "results"
+    results_root = "results/benchmarks"
     
     if args.mode == "benchmark":
         target_dir = args.results_dir
