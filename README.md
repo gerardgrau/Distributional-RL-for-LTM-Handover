@@ -52,11 +52,33 @@ Ensure you have Python 3.8+ and install the required dependencies:
 pip install -r requirements.txt
 ```
 
-### 2. Running the Project
+### 2. Running a Single Experiment
 The project uses a centralized entry point in `src/main.py`. To run it, ensure the `src/` directory is in your `PYTHONPATH`:
 ```bash
 export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 python3 src/main.py
+```
+
+### 3. Benchmarking & Visualization
+For scientific evaluation across multiple seeds, use the benchmarking suite:
+
+#### Run Benchmark
+Runs automated trials for both DQN and QRDQN across multiple random seeds.
+```bash
+export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+python3 src/benchmark.py
+```
+
+#### Generate Performance Plots
+Creates learning curves and efficiency graphs (Reward/Loss vs Time).
+```bash
+python3 src/distrl/utils/plot.py
+```
+
+#### Distributional Visualizer
+Visualizes the learned return distributions (quantiles) for a specific state.
+```bash
+python3 src/gym_test/test_quantile_vis.py
 ```
 
 ### 4. Verification
