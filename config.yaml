@@ -12,7 +12,7 @@ simulation:
   bs_number: 7                # Set to 7 for hexagonal cells
 
 agent:
-  type: "qrdqn"               # "dqn" or "qrdqn"
+  type: "dqn"                 # "dqn" or "qrdqn"
   hidden_dims: [128, 128]
   lr: 1e-3
   gamma: 0.9
@@ -25,6 +25,11 @@ agent:
   epsilon_end: 0.05
   epsilon_decay: 5000
   num_episodes: 50
+
+benchmark:
+  num_seeds: 3                # Number of random seeds per experiment
+  results_dir: "results"      # Directory for benchmark logs
+  env_type: "ltm"             # "ltm" or "atari" (ale_py)
 
 ho_prep:
   periodicity_rsrp_measurement: 0.02   # 20 ms
