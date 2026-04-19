@@ -24,7 +24,7 @@ def visualize_distributional_risk():
     device = "cpu" # Use CPU for plotting
     agent = QRDQNAgent(agent_cfg, env.observation_space, env.action_space, device=device)
     
-    model_path = "models/qrdqn_final.pth"
+    model_path = "results/models/qrdqn_final.pth"
     if not os.path.exists(model_path):
         print(f"Error: Model not found at {model_path}. Please run src/main.py with qrdqn first.")
         return
