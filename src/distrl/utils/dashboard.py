@@ -106,5 +106,5 @@ if __name__ == "__main__":
     }
     
     # Save a test gif
-    os.makedirs("results/tests", exist_ok=True)
-    dash.render_episode(history, save_path="results/tests/dashboard_test.gif")
+    os.makedirs("results/animations", exist_ok=True)
+    dash.render_episode(history, save_path="results/animations/dashboard_test.gif")

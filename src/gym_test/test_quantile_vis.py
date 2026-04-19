@@ -47,7 +47,7 @@ def visualize_distributional_risk():
     print(f"Sampling state at t={env.t}. RSRP values: {state}")
     
     # 4. Plot Quantiles
-    save_dir = "ltm_decision"
+    save_dir = "results/analysis"
     os.makedirs(save_dir, exist_ok=True)
     save_path = os.path.join(save_dir, "quantile_dist_sample.png")
     

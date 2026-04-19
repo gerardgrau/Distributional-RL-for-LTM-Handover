@@ -28,7 +28,7 @@ agent:
 
 benchmark:
   num_seeds: 3                # Number of random seeds per experiment
-  results_dir: "results"      # Directory for benchmark logs
+  results_dir: "results/benchmarks"      # Directory for benchmark logs
   env_type: "ltm"             # "ltm" or "atari" (ale_py)
 
 ho_prep:

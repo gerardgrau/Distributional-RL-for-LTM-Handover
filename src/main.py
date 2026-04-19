@@ -82,7 +82,7 @@ def run_experiment():
     print("Experiment completed successfully.")
     
     # 6. Save Model
-    save_path = f"models/{agent_cfg['type']}_final.pth"
+    save_path = f"results/models/{agent_cfg['type']}_final.pth"
     agent.save(save_path)
     print(f"Model saved to {save_path}")
 

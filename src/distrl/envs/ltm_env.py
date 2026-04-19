@@ -605,7 +605,7 @@ if __name__ == "__main__":
 
     import pickle
 
-    save_dir = "ltm_decision"
+    save_dir = "results/simulations"
     os.makedirs(save_dir, exist_ok=True)
     # Save Performance_all 
     with open(os.path.join(save_dir, "Performance_all.pkl"), "wb") as f: pickle.dump(Performance_all, f)
