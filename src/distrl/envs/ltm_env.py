@@ -183,7 +183,7 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
         Sync["t310_counter"] -= 1
         RLF = (Sync["t310_counter"] == 0)
 
-    return MCS, RLF, Sync
+    return MCS, RLF, Sync, SNIR
 
 
 def CheckHO_Failure(serving_sector, channels, System):
