@@ -135,51 +135,64 @@ class LTMEnv(gym.Env):
         return obs.astype(np.float32)
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+        """
+        Perform 1 RL step (100ms of simulation).
+        """
+        # 1. Handle Handover/Mobility logic
+        done = self._handle_handover_logic(action)
+        
+        # 2. Simulate Radio Physics (10 samples = 100ms)
+        r_thr = self._simulate_radio_samples()
+        
+        # 3. Calculate Multiplicative Reward
+        reward = self._calculate_ainna_reward(r_thr)
+            
+        return self._get_obs(), float(reward), done, False, {}
+
+    def _handle_handover_logic(self, action: int) -> bool:
+        """
+        Detects HO, HOF, and Ping-Pong events. Updates serving sector and tenure.
+        """
         prev_serving = self.serving_sector
         ho_occurred = (action != prev_serving)
         self.prev_rsrp = self.pl3[:, min(self.t, self.total_time - 1)].copy()
         
-        # Alphas from config
-        rew_cfg = self.config.get('ho_reward', {'alpha_hof': 0.1, 'alpha_ho': 0.8, 'alpha_pp': 0.9})
-        alpha_hof = rew_cfg['alpha_hof']
-        alpha_ho = rew_cfg['alpha_ho']
-        alpha_pp = rew_cfg['alpha_pp']
-
-        HO_ind = 0.0
-        PP_ind = 0.0
-        HOF_ind = 0.0
-        done = False
+        self.HO_ind = 0.0
+        self.PP_ind = 0.0
+        self.HOF_ind = 0.0
         
         if ho_occurred:
-            # 1. Check for HOF
-            hof_happened = CheckHO_Failure(action, self.ch_bs2ue[:, self.t], System)
-            if hof_happened:
-                HOF_ind = 1.0
+            # Check for Handover Failure (HOF)
+            if CheckHO_Failure(action, self.ch_bs2ue[:, self.t], System):
+                self.HOF_ind = 1.0
                 self.serving_sector = -1
-                done = True # Connection lost
-            else:
-                # 2. Check for Ping-Pong
-                is_pp = (action == self.prev_prev_serving_sector) and \
-                        (self.t - self.last_ho_time < 1.0 / Time["TimeStep"])
-                if is_pp:
-                    PP_ind = 1.0
-                
-                HO_ind = 1.0
-                self.prev_prev_serving_sector = prev_serving
-                self.last_ho_time = self.t
-                self.serving_sector = action
-                self.serving_tenure = 0
+                return True # Episode ends on HOF
+            
+            # Check for Ping-Pong (PP)
+            is_pp = (action == self.prev_prev_serving_sector) and \
+                    (self.t - self.last_ho_time < 1.0 / Time["TimeStep"])
+            if is_pp:
+                self.PP_ind = 1.0
+            
+            self.HO_ind = 1.0
+            self.prev_prev_serving_sector = prev_serving
+            self.last_ho_time = self.t
+            self.serving_sector = action
+            self.serving_tenure = 0
         else:
             self.serving_tenure += 1
             
+        return False
+
+    def _simulate_radio_samples(self, step_duration: int = 10) -> float:
+        """
+        Simulates background radio samples and returns average MCS.
+        """
         mcs_sum = 0.0
-        step_duration = 10 
         for _ in range(step_duration):
             if self.t >= self.total_time - 1:
-                done = True
                 break
             
-            # If HOF happened, serving_sector is -1 (leads to MCS 0 and RLF)
             mcs, rlf, self.sync, snir = MCSEvaluation(self.serving_sector, self.ch_bs2ue[:, self.t], System, self.sync)
             self.mcs_history.append(float(mcs))
             self.snir_history.append(float(snir))
@@ -187,18 +200,23 @@ class LTMEnv(gym.Env):
             
             if rlf:
                 self.serving_sector = -1
-                done = True
                 break
             self.t += 1
-        
-        # Formula: r = r_thr * (alpha_ho^I_ho * alpha_pp^I_pp * alpha_hof^I_hof) / (1 + exp(2(N_OOS - 2)))
-        r_thr = mcs_sum / step_duration
-        N_OOS = self.sync["out_sync_count"]
-        
-        ho_factor = (alpha_ho ** HO_ind)
-        pp_factor = (alpha_pp ** PP_ind)
-        hof_factor = (alpha_hof ** HOF_ind)
-        
-        reward = r_thr * (ho_factor * pp_factor * hof_factor) / (1 + np.exp(2*(N_OOS - 2)))
             
-        return self._get_obs(), float(reward), done, False, {}
+        return mcs_sum / step_duration
+
+    def _calculate_ainna_reward(self, r_thr: float) -> float:
+        """
+        Applies the Ainna Multiplicative Reward Formula.
+        """
+        rew_cfg = self.config.get('ho_reward', {'alpha_hof': 0.1, 'alpha_ho': 0.8, 'alpha_pp': 0.9})
+        
+        ho_factor = rew_cfg['alpha_ho'] ** self.HO_ind
+        pp_factor = rew_cfg['alpha_pp'] ** self.PP_ind
+        hof_factor = rew_cfg['alpha_hof'] ** self.HOF_ind
+        
+        # Reliability Penalty (Reverse Sigmoid)
+        N_OOS = self.sync["out_sync_count"]
+        reliability_factor = 1.0 / (1 + np.exp(2 * (N_OOS - 2)))
+        
+        return r_thr * (ho_factor * pp_factor * hof_factor) * reliability_factor
