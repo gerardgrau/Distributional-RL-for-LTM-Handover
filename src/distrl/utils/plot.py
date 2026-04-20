@@ -9,7 +9,7 @@ from typing import Optional, Any
 def plot_learning_curves(results_dir: str, save_path: Optional[str] = None):
     """
     Parses all CSV files in results_dir, aggregates by agent, 
-    and plots Reward vs Episode with confidence intervals.
+    and plots Reward vs Episode with confidence intervals and a 50-episode moving average.
     """
     files = glob.glob(os.path.join(results_dir, "*.csv"))
     if not files:
@@ -33,12 +33,24 @@ def plot_learning_curves(results_dir: str, save_path: Optional[str] = None):
         agent_data = all_data[all_data['agent'] == agent]
         grouped = agent_data.groupby('episode')['reward'].agg(['mean', 'std']).reset_index()
         
-        plt.plot(grouped['episode'], grouped['mean'], label=f'{agent.upper()}')
+        # Calculate Moving Average
+        window = 50
+        grouped['moving_avg'] = grouped['mean'].rolling(window=window, min_periods=1).mean()
+        
+        # Plot Raw Mean (Transparent)
+        line = plt.plot(grouped['episode'], grouped['mean'], alpha=0.3)[0]
+        color = line.get_color()
+        
+        # Plot Moving Average (Solid)
+        plt.plot(grouped['episode'], grouped['moving_avg'], color=color, label=f'{agent.upper()} (MA {window})', linewidth=2)
+        
+        # Plot Confidence Interval
         plt.fill_between(
             grouped['episode'], 
             grouped['mean'] - grouped['std'], 
             grouped['mean'] + grouped['std'], 
-            alpha=0.2
+            color=color,
+            alpha=0.1
         )
 
     plt.title("Learning Curves: Reward vs Episode")
@@ -55,7 +67,7 @@ def plot_learning_curves(results_dir: str, save_path: Optional[str] = None):
 
 def plot_efficiency(results_dir: str, metric: str = "reward", save_path: Optional[str] = None):
     """
-    Plots a metric (reward or loss) against wall-clock time to compare efficiency.
+    Plots a metric (reward or loss) against wall-clock time with a 50-unit moving average.
     """
     files = glob.glob(os.path.join(results_dir, "*.csv"))
     all_data = pd.concat([pd.read_csv(f).assign(agent=os.path.basename(f).split('_')[0]) for f in files])
@@ -65,12 +77,25 @@ def plot_efficiency(results_dir: str, metric: str = "reward", save_path: Optiona
     
     for agent in agents:
         agent_data = all_data[all_data['agent'] == agent]
+        
+        # Individual seeds (Very transparent)
         for seed_file in glob.glob(os.path.join(results_dir, f"{agent}_*.csv")):
             df = pd.read_csv(seed_file)
-            plt.plot(df['wall_time'], df[metric], alpha=0.3, color='gray' if agent == 'dqn' else 'blue')
+            plt.plot(df['wall_time'], df[metric], alpha=0.1, color='gray' if agent == 'dqn' else 'blue')
         
+        # Aggregate trend
         grouped = agent_data.groupby('episode')[['wall_time', metric]].mean().reset_index()
-        plt.plot(grouped['wall_time'], grouped[metric], label=f'{agent.upper()}', linewidth=2)
+        
+        # Calculate Moving Average
+        window = 50
+        grouped['moving_avg'] = grouped[metric].rolling(window=window, min_periods=1).mean()
+        
+        # Plot Aggregate Trend (Transparent)
+        line = plt.plot(grouped['wall_time'], grouped[metric], alpha=0.3)[0]
+        color = line.get_color()
+        
+        # Plot Moving Average (Solid)
+        plt.plot(grouped['wall_time'], grouped['moving_avg'], color=color, label=f'{agent.upper()} (MA {window})', linewidth=2)
 
     plt.title(f"Efficiency: {metric.capitalize()} vs Wall-clock Time")
     plt.xlabel("Time (seconds)")
