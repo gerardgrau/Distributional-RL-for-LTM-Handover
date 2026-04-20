@@ -8,11 +8,17 @@ We are comparing **Standard Deep Q-Learning (DQN)** against **Quantile Regressio
 ---
 
 ## 2. Scientific Refinement: Markovian State Space
-We have expanded the agent's observation from a simple 21-RSRP vector to a **67-dimensional Markovian state**, including:
+We have expanded the agent's observation from a simple 21-RSRP vector to a **69-dimensional Markovian state**, including:
+*   **Spatial Context**: Normalized UE X and Y coordinates (real-time position).
 *   **Mobility Context**: Real-time UE Speed (synced from SUMO trajectories).
 *   **Temporal Dynamics**: Serving Tenure (time since last HO) and RSRP Signal Velocity ($\Delta$RSRP).
 *   **Network Stability**: Moving averages of MCS and SNIR for the current link.
 *   **Identity**: One-Hot encoded Serving Sector ID.
+
+
+* Comprimir el one hot amb embeddings?
+- (x, y) posició de la estació base
+- 
 
 This ensures the agent has all the information required for optimal decision-making without needing historical windows.
 

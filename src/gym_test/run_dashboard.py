@@ -57,7 +57,7 @@ def run_agent_dashboard(agent_type="dqn", ue_idx=0):
         history['ue_pos'].append(env.ue_positions[t_idx].tolist())
         history['serving_bs'].append(env.serving_sector)
         
-        # Extract RSRP from state (index 23 to 43)
+        # Extract RSRP from 69-dim state (index 23 to 43)
         rsrp_vals = state[23:44]
         history['rsrp'].append(rsrp_vals.tolist())
         

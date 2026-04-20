@@ -18,8 +18,9 @@ class LTMEnv(gym.Env):
         super().__init__()
         self.config = config or {}
         
-        # Observation Space: 67-dim Markovian vector
-        self.observation_space = spaces.Box(low=-5, high=5, shape=(67,), dtype=np.float32)
+        # Observation Space: 69-dim Markovian vector
+        # [Speed, Tenure, Serving_OneHot(21), RSRP(21), DeltaRSRP(21), MCS_Avg, SNIR_Avg, X, Y]
+        self.observation_space = spaces.Box(low=-5, high=5, shape=(69,), dtype=np.float32)
         self.action_space = spaces.Discrete(NBS)
         
         # Load data paths
@@ -51,7 +52,8 @@ class LTMEnv(gym.Env):
         b = np.ones(HO["Prep"]["AverageRSRPMeasument_NL1"]) / HO["Prep"]["AverageRSRPMeasument_NL1"]
         L1 = lfilter(b, 1, self.ch_bs2ue[:, ::M], axis=1)
         self.pl3 = np.repeat(lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :self.total_time]
-        
+        # TODO
+
         # Initial State
         self.t = 0
         self.serving_sector = -1
@@ -94,6 +96,7 @@ class LTMEnv(gym.Env):
         
         # --- NORMALIZATION ---
         # 1. RSRP: Map [-120, -30] to [-1, 1]
+        # TODO: rsrp per totes les estacions base?
         norm_rsrp = (curr_rsrp + 75) / 45
         # 2. Delta RSRP: Scale by 10 (since changes are small)
         norm_delta = delta_rsrp * 10
@@ -108,15 +111,21 @@ class LTMEnv(gym.Env):
         serving_one_hot = np.zeros(NBS)
         if self.serving_sector != -1:
             serving_one_hot[self.serving_sector] = 1.0
+
+        # 6. Position: Scale by 500m
+        norm_x = self.ue_positions[t, 0] / 500.0
+        norm_y = self.ue_positions[t, 1] / 500.0
             
-        obs = np.concatenate([
+        obs = np.concatenate([ 
             [norm_speed],
             [norm_tenure],
             serving_one_hot,
             norm_rsrp,
             norm_delta,
             [norm_mcs],
-            [norm_snir]
+            [norm_snir],
+            [norm_x],
+            [norm_y]
         ])
         return obs.astype(np.float32)
 
@@ -143,14 +152,28 @@ class LTMEnv(gym.Env):
             self.mcs_history.append(float(mcs))
             self.snir_history.append(float(snir))
             reward += float(mcs)
+            # TODO: revisar reward - fórmula Ainna
             if rlf:
-                reward -= 50.0 
+                reward -= 50.0
                 self.serving_sector = -1
                 done = True
                 break
             self.t += 1
+        
+        r_thr = mcs  # Average MCS throughput over the last 100 ms.
+
+        HO_ind: float = ...  # Indicator functions that equal 1 if HO, HOF, or PP events occurred at time t, and 0 otherwise.
+        PP_ind: float = ...
+        HOF_ind: float = ...
+        N_OOS: int = ...
+
+        HO_factor = alpha_HO if HO_ind else 1
+        PP_factor = alpha_PP if PP_ind else 1
+        HOF_factor = alpha_HOF if HOF_ind else 1
+        
+        reward = r_thr * HO_factor * PP_factor * HOF_factor / (1 + np.exp(2*(N_OOS - 2)))
             
         if ho_occurred:
-            reward -= 5.0 
+            reward -= 5.0
             
         return self._get_obs(), reward, done, False, {}

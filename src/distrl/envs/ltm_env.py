@@ -283,8 +283,8 @@ def run_simulation():
         L1 = lfilter(b, 1, ChBS2UE[:, ::M], axis=1)
         L3 = lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1)
 
-        PL1 = np.repeat(L1, M, axis=1)[:, :ChBS2UE.shape[1]]
-        PL3 = np.repeat(L3, M, axis=1)[:, :ChBS2UE.shape[1]]
+        PL1 = np.repeat(L1, M, axis=1)[:, :ChBS2UE.shape[1]] # PL1 = RSRP filtrat
+        PL3 = np.repeat(L3, M, axis=1)[:, :ChBS2UE.shape[1]] # PL3 = PL1 filtrat
 
         # Inicialización de métricas
         # ServingBSSector = np.zeros(Max_iter, dtype=int)
