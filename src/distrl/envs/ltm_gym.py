@@ -39,7 +39,7 @@ class LTMEnv(gym.Env):
         raw_channel = mat_data['ChannelBS2UE'] # (T, BS, Sectors)
         self.current_ue_idx += 1
         
-        # Reformat to (NBS, T)
+        # Flatten to (NBS, T)
         self.total_time = raw_channel.shape[0]
         self.ch_bs2ue = np.zeros((NBS, self.total_time))
         idx = 0
@@ -47,6 +47,10 @@ class LTMEnv(gym.Env):
             for s in range(raw_channel.shape[2]):
                 self.ch_bs2ue[idx, :] = raw_channel[:, b, s]
                 idx += 1
+        
+        # Store real UE positions (X + Yj)
+        ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]
+        self.ue_positions = np.stack([ue_pos_complex.real, ue_pos_complex.imag], axis=1)
         
         # Apply L1/L3 Filters (Logic from ltm_env.py)
         M = int(np.ceil(HO["Prep"]["PeriodicityRSRPMeasurement"] / Time["TimeStep"]))
