@@ -31,6 +31,11 @@ benchmark:
   results_dir: "results/benchmarks"      # Directory for benchmark logs
   env_type: "ltm"             # "ltm" or "atari" (ale_py)
 
+ho_reward:
+  alpha_hof: 0.1
+  alpha_ho: 0.8
+  alpha_pp: 0.9
+
 ho_prep:
   periodicity_rsrp_measurement: 0.02   # 20 ms
   average_rsrp_measurement_nl1: 10      # FIR filter length

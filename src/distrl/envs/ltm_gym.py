@@ -8,7 +8,10 @@ from gymnasium import spaces
 from typing import Any
 import pandas as pd
 
-from src.distrl.envs.ltm_env import System, Time, HO, BS, NBS, ReceiverSensitivity, ChannelDirectory, MCSEvaluation
+from src.distrl.envs.ltm_env import (
+    System, Time, HO, BS, NBS, ReceiverSensitivity, 
+    ChannelDirectory, MCSEvaluation, CheckHO_Failure
+)
 
 class LTMEnv(gym.Env):
     """
@@ -57,6 +60,8 @@ class LTMEnv(gym.Env):
         # Initial State
         self.t = 0
         self.serving_sector = -1
+        self.prev_prev_serving_sector = -1 # For Ping-Pong detection
+        self.last_ho_time = -100 # For Ping-Pong detection
         self.prev_rsrp = self.pl3[:, 0].copy()
         self.serving_tenure = 0
         self.mcs_history = []
@@ -134,46 +139,66 @@ class LTMEnv(gym.Env):
         ho_occurred = (action != prev_serving)
         self.prev_rsrp = self.pl3[:, min(self.t, self.total_time - 1)].copy()
         
+        # Alphas from config
+        rew_cfg = self.config.get('ho_reward', {'alpha_hof': 0.1, 'alpha_ho': 0.8, 'alpha_pp': 0.9})
+        alpha_hof = rew_cfg['alpha_hof']
+        alpha_ho = rew_cfg['alpha_ho']
+        alpha_pp = rew_cfg['alpha_pp']
+
+        HO_ind = 0.0
+        PP_ind = 0.0
+        HOF_ind = 0.0
+        done = False
+        
         if ho_occurred:
-            self.serving_tenure = 0
-            self.serving_sector = action
+            # 1. Check for HOF
+            hof_happened = CheckHO_Failure(action, self.ch_bs2ue[:, self.t], System)
+            if hof_happened:
+                HOF_ind = 1.0
+                self.serving_sector = -1
+                done = True # Connection lost
+            else:
+                # 2. Check for Ping-Pong
+                is_pp = (action == self.prev_prev_serving_sector) and \
+                        (self.t - self.last_ho_time < 1.0 / Time["TimeStep"])
+                if is_pp:
+                    PP_ind = 1.0
+                
+                HO_ind = 1.0
+                self.prev_prev_serving_sector = prev_serving
+                self.last_ho_time = self.t
+                self.serving_sector = action
+                self.serving_tenure = 0
         else:
             self.serving_tenure += 1
             
-        reward = 0.0
-        done = False
-        
+        mcs_sum = 0.0
         step_duration = 10 
         for _ in range(step_duration):
             if self.t >= self.total_time - 1:
                 done = True
                 break
+            
+            # If HOF happened, serving_sector is -1 (leads to MCS 0 and RLF)
             mcs, rlf, self.sync, snir = MCSEvaluation(self.serving_sector, self.ch_bs2ue[:, self.t], System, self.sync)
             self.mcs_history.append(float(mcs))
             self.snir_history.append(float(snir))
-            reward += float(mcs)
-            # TODO: revisar reward - fórmula Ainna
+            mcs_sum += float(mcs)
+            
             if rlf:
-                reward -= 50.0
                 self.serving_sector = -1
                 done = True
                 break
             self.t += 1
         
-        r_thr = mcs  # Average MCS throughput over the last 100 ms.
-
-        HO_ind: float = ...  # Indicator functions that equal 1 if HO, HOF, or PP events occurred at time t, and 0 otherwise.
-        PP_ind: float = ...
-        HOF_ind: float = ...
-        N_OOS: int = ...
-
-        HO_factor = alpha_HO if HO_ind else 1
-        PP_factor = alpha_PP if PP_ind else 1
-        HOF_factor = alpha_HOF if HOF_ind else 1
+        # Formula: r = r_thr * (alpha_ho^I_ho * alpha_pp^I_pp * alpha_hof^I_hof) / (1 + exp(2(N_OOS - 2)))
+        r_thr = mcs_sum / step_duration
+        N_OOS = self.sync["out_sync_count"]
         
-        reward = r_thr * HO_factor * PP_factor * HOF_factor / (1 + np.exp(2*(N_OOS - 2)))
+        ho_factor = (alpha_ho ** HO_ind)
+        pp_factor = (alpha_pp ** PP_ind)
+        hof_factor = (alpha_hof ** HOF_ind)
+        
+        reward = r_thr * (ho_factor * pp_factor * hof_factor) / (1 + np.exp(2*(N_OOS - 2)))
             
-        if ho_occurred:
-            reward -= 5.0
-            
-        return self._get_obs(), reward, done, False, {}
+        return self._get_obs(), float(reward), done, False, {}
