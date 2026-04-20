@@ -29,7 +29,8 @@ class LTMEnv(gym.Env):
         # Load data paths
         self.files = sorted(glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat")))
         self.current_ue_idx = 0
-        
+
+
     def reset(self, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
         
@@ -94,6 +95,7 @@ class LTMEnv(gym.Env):
             
         return self._get_obs(), {}
 
+
     def _get_obs(self) -> np.ndarray:
         t = min(self.t, self.total_time - 1)
         curr_rsrp = self.pl3[:, t]
@@ -101,7 +103,6 @@ class LTMEnv(gym.Env):
         
         # --- NORMALIZATION ---
         # 1. RSRP: Map [-120, -30] to [-1, 1]
-        # TODO: rsrp per totes les estacions base?
         norm_rsrp = (curr_rsrp + 75) / 45
         # 2. Delta RSRP: Scale by 10 (since changes are small)
         norm_delta = delta_rsrp * 10
@@ -134,19 +135,20 @@ class LTMEnv(gym.Env):
         ])
         return obs.astype(np.float32)
 
+
     def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         """
         Perform 1 RL step (100ms of simulation).
         """
         # 1. Handle Handover/Mobility logic
         done = self._handle_handover_logic(action)
-        
+
         # 2. Simulate Radio Physics (10 samples = 100ms)
         r_thr = self._simulate_radio_samples()
-        
+
         # 3. Calculate Multiplicative Reward
-        reward = self._calculate_ainna_reward(r_thr)
-            
+        reward = self._calculate_ltm_ho_reward(r_thr)
+
         return self._get_obs(), float(reward), done, False, {}
 
     def _handle_handover_logic(self, action: int) -> bool:
@@ -169,8 +171,7 @@ class LTMEnv(gym.Env):
                 return True # Episode ends on HOF
             
             # Check for Ping-Pong (PP)
-            is_pp = (action == self.prev_prev_serving_sector) and \
-                    (self.t - self.last_ho_time < 1.0 / Time["TimeStep"])
+            is_pp = (action == self.prev_prev_serving_sector) and (self.t - self.last_ho_time < 1.0 / Time["TimeStep"])
             if is_pp:
                 self.PP_ind = 1.0
             
@@ -205,18 +206,17 @@ class LTMEnv(gym.Env):
             
         return mcs_sum / step_duration
 
-    def _calculate_ainna_reward(self, r_thr: float) -> float:
+    def _calculate_ltm_ho_reward(self, r_thr: float) -> float:
         """
         Applies the Ainna Multiplicative Reward Formula.
         """
-        rew_cfg = self.config.get('ho_reward', {'alpha_hof': 0.1, 'alpha_ho': 0.8, 'alpha_pp': 0.9})
-        
-        ho_factor = rew_cfg['alpha_ho'] ** self.HO_ind
-        pp_factor = rew_cfg['alpha_pp'] ** self.PP_ind
-        hof_factor = rew_cfg['alpha_hof'] ** self.HOF_ind
-        
+        rew_cfg = self.config.get('ho_reward', {})
+
+        ho_factor = rew_cfg.get('alpha_ho', 0.8) ** self.HO_ind
+        pp_factor = rew_cfg.get('alpha_pp', 0.9) ** self.PP_ind
+        hof_factor = rew_cfg.get('alpha_hof', 0.1) ** self.HOF_ind        
         # Reliability Penalty (Reverse Sigmoid)
-        N_OOS = self.sync["out_sync_count"]
-        reliability_factor = 1.0 / (1 + np.exp(2 * (N_OOS - 2)))
+        N_oos = self.sync["out_sync_count"]
+        reliability_factor = 1.0 / (1 + np.exp(2 * (N_oos - 2)))
         
         return r_thr * (ho_factor * pp_factor * hof_factor) * reliability_factor
