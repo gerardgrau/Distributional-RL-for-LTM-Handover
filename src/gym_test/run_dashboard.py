@@ -17,7 +17,6 @@ def run_agent_dashboard(agent_type="dqn", ue_idx=0):
     
     # 1. Setup Env and Load Config
     env = LTMEnv()
-    # Force the environment to a specific UE
     env.current_ue_idx = ue_idx
     
     config = Config.get()
@@ -49,26 +48,39 @@ def run_agent_dashboard(agent_type="dqn", ue_idx=0):
     }
     
     print("Running episode...")
-    while not done:
-        # Record real position from the environment
-        history['ue_pos'].append(env.ue_positions[env.t].tolist())
+    # FIX: Ensure we run at least 500 steps for visualization, 
+    # even if the agent fails (RLF). After failure, the UE stays disconnected.
+    min_steps = 500
+    step_count = 0
+    
+    while step_count < min_steps or not done:
+        # Record real position from the environment (fallback to last if done)
+        t_idx = min(env.t, env.total_time - 1)
+        history['ue_pos'].append(env.ue_positions[t_idx].tolist())
         history['serving_bs'].append(env.serving_sector)
         # Extract RSRP from the 67-dim state
         rsrp_vals = state[23:44]
         history['rsrp'].append(rsrp_vals.tolist())
         
-        action = agent.select_action(state, epsilon=0)
-        state, reward, done, _, _ = env.step(action)
+        if not done:
+            action = agent.select_action(state, epsilon=0)
+            state, reward, done, _, _ = env.step(action)
+        else:
+            # If done (RLF), just increment internal step to fill time for visualization
+            step_count += 1
+            # Simulation stops at RLF, so we just append static state
+            pass
+            
+        step_count += 1
+        if step_count > 30000: break # Safety break
         
-    print(f"Episode finished at t={env.t}. Generating animation...")
+    print(f"Episode finished at t={env.t} (Visualization steps: {step_count}). Generating animation...")
     
     # 4. Generate Animation
-    # Note: BS positions are still mock/circular. To improve this, we would need 
-    # the actual BS coordinates used during the .mat generation.
     bs_pos = get_mock_bs_positions()
     dash = MobilityDashboard(bs_pos)
     
-    save_path = f"results/animations/{agent_type}_ue{ue_idx}_mobility.gif"
+    save_path = f"results/animations/{agent_type}_ue{ue_idx}_long_mobility.gif"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     dash.render_episode(history, save_path=save_path)
     print(f"Animation saved to {save_path}")
@@ -77,8 +89,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent", type=str, default="dqn", choices=["dqn", "qrdqn"])
-    parser.add_argument("--ue_idx", type=int, default=100, help="UE index (1 to 1000)")
+    parser.add_argument("--ue_idx", type=int, default=500, help="UE index (1 to 1000)")
     args = parser.parse_args()
     
-    # Adjust for 1-based indexing in files
     run_agent_dashboard(args.agent, args.ue_idx - 1)
