@@ -98,6 +98,7 @@ class QRDQNAgent(BaseAgent):
         # 4. Optimize
         self.optimizer.zero_grad()
         loss.backward()
+        nn.utils.clip_grad_norm_(self.q_net.parameters(), 1.0)
         self.optimizer.step()
 
         # 5. Update Target

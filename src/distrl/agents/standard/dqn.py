@@ -67,10 +67,12 @@ class DQNAgent(BaseAgent):
             target_q = rewards + (1 - dones) * self.gamma * next_q
             
         loss = F.mse_loss(curr_q, target_q)
-        
+        # Optimize
         self.optimizer.zero_grad()
         loss.backward()
+        nn.utils.clip_grad_norm_(self.q_net.parameters(), 1.0)
         self.optimizer.step()
+
         
         self.update_counter += 1
         self._update_target()
