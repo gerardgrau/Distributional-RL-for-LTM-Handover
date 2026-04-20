@@ -31,7 +31,7 @@ def train_minimal(env_id="CartPole-v1"):
         "epsilon_decay": 5000
     }
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else "cpu"
     agent = DQNAgent(config, env.observation_space, env.action_space, device=device)
     buffer = ReplayBuffer(config["buffer_size"], env.observation_space.shape)
     

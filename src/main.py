@@ -29,7 +29,7 @@ def run_experiment():
     env = LTMEnv()
     
     # 3. Setup Agent
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else "cpu"
     
     if agent_cfg['type'].lower() == "dqn":
         agent = DQNAgent(agent_cfg, env.observation_space, env.action_space, device=device)
