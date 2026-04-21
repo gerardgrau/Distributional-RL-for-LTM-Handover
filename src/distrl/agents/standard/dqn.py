@@ -48,6 +48,7 @@ class DQNAgent(BaseAgent):
         self.update_counter = 0
 
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
+        # TODO: per ara fem epsilon-greedy, canviar?
         if np.random.random() < epsilon:
             return int(self.action_space.sample())
         
