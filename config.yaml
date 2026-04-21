@@ -1,12 +1,12 @@
 # Global Configuration for Distributional RL for LTM Handover
 
 system:
-  tx_power: 45                # dBm
+  tx_power: 25                # Aligned with CMAB paper
   noise_level: -174           # dBm
   receiver_sensitivity: -95   # dBm
 
 simulation:
-  total_sim_time: 60          # seconds
+  total_sim_time: 300         # seconds (Aligned with CMAP paper)
   time_step: 0.01             # 10 ms (10e-3)
   ue_number: 5                # Reduced for quick testing
   bs_number: 7                # Set to 7 for hexagonal cells
@@ -18,13 +18,13 @@ agent:
   gamma: 0.9
   tau: 0.01
   target_update_freq: 500
-  buffer_size: 5000
+  buffer_size: 10000
   batch_size: 64
   num_quantiles: 50           # Only for qrdqn
   epsilon_start: 1.0
   epsilon_end: 0.05
-  epsilon_decay: 5000
-  num_episodes: 50
+  epsilon_decay: 2000         # Fast decay for 300 episodes
+  num_episodes: 300
 
 benchmark:
   num_seeds: 3                # Number of random seeds per experiment
@@ -37,7 +37,7 @@ ho_reward:
   alpha_pp: 0.9
 
 ho_prep:
-  periodicity_rsrp_measurement: 0.02   # 20 ms
+  periodicity_rsrp_measurement: 0.02    # 20 ms
   average_rsrp_measurement_nl1: 10      # FIR filter length
   kl3: 8                                # L3 IIR constant
   preparation_power_offset: -3          # dB

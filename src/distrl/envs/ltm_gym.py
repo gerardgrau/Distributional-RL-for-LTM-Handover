@@ -141,13 +141,17 @@ class LTMEnv(gym.Env):
         Perform 1 RL step (100ms of simulation).
         """
         # 1. Handle Handover/Mobility logic
-        done = self._handle_handover_logic(action)
+        done_by_hof = self._handle_handover_logic(action)
 
         # 2. Simulate Radio Physics (10 samples = 100ms)
-        r_thr = self._simulate_radio_samples()
+        r_thr, done_by_rlf = self._simulate_radio_samples()
 
         # 3. Calculate Multiplicative Reward
         reward = self._calculate_ltm_ho_reward(r_thr)
+        
+        # Episode ends on either HOF or RLF
+        # TODO: revisar quan acaba l'episodi
+        done = done_by_hof or done_by_rlf or self.t >= self.total_time - 1
 
         return self._get_obs(), float(reward), done, False, {}
 
@@ -185,11 +189,12 @@ class LTMEnv(gym.Env):
             
         return False
 
-    def _simulate_radio_samples(self, step_duration: int = 10) -> float:
+    def _simulate_radio_samples(self, step_duration: int = 10) -> tuple[float, bool]:
         """
         Simulates background radio samples and returns average MCS.
         """
         mcs_sum = 0.0
+        rlf_happened = False
         for _ in range(step_duration):
             if self.t >= self.total_time - 1:
                 break
@@ -201,10 +206,11 @@ class LTMEnv(gym.Env):
             
             if rlf:
                 self.serving_sector = -1
+                rlf_happened = True
                 break
             self.t += 1
             
-        return mcs_sum / step_duration
+        return mcs_sum / step_duration, rlf_happened
 
     def _calculate_ltm_ho_reward(self, r_thr: float) -> float:
         """
