@@ -66,6 +66,7 @@ class QRDQNAgent(BaseAgent):
         with torch.no_grad():
             quantiles = self.q_net(state_tensor)
             q_values = quantiles.mean(dim=2)
+            # TODO: provar amb la mitja dels X quantils més petits
         
         return int(q_values.argmax().item())
 

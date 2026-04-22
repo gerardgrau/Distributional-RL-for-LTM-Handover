@@ -23,24 +23,26 @@ ReceiverSensitivity = -95
 # Parámetros del sistema
 System = {
     "TxPower": 45,  # dBm
+    # Al paper està a 25
     "NoiseLevel": -174,  # dBm
-    "SINRThreshold": np.array([
-        -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
-        22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
-    ]),
-    "SpectralEff": np.array([
-        0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
-        2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
-        5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
-    ])
     # "SINRThreshold": np.array([
-    #     -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
-    #     12.5, 14.5, 16.5, 19.0, 21.5, 24.0
+    #     -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
+    #     22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
     # ]),
     # "SpectralEff": np.array([
-    #     0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
-    #     2.73, 3.32, 3.90, 4.52, 5.12, 5.55
+    #     0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
+    #     2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
+    #     5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
     # ])
+    "SINRThreshold": np.array([
+        -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
+        12.5, 14.5, 16.5, 19.0, 21.5, 24.0
+    ]),
+    "SpectralEff": np.array([
+        0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
+        2.73, 3.32, 3.90, 4.52, 5.12, 5.55
+    ])
+    # ! Aquests últims són els bons
 }
 
 # Parámetros temporales
@@ -319,6 +321,8 @@ def run_simulation():
         while t < (Max_iter - 10):
             # print(f"sample={t}, ServingBSSector={ServingBSSector[t]}")
             if ServingBSSector[t] > 0 and not RLF[t]:
+                # cell search
+
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
                     NextBSSector = -1
@@ -434,7 +438,7 @@ def run_simulation():
             PL1_report = PL1[:, t]
 
             HO_condition = np.logical_and(
-                ListBSPrepared,
+                ListBSPrepared, # ! TODO: no passa res per no filtrar per prepared
                 PL1_report > (PL1_report[ServingBSSector[t]] + HO["Prep"]["ExecPowerOffset"])
             )
 
@@ -457,8 +461,6 @@ def run_simulation():
                 HO_event[t0] = 1
 
                 # GREEDY SELECTION: Choose the best candidate cell based on signal strength.
-                # Note: This greedy selection is bypassed in the RL simulation (ltm_gym.py)
-                # to allow the agent to learn more robust handover policies.
 
                 metric = (10 ** (PL1_report / 10)) * HO_condition
                 I = np.argmax(metric)

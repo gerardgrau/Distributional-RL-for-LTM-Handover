@@ -56,7 +56,6 @@ class LTMEnv(gym.Env):
         b = np.ones(HO["Prep"]["AverageRSRPMeasument_NL1"]) / HO["Prep"]["AverageRSRPMeasument_NL1"]
         L1 = lfilter(b, 1, self.ch_bs2ue[:, ::M], axis=1)
         self.pl3 = np.repeat(lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :self.total_time]
-        # TODO
 
         # Initial State
         self.t = 0
@@ -89,8 +88,9 @@ class LTMEnv(gym.Env):
             if pbest + System["TxPower"] > ReceiverSensitivity:
                 self.serving_sector = best
                 mcs, rlf, self.sync, snir = MCSEvaluation(self.serving_sector, self.ch_bs2ue[:, self.t], System, self.sync)
-                self.mcs_history.append(float(mcs))
-                self.snir_history.append(float(snir))
+                # TODO: calcular la Mitjana de les p mostres, per a fer-ho servir com a estat!
+                self.mcs_history.append(float(mcs)) # !
+                self.snir_history.append(float(snir)) # !
             self.t += 1
             
         return self._get_obs(), {}
@@ -99,39 +99,53 @@ class LTMEnv(gym.Env):
     def _get_obs(self) -> np.ndarray:
         t = min(self.t, self.total_time - 1)
         curr_rsrp = self.pl3[:, t]
-        delta_rsrp = curr_rsrp - self.prev_rsrp
+        # delta_rsrp = curr_rsrp - self.prev_rsrp
+        # ! TODO: revisar això (no es feia al paper LTM HO)
         
         # --- NORMALIZATION ---
         # 1. RSRP: Map [-120, -30] to [-1, 1]
         norm_rsrp = (curr_rsrp + 75) / 45
+
         # 2. Delta RSRP: Scale by 10 (since changes are small)
-        norm_delta = delta_rsrp * 10
+        # norm_delta_rsrp = delta_rsrp * 10
+        # ! TODO revisar
+
         # 3. Tenure: Scale by 1000
         norm_tenure = float(self.serving_tenure) / 1000.0
+
         # 4. Speed: Scale by 30 m/s
         norm_speed = self.ue_speeds[t] / 30.0
+
         # 5. MCS/SNIR: MCS [0, 9] -> [0, 1], SNIR [-10, 40] -> [-1, 1]
+        # MCS NOMÉS per la connexió actual
         norm_mcs = (np.mean(self.mcs_history[-10:]) / 9.0) if self.mcs_history else 0.0
-        norm_snir = ((np.mean(self.snir_history[-10:]) - 15) / 25.0) if self.snir_history else -1.0
+        # TODO: canviar la mcs per a totes les BS
         
-        serving_one_hot = np.zeros(NBS)
+        norm_snir = ((np.mean(self.snir_history[-10:]) - 15) / 25.0) if self.snir_history else -1.0
+        # TODO: SNIR per a totes les BS? (en comptes de només una)
+
+        serving_sectors_one_hot = np.zeros(NBS)
         if self.serving_sector != -1:
-            serving_one_hot[self.serving_sector] = 1.0
+            serving_sectors_one_hot[self.serving_sector] = 1.0
 
         # 6. Position: Scale by 500m
         norm_x = self.ue_positions[t, 0] / 500.0
         norm_y = self.ue_positions[t, 1] / 500.0
+
+        # TODO:
+        # Average 50 mostres RSRP individual
+        # MCS per totes
+        # SNIR per totes
             
-        obs = np.concatenate([ 
+        obs = np.concatenate([
             [norm_speed],
             [norm_tenure],
-            serving_one_hot,
+            serving_sectors_one_hot,
             norm_rsrp,
-            norm_delta,
+            # norm_delta_rsrp,  # !
             [norm_mcs],
             [norm_snir],
-            [norm_x],
-            [norm_y]
+            [norm_x, norm_y]
         ])
         return obs.astype(np.float32)
 
@@ -150,8 +164,8 @@ class LTMEnv(gym.Env):
         reward = self._calculate_ltm_ho_reward(r_thr)
         
         # Episode ends on either HOF or RLF
-        # TODO: revisar quan acaba l'episodi
-        done = done_by_hof or done_by_rlf or self.t >= self.total_time - 1
+        # TODO: revisar quan acaba l'episodi => fer que segueixi encara que HOF o RLF ("cell search" a `baseline_ltm`)
+        done = done_by_hof or done_by_rlf or self.t >= self.total_time - 1  # !
 
         return self._get_obs(), float(reward), done, False, {}
 
@@ -175,6 +189,7 @@ class LTMEnv(gym.Env):
                 return True # Episode ends on HOF
             
             # Check for Ping-Pong (PP)
+            # TODO: temps mínim per al ping pong?
             is_pp = (action == self.prev_prev_serving_sector) and (self.t - self.last_ho_time < 1.0 / Time["TimeStep"])
             if is_pp:
                 self.PP_ind = 1.0
@@ -214,7 +229,7 @@ class LTMEnv(gym.Env):
 
     def _calculate_ltm_ho_reward(self, r_thr: float) -> float:
         """
-        Applies the Ainna Multiplicative Reward Formula.
+        Applies the LTM HO Multiplicative Reward Formula.
         """
         rew_cfg = self.config.get('ho_reward', {})
 

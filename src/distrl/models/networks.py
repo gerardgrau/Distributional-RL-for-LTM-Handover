@@ -47,7 +47,7 @@ class QuantileHead(nn.Module):
         self.action_dim = action_dim
         self.num_quantiles = num_quantiles
         
-        # num sortides = actions x num_quantiles
+        # num sortides = actions x num_quantiles    
         self.fc = nn.Linear(input_dim, action_dim * num_quantiles)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

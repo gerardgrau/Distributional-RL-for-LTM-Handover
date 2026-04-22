@@ -49,6 +49,7 @@ def plot_learning_curves(results_dir: str, save_path: Optional[str] = None):
             grouped['episode'], 
             grouped['mean'] - grouped['std'], 
             grouped['mean'] + grouped['std'], 
+            # TODO: posar mínim = 0
             color=color,
             alpha=0.1
         )

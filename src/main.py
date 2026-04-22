@@ -55,7 +55,7 @@ def run_experiment():
         episode_reward = 0
         done = False
         
-        while not done:
+        while not done:  # SARSA
             # Select action
             action = agent.select_action(state, epsilon)
             
@@ -74,7 +74,10 @@ def run_experiment():
                 agent.train_step(batch)
                 
             # Decay epsilon
-            epsilon = max(eps_end, epsilon - (agent_cfg['epsilon_start'] - eps_end) / eps_decay)
+            # TODO: revisar epsilon exponencial?
+            #! eps = max(0.99 * eps, eps_min)
+            #! revisar tots els llocs on es fa servir
+            epsilon = max(eps_end, epsilon - (agent_cfg['epsilon_start'] - eps_end) / eps_decay) # !
             
         if (ep + 1) % 5 == 0 or ep == 0:
             print(f"Episode {ep+1}/{num_episodes} | Reward: {episode_reward:.2f} | Epsilon: {epsilon:.2f}")
