@@ -48,8 +48,7 @@ def plot_learning_curves(results_dir: str, save_path: Optional[str] = None):
         plt.fill_between(
             grouped['episode'], 
             grouped['mean'] - grouped['std'], 
-            grouped['mean'] + grouped['std'], 
-            # TODO: posar mínim = 0
+            np.maximum(0, grouped['mean'] + grouped['std']),  # Ensure upper bound is not negative
             color=color,
             alpha=0.1
         )
