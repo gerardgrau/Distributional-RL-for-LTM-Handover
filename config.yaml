@@ -17,9 +17,9 @@ agent:
   lr: 1e-3
   gamma: 0.9
   tau: 0.01
-  target_update_freq: 500
-  buffer_size: 10000
-  batch_size: 64
+  target_update_freq: 1000
+  buffer_size: 100000
+  batch_size: 256
   num_quantiles: 50           # Only for qrdqn
   epsilon_start: 1.0
   epsilon_end: 0.05
@@ -30,7 +30,6 @@ benchmark:
   num_seeds: 2                # 2 seeds for definitive results
   results_dir: "results/benchmarks"      # Directory for benchmark logs
   env_type: "ltm"             # "ltm" or "atari" (ale_py)
-
 
 ho_reward:
   alpha_hof: 0.1
