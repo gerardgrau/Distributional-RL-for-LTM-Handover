@@ -5,7 +5,6 @@ import sys
 import time
 import csv
 import shutil
-import subprocess
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +16,7 @@ from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
 from src.distrl.utils.replay_buffer import ReplayBuffer
+from src.distrl.utils.plot import plot_learning_curves, plot_efficiency
 
 class CSVLogger:
     def __init__(self, filepath: str, headers: list[str]):
@@ -143,9 +143,11 @@ def run_benchmark():
         # Save "Best" for this specific run
         shutil.copy(best_seed_path, os.path.join(experiment_dir, f"{agent_type}_best.pth"))
 
-    # AUTO-PLOT
+    # PLOTS
     print("\nGenerating performance plots...")
-    subprocess.run([sys.executable, "src/distrl/utils/plot.py", "--results_dir", experiment_dir], env=os.environ.update({"PYTHONPATH": os.path.abspath("src")}))
+    plot_learning_curves(experiment_dir, save_path=os.path.join(experiment_dir, "learning_curves.png"))
+    plot_efficiency(experiment_dir, metric="reward", save_path=os.path.join(experiment_dir, "reward_vs_time.png"))
+    plot_efficiency(experiment_dir, metric="loss", save_path=os.path.join(experiment_dir, "loss_vs_time.png"))
 
     print(f"\nBenchmark completed. All artifacts saved in {experiment_dir}")
 
