@@ -22,14 +22,15 @@ agent:
   batch_size: 64
   num_quantiles: 50           # Only for qrdqn
   epsilon_start: 1.0
-  epsilon_end: 0.05           # Set to zero for assimptotically greedy
-  epsilon_mult: 0.99 
-  num_episodes: 300
+  epsilon_end: 0.05
+  epsilon_mult: 0.995         # Exponential decay per episode
+  num_episodes: 500
 
 benchmark:
-  num_seeds: 3                # Number of random seeds per experiment
+  num_seeds: 2                # 2 seeds for definitive results
   results_dir: "results/benchmarks"      # Directory for benchmark logs
   env_type: "ltm"             # "ltm" or "atari" (ale_py)
+
 
 ho_reward:
   alpha_hof: 0.1
