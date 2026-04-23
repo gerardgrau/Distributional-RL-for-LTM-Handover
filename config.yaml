@@ -36,6 +36,9 @@ ho_reward:
   alpha_ho: 0.8
   alpha_pp: 0.9
 
+ho_state:
+  moving_average_window: 50
+
 ho_prep:
   periodicity_rsrp_measurement: 0.02    # 20 ms
   average_rsrp_measurement_nl1: 10      # FIR filter length
