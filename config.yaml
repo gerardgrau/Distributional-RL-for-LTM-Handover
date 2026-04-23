@@ -22,8 +22,8 @@ agent:
   batch_size: 64
   num_quantiles: 50           # Only for qrdqn
   epsilon_start: 1.0
-  epsilon_end: 0.05
-  epsilon_decay: 2000         # Fast decay for 300 episodes
+  epsilon_end: 0.05           # Set to zero for assimptotically greedy
+  epsilon_mult: 0.99 
   num_episodes: 300
 
 benchmark:

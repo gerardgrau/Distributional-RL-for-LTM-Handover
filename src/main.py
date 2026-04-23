@@ -46,7 +46,7 @@ def run_experiment():
     
     num_episodes = agent_cfg.get('num_episodes', 20)
     epsilon = agent_cfg.get('epsilon_start', 1.0)
-    eps_decay = agent_cfg.get('epsilon_decay', 2000)
+    eps_mult = agent_cfg.get('epsilon_mult', 0.99)
     eps_end = agent_cfg.get('epsilon_end', 0.05)
     batch_size = agent_cfg.get('batch_size', 64)
     
@@ -73,11 +73,8 @@ def run_experiment():
                 batch = buffer.sample(batch_size, device=device)
                 agent.train_step(batch)
                 
-            # Decay epsilon
-            # TODO: revisar epsilon exponencial?
-            #! eps = max(0.99 * eps, eps_min)
-            #! revisar tots els llocs on es fa servir
-            epsilon = max(eps_end, epsilon - (agent_cfg['epsilon_start'] - eps_end) / eps_decay) # !
+            # Logarithmic epsilon
+            epsilon = max(eps_end, epsilon*eps_mult)
             
         if (ep + 1) % 5 == 0 or ep == 0:
             print(f"Episode {ep+1}/{num_episodes} | Reward: {episode_reward:.2f} | Epsilon: {epsilon:.2f}")

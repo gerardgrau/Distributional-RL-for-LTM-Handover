@@ -59,8 +59,8 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     
     num_episodes = agent_cfg.get('num_episodes', 20)
     epsilon = agent_cfg.get('epsilon_start', 1.0)
-    eps_decay = agent_cfg.get('epsilon_decay', 2000)
     eps_end = agent_cfg.get('epsilon_end', 0.05)
+    eps_mult = agent_cfg.get('epsilon_mult', 0.99)
     batch_size = agent_cfg.get('batch_size', 64)
     
     start_time = time.time()
@@ -81,8 +81,7 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             if len(buffer) > batch_size:
                 metrics = agent.train_step(buffer.sample(batch_size, device=device))
                 episode_loss.append(metrics['loss'])
-            epsilon = max(eps_end, epsilon - (agent_cfg['epsilon_start'] - eps_end) / eps_decay)
-            # ! epsilon
+            epsilon = max(eps_end, epsilon*eps_mult)
         
         avg_loss = np.mean(episode_loss) if episode_loss else 0.0
         logger.log([ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time])

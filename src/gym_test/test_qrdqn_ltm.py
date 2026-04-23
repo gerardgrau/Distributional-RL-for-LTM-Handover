@@ -24,7 +24,7 @@ def train_qrdqn_ltm_minimal():
         "batch_size": 64,
         "epsilon_start": 1.0,
         "epsilon_end": 0.05,
-        "epsilon_decay": 2000
+        "epsilon_mult": 0.99
     }
     
     device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else "cpu"
@@ -53,7 +53,7 @@ def train_qrdqn_ltm_minimal():
                 agent.train_step(buffer.sample(config["batch_size"], device=device))
                 
             # Decay epsilon per step
-            epsilon = max(config["epsilon_end"], epsilon - (config["epsilon_start"] - config["epsilon_end"]) / config["epsilon_decay"])
+            epsilon = max(config["epsilon_end"], epsilon * config['epsilon_mult'])
             
         print(f"Episode {ep+1}/{num_episodes} | Reward: {episode_reward:.2f} | Epsilon: {epsilon:.2f}")
 

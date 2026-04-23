@@ -28,7 +28,7 @@ def train_minimal(env_id="CartPole-v1"):
         "batch_size": 32,
         "epsilon_start": 1.0,
         "epsilon_end": 0.1,
-        "epsilon_decay": 5000
+        "epsilon_mult": 0.99,
     }
     
     device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else "cpu"
@@ -64,7 +64,7 @@ def train_minimal(env_id="CartPole-v1"):
                 print(f"Step {step} | Loss: {metrics['loss']:.4f} | Epsilon: {epsilon:.2f}")
         
         # Decay epsilon
-        epsilon = max(config["epsilon_end"], epsilon - (config["epsilon_start"] - config["epsilon_end"]) / config["epsilon_decay"])
+        epsilon = max(config["epsilon_end"], epsilon * config["epsilon_mult"])
 
     print("Minimal Atari validation successful.")
     env.close()
