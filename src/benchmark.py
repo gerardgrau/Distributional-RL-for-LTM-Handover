@@ -54,7 +54,8 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     
     buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
     
-    log_file = os.path.join(experiment_dir, f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
+    # Save CSV logs in experiment_dir/output/
+    log_file = os.path.join(experiment_dir, "output", f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
     headers = ["episode", "reward", "loss", "steps", "wall_time"]
     logger = CSVLogger(log_file, headers)
     
@@ -83,30 +84,25 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
                 metrics = agent.train_step(buffer.sample(batch_size, device=device))
                 episode_loss.append(metrics['loss'])
         
-        # Per-episode epsilon decay
         epsilon = max(eps_end, epsilon * eps_mult)
         
         avg_loss = np.mean(episode_loss) if episode_loss else 0.0
         logger.log([ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time])
         rewards_history.append(episode_reward)
         
-        # Log progress
         if (ep+1) % 100 == 0 or (ep+1 <= 50 and (ep+1) % 10 == 0):
             total_elapsed = time.time() - bench_start_time
             total_eps_done = (run_idx * num_episodes) + (ep + 1)
             total_eps_overall = total_runs * num_episodes
-
             avg_time_per_ep = total_elapsed / total_eps_done
             remaining_eps = total_eps_overall - total_eps_done
             eta_seconds = avg_time_per_ep * remaining_eps
-
-            # Format ETA as HH:MM:SS
             eta_str = time.strftime('%H:%M:%S', time.gmtime(eta_seconds))
             print(f"    Run {run_idx+1}/{total_runs} | Ep {ep+1}/{num_episodes} | Avg Reward: {np.mean(rewards_history[-10:]):.2f} | Time: {total_elapsed:.1f}s | ETA: {eta_str}")
 
-
-    # SAVE MODEL FOR THIS SEED
-    model_path = os.path.join(experiment_dir, f"{agent_type}_seed{seed}.pth")
+    # SAVE MODEL FOR THIS SEED in experiment_dir/models/
+    model_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
     agent.save(model_path)
     env.close()
     return float(np.mean(rewards_history[-10:]))
@@ -116,9 +112,13 @@ def run_benchmark():
     bench_cfg = config['benchmark']
     agent_types = ["dqn", "qrdqn"]
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     experiment_dir = os.path.join(bench_cfg['results_dir'], f"benchmark_{timestamp}")
-    os.makedirs(experiment_dir, exist_ok=True)
+    
+    # Pre-create subdirectories
+    os.makedirs(os.path.join(experiment_dir, "output"), exist_ok=True)
+    os.makedirs(os.path.join(experiment_dir, "models"), exist_ok=True)
+    os.makedirs(os.path.join(experiment_dir, "figures"), exist_ok=True)
     
     print(f"=== Starting Independent Benchmark: {experiment_dir} ===")
     
@@ -138,16 +138,21 @@ def run_benchmark():
             run_idx += 1
             if final_reward > best_reward:
                 best_reward = final_reward
-                best_seed_path = os.path.join(experiment_dir, f"{agent_type}_seed{seed}.pth")
+                best_seed_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
         
-        # Save "Best" for this specific run
-        shutil.copy(best_seed_path, os.path.join(experiment_dir, f"{agent_type}_best.pth"))
+        # Save "Best" for this specific run in models/
+        shutil.copy(best_seed_path, os.path.join(experiment_dir, "models", f"{agent_type}_best.pth"))
 
-    # PLOTS
+    # AUTO-PLOT in figures/
     print("\nGenerating performance plots...")
-    plot_learning_curves(experiment_dir, save_path=os.path.join(experiment_dir, "learning_curves.png"))
-    plot_efficiency(experiment_dir, metric="reward", save_path=os.path.join(experiment_dir, "reward_vs_time.png"))
-    plot_efficiency(experiment_dir, metric="loss", save_path=os.path.join(experiment_dir, "loss_vs_time.png"))
+    fig_dir = os.path.join(experiment_dir, "figures")
+    csv_dir = os.path.join(experiment_dir, "output")
+    
+    # We pass the CSV directory to the plotters, but they expect the files in the directory.
+    # Actually, plotters look for CSVs in results_dir. Let's make sure they work.
+    plot_learning_curves(csv_dir, save_path=os.path.join(fig_dir, "learning_curves.png"))
+    plot_efficiency(csv_dir, metric="reward", save_path=os.path.join(fig_dir, "reward_vs_time.png"))
+    plot_efficiency(csv_dir, metric="loss", save_path=os.path.join(fig_dir, "loss_vs_time.png"))
 
     print(f"\nBenchmark completed. All artifacts saved in {experiment_dir}")
 
