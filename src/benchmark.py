@@ -16,7 +16,7 @@ from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
 from src.distrl.utils.replay_buffer import ReplayBuffer
-from src.distrl.utils.plot import plot_learning_curves, plot_efficiency
+from src.distrl.utils.plot import plot_learning_curves, plot_efficiency, plot_quantiles
 
 class CSVLogger:
     def __init__(self, filepath: str, headers: list[str]):
@@ -85,7 +85,6 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
                 episode_loss.append(metrics['loss'])
         
         epsilon = max(eps_end, epsilon * eps_mult)
-        
         avg_loss = np.mean(episode_loss) if episode_loss else 0.0
         logger.log([ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time])
         rewards_history.append(episode_reward)
@@ -141,15 +140,30 @@ def run_benchmark():
                 best_seed_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
         
         # Save "Best" for this specific run in models/
-        shutil.copy(best_seed_path, os.path.join(experiment_dir, "models", f"{agent_type}_best.pth"))
+        best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
+        shutil.copy(best_seed_path, best_dst)
+
+        # Generate Quantile Plot if it's QRDQN
+        if agent_type.lower() == "qrdqn":
+            print(f"  -> Generating distributional insight plot for {agent_type}...")
+            # We need to reload the best agent to sample a state
+            env = LTMEnv(config=config)
+            agent = QRDQNAgent(config['agent'], env.observation_space, env.action_space)
+            agent.load(best_dst)
+            state, _ = env.reset()
+            # Sample a few steps to get a meaningful state
+            for _ in range(50):
+                state, _, d, _, _ = env.step(agent.select_action(state, 0))
+                if d: break
+            
+            q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
+            plot_quantiles(agent, state, save_path=q_save_path)
+            env.close()
 
     # AUTO-PLOT in figures/
     print("\nGenerating performance plots...")
     fig_dir = os.path.join(experiment_dir, "figures")
     csv_dir = os.path.join(experiment_dir, "output")
-    
-    # We pass the CSV directory to the plotters, but they expect the files in the directory.
-    # Actually, plotters look for CSVs in results_dir. Let's make sure they work.
     plot_learning_curves(csv_dir, save_path=os.path.join(fig_dir, "learning_curves.png"))
     plot_efficiency(csv_dir, metric="reward", save_path=os.path.join(fig_dir, "reward_vs_time.png"))
     plot_efficiency(csv_dir, metric="loss", save_path=os.path.join(fig_dir, "loss_vs_time.png"))
