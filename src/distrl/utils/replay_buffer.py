@@ -4,13 +4,13 @@ from typing import Any
 
 class ReplayBuffer:
     """
-    Experience Replay Buffer for storing and sampling transitions.
+    Experience Replay Buffer for storing and sampling transitions using PyTorch Tensors.
     """
     def __init__(
         self, 
         max_size: int,
         state_shape: int | tuple[int, ...], 
-        action_dim: int | tuple[int, ...] = (1,), 
+        action_shape: int | tuple[int, ...] = (1,), 
         device: str = "cpu"
     ) -> None:
         self.max_size = max_size
@@ -18,26 +18,27 @@ class ReplayBuffer:
         self.size = 0
         self.device = torch.device(device)
 
-        # Handle both vector and image observations
         if isinstance(state_shape, int):
             state_shape = (state_shape,)
+        if isinstance(action_shape, int):
+            action_shape = (action_shape,)
             
-        self.state = np.zeros((max_size, *state_shape), dtype=np.float32)
-        self.action = np.zeros((max_size, 1), dtype=np.int64)
-        self.reward = np.zeros((max_size, 1), dtype=np.float32)
-        self.next_state = np.zeros((max_size, *state_shape), dtype=np.float32)
-        self.done = np.zeros((max_size, 1), dtype=np.float32)
+        self.state = torch.zeros((max_size, *state_shape), dtype=torch.float32, device=self.device)
+        self.action = torch.zeros((max_size, *action_shape), dtype=torch.long, device=self.device)
+        self.reward = torch.zeros((max_size, 1), dtype=torch.float32, device=self.device)
+        self.next_state = torch.zeros((max_size, *state_shape), dtype=torch.float32, device=self.device)
+        self.done = torch.zeros((max_size, 1), dtype=torch.float32, device=self.device)
 
     def push(
         self, 
-        state: np.ndarray, 
-        action: int, 
-        reward: float, 
-        next_state: np.ndarray, 
-        done: bool
+        state: np.ndarray | torch.Tensor, 
+        action: int | torch.Tensor, 
+        reward: float | torch.Tensor, 
+        next_state: np.ndarray | torch.Tensor, 
+        done: bool | torch.Tensor
     ) -> None:
         """
-        Adds a transition to the buffer (aliased to 'push' or 'add').
+        Adds a transition to the buffer.
         """
         self.state[self.ptr] = state
         self.action[self.ptr] = action
@@ -58,14 +59,22 @@ class ReplayBuffer:
         """
         ind = np.random.randint(0, self.size, size=batch_size)
         
-        target_device = torch.device(device) if device else self.device
-
+        if device is not None and torch.device(device) != self.device:
+            target_device = torch.device(device)
+            return (
+                self.state[ind].to(target_device),
+                self.action[ind].to(target_device),
+                self.reward[ind].to(target_device),
+                self.next_state[ind].to(target_device),
+                self.done[ind].to(target_device)
+            )
+        
         return (
-            torch.FloatTensor(self.state[ind]).to(target_device),
-            torch.LongTensor(self.action[ind]).to(target_device),
-            torch.FloatTensor(self.reward[ind]).to(target_device),
-            torch.FloatTensor(self.next_state[ind]).to(target_device),
-            torch.FloatTensor(self.done[ind]).to(target_device)
+            self.state[ind],
+            self.action[ind],
+            self.reward[ind],
+            self.next_state[ind],
+            self.done[ind]
         )
 
     def __len__(self) -> int:

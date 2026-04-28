@@ -23,40 +23,34 @@ class DQNAgent(BaseAgent):
     ) -> None:
         super().__init__(config, observation_space, action_space, device)
 
-        # Get dimensions from spaces
         input_dim = observation_space.shape[0]
         action_dim = action_space.n
 
-        # Initialize Networks (Trunk + QHead)
-        hidden_dims = config.get("hidden_dims", [128, 128])
-        trunk = MLPTrunk(input_dim, hidden_dims)
+        trunk = MLPTrunk(input_dim, config.get("hidden_dims", [128, 128]))
         head = QHead(trunk.output_dim, action_dim)
         
-        self.q_net = UnifiedQNet(trunk, head).to(self.device)
+        self.q_net = torch.compile(UnifiedQNet(trunk, head).to(self.device))
         self.target_net = UnifiedQNet(trunk, head).to(self.device)
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
-        # Optimizer
-        lr = float(config.get("lr", 1e-4))
-        self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr)
+        self.optimizer = optim.Adam(self.q_net.parameters(), lr=float(config.get("lr", 1e-4)))
         
-        # Hyperparameters
         self.gamma = float(config.get("gamma", 0.99))
         self.tau = float(config.get("tau", 0.005)) 
         self.target_update_freq = int(config.get("target_update_freq", 1000))
         self.update_counter = 0
 
-    def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
+    def select_action(self, state: np.ndarray | torch.Tensor, epsilon: float = 0.0) -> int:
         # TODO: per ara fem epsilon-greedy, canviar?
         if np.random.random() < epsilon:
             return int(self.action_space.sample())
         
-        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            q_values = self.q_net(state_tensor)
+            state = torch.as_tensor(state, dtype=torch.float32, device=self.device).view(1, -1)
+            q_values = self.q_net(state)
         
-        return int(q_values.argmax().item())
+        return int(q_values.argmax(dim=1).item())
 
     def train_step(self, batch: tuple[torch.Tensor, ...]) -> dict[str, float]:
         states, actions, rewards, next_states, dones = batch
@@ -68,13 +62,11 @@ class DQNAgent(BaseAgent):
             target_q = rewards + (1 - dones) * self.gamma * next_q
             
         loss = F.mse_loss(curr_q, target_q)
-        # Optimize
         self.optimizer.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(self.q_net.parameters(), 1.0)
         self.optimizer.step()
 
-        
         self.update_counter += 1
         self._update_target()
         
@@ -89,13 +81,15 @@ class DQNAgent(BaseAgent):
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
         torch.save({
-            'q_net_state_dict': self.q_net.state_dict(),
+            'q_net_state_dict': orig_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
         }, path)
 
     def load(self, path: str) -> None:
         checkpoint = torch.load(path, map_location=self.device)
-        self.q_net.load_state_dict(checkpoint['q_net_state_dict'])
+        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
+        orig_net.load_state_dict(checkpoint['q_net_state_dict'])
         self.target_net.load_state_dict(checkpoint['q_net_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
