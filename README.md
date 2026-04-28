@@ -62,11 +62,11 @@ python3 src/main.py
 ### 3. Benchmarking & Visualization
 For scientific evaluation across multiple seeds, use the benchmarking suite:
 
-#### Run Benchmark
+#### Run Experiment
 Runs automated trials for both DQN and QRDQN across multiple random seeds.
 ```bash
 export PYTHONPATH=$PYTHONPATH:$(pwd)/src
-python3 src/benchmark.py
+python3 src/experiment.py
 ```
 
 #### Generate Performance Plots
