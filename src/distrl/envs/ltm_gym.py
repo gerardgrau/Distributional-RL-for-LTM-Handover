@@ -105,6 +105,8 @@ class LTMEnv(gym.Env):
         # Global History for all 21 sectors (Circular Buffer - Karpathy Optimization)
         self.mcs_history = np.zeros((self.p_window, NBS))
         self.snir_history = np.zeros((self.p_window, NBS))
+        self.mcs_running_sum = np.zeros(NBS)
+        self.snir_running_sum = np.full(NBS, -100.0 * self.p_window) # Initial SNIR is -100
         self.history_count = 0
         
         self.ue_speeds = np.full(self.total_time, 10.0) 
@@ -129,9 +131,13 @@ class LTMEnv(gym.Env):
                 # Check if MCS > 0 in the pre-calculated matrix
                 if self.all_mcs_episode[best, self.t] > 0:
                     self.serving_sector = best
-                    # Initial state metrics for ALL sectors
-                    self.mcs_history[self.history_count % self.p_window] = self.all_mcs_episode[:, self.t]
-                    self.snir_history[self.history_count % self.p_window] = self.all_snir_episode[:, self.t]
+                    # Initial state metrics for ALL sectors (Maintain running sum)
+                    idx = self.history_count % self.p_window
+                    self.mcs_running_sum += self.all_mcs_episode[:, self.t] - self.mcs_history[idx]
+                    self.snir_running_sum += self.all_snir_episode[:, self.t] - self.snir_history[idx]
+                    
+                    self.mcs_history[idx] = self.all_mcs_episode[:, self.t]
+                    self.snir_history[idx] = self.all_snir_episode[:, self.t]
                     self.history_count += 1
             self.t += 1
             
@@ -152,11 +158,11 @@ class LTMEnv(gym.Env):
         # 3. Speed: Scale by 30 m/s
         norm_speed = self.ue_speeds[t] / 30.0
 
-        # Calculate Moving Average over ALL sectors (window size p) using circular buffer
+        # Calculate Moving Average over ALL sectors (window size p) using O(1) running sums
         if self.history_count > 0:
             count = min(self.history_count, self.p_window)
-            avg_mcs = np.mean(self.mcs_history[:count], axis=0)
-            avg_snir = np.mean(self.snir_history[:count], axis=0)
+            avg_mcs = self.mcs_running_sum / count
+            avg_snir = self.snir_running_sum / count
         else:
             avg_mcs = np.zeros(NBS)
             avg_snir = np.full(NBS, -100.0)
@@ -286,8 +292,12 @@ class LTMEnv(gym.Env):
                 break
             
             # 1. Update Oracle History (Zero cost - array slice)
-            self.mcs_history[self.history_count % self.p_window] = self.all_mcs_episode[:, self.t]
-            self.snir_history[self.history_count % self.p_window] = self.all_snir_episode[:, self.t]
+            idx = self.history_count % self.p_window
+            self.mcs_running_sum += self.all_mcs_episode[:, self.t] - self.mcs_history[idx]
+            self.snir_running_sum += self.all_snir_episode[:, self.t] - self.snir_history[idx]
+            
+            self.mcs_history[idx] = self.all_mcs_episode[:, self.t]
+            self.snir_history[idx] = self.all_snir_episode[:, self.t]
             self.history_count += 1
             
             # 2. Evaluate Serving Cell
