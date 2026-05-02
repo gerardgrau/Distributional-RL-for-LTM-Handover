@@ -52,6 +52,7 @@ class LTMEnv(gym.Env):
             self.ch_bs2ue = cache_data['ch_bs2ue']
             self.all_mcs_episode = cache_data['all_mcs_episode']
             self.all_snir_episode = cache_data['all_snir_episode']
+            self.all_pe_episode = cache_data['all_pe_episode']
             self.ue_positions = cache_data['ue_positions']
             self.pl3 = cache_data['pl3']
         else:
@@ -71,6 +72,10 @@ class LTMEnv(gym.Env):
             # Pre-calculate MCS and SNIR for ALL sectors across the entire episode.
             self.all_mcs_episode, self.all_snir_episode = VectorizedOracle(self.ch_bs2ue, System)
             
+            # --- KARPATHY OPTIMIZATION: Vectorized HOF ---
+            from src.distrl.envs.ltm_env import VectorizedHOF
+            self.all_pe_episode = VectorizedHOF(self.ch_bs2ue, System)
+            
             # Store real UE positions
             ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]
             self.ue_positions = np.stack([ue_pos_complex.real, ue_pos_complex.imag], axis=1)
@@ -87,6 +92,7 @@ class LTMEnv(gym.Env):
                 'ch_bs2ue': self.ch_bs2ue,
                 'all_mcs_episode': self.all_mcs_episode,
                 'all_snir_episode': self.all_snir_episode,
+                'all_pe_episode': self.all_pe_episode,
                 'ue_positions': self.ue_positions,
                 'pl3': self.pl3
             }
@@ -262,8 +268,9 @@ class LTMEnv(gym.Env):
         self.HOF_ind = 0.0
         
         if ho_occurred:
-            # Check for Handover Failure (HOF)
-            if CheckHO_Failure(action, self.ch_bs2ue[:, self.t], System):
+            # Check for Handover Failure (HOF) using pre-calculated Pe matrix
+            pe = self.all_pe_episode[action, self.t]
+            if np.random.rand() < pe:
                 self.HOF_ind = 1.0
                 self.serving_sector = -1 # Disconnected
                 return
