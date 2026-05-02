@@ -18,11 +18,17 @@ class Config:
     Static class to hold configuration.
     """
     _config: dict[str, Any] | None = None
+    _config_path: str = "config.yaml"
+
+    @classmethod
+    def set_config_path(cls, path: str) -> None:
+        cls._config_path = path
+        cls._config = None # Reset to force reload
 
     @classmethod
     def get(cls, key: str | None = None, default: Any = None) -> Any:
         if cls._config is None:
-            cls._config = load_config()
+            cls._config = load_config(cls._config_path)
         
         if key is None:
             return cls._config

@@ -40,11 +40,11 @@ class ReplayBuffer:
         """
         Adds a transition to the buffer.
         """
-        self.state[self.ptr] = state
-        self.action[self.ptr] = action
-        self.reward[self.ptr] = reward
-        self.next_state[self.ptr] = next_state
-        self.done[self.ptr] = float(done)
+        self.state[self.ptr] = torch.as_tensor(state, device=self.device)
+        self.action[self.ptr] = torch.as_tensor(action, device=self.device)
+        self.reward[self.ptr] = torch.as_tensor(reward, device=self.device)
+        self.next_state[self.ptr] = torch.as_tensor(next_state, device=self.device)
+        self.done[self.ptr] = torch.as_tensor(float(done), device=self.device)
 
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)

@@ -8,16 +8,20 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"
 from src.distrl.envs.ltm_gym import LTMEnv
 
 def run_simulation(env, steps):
-    state, _ = env.reset()
-    for _ in range(steps):
-        action = env.action_space.sample()
-        state, reward, done, _, _ = env.step(action)
-        if done:
-            state, _ = env.reset()
+    for i in range(10): # Reset 10 times to test caching
+        start_reset = time.time()
+        state, _ = env.reset()
+        print(f"Reset {i+1} took {time.time() - start_reset:.4f}s")
+        for _ in range(steps // 10):
+            action = env.action_space.sample()
+            state, reward, done, _, _ = env.step(action)
+            if done:
+                break
 
 def main():
     print("Initializing environment...")
-    env = LTMEnv()
+    config = {'simulation': {'ue_number': 2}}
+    env = LTMEnv(config=config)
     
     steps = 1000
     print(f"Running {steps} steps profiling...")

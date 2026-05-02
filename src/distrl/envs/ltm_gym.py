@@ -13,6 +13,10 @@ from src.distrl.envs.ltm_env import (
     ChannelDirectory, MCSEvaluation, CheckHO_Failure, VectorizedOracle
 )
 
+# Global Cache to store pre-calculated trajectory data (Karpathy Optimization)
+# Format: {ue_filename: {all_mcs: ..., all_snir: ..., pl3: ..., ue_positions: ..., total_time: ..., ch_bs2ue: ...}}
+_GLOBAL_UE_CACHE = {}
+
 class LTMEnv(gym.Env):
     """
     Gymnasium wrapper for the LTM Handover simulation.
@@ -28,7 +32,9 @@ class LTMEnv(gym.Env):
 
         
         # Load data paths
-        self.files = sorted(glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat")))
+        all_files = sorted(glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat")))
+        ue_count = self.config.get('simulation', {}).get('ue_number', len(all_files))
+        self.files = all_files[:ue_count]
         self.current_ue_idx = 0
 
 
@@ -36,32 +42,54 @@ class LTMEnv(gym.Env):
         super().reset(seed=seed)
         
         filename = self.files[self.current_ue_idx % len(self.files)]
-        mat_data = loadmat(filename)
-        raw_channel = mat_data['ChannelBS2UE'] 
         self.current_ue_idx += 1
         
-        self.total_time = raw_channel.shape[0]
-        self.ch_bs2ue = np.zeros((NBS, self.total_time))
-        idx = 0
-        for b in range(raw_channel.shape[1]):
-            for s in range(raw_channel.shape[2]):
-                self.ch_bs2ue[idx, :] = raw_channel[:, b, s]
-                idx += 1
-        
-        # --- KARPATHY OPTIMIZATION: Episode Pre-calculation ---
-        # We pre-calculate MCS and SNIR for ALL sectors across the entire episode.
-        # This turns the radio physics simulation into a simple matrix lookup.
-        self.all_mcs_episode, self.all_snir_episode = VectorizedOracle(self.ch_bs2ue, System)
-        
-        # Store real UE positions
-        ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]
-        self.ue_positions = np.stack([ue_pos_complex.real, ue_pos_complex.imag], axis=1)
-        
-        # Filters
-        M = int(np.ceil(HO["Prep"]["PeriodicityRSRPMeasurement"] / Time["TimeStep"]))
-        b = np.ones(HO["Prep"]["AverageRSRPMeasument_NL1"]) / HO["Prep"]["AverageRSRPMeasument_NL1"]
-        L1 = lfilter(b, 1, self.ch_bs2ue[:, ::M], axis=1)
-        self.pl3 = np.repeat(lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :self.total_time]
+        if filename in _GLOBAL_UE_CACHE:
+            print(f"DEBUG: Cache Hit for {os.path.basename(filename)}")
+            # --- KARPATHY OPTIMIZATION: Cache Hit (Zero-Cost Reset) ---
+            cache_data = _GLOBAL_UE_CACHE[filename]
+            self.total_time = cache_data['total_time']
+            self.ch_bs2ue = cache_data['ch_bs2ue']
+            self.all_mcs_episode = cache_data['all_mcs_episode']
+            self.all_snir_episode = cache_data['all_snir_episode']
+            self.ue_positions = cache_data['ue_positions']
+            self.pl3 = cache_data['pl3']
+        else:
+            print(f"DEBUG: Cache Miss for {os.path.basename(filename)}")
+            # --- KARPATHY OPTIMIZATION: Cache Miss (Calculate and Store) ---
+            mat_data = loadmat(filename)
+            raw_channel = mat_data['ChannelBS2UE'] 
+            
+            self.total_time = raw_channel.shape[0]
+            self.ch_bs2ue = np.zeros((NBS, self.total_time))
+            idx = 0
+            for b in range(raw_channel.shape[1]):
+                for s in range(raw_channel.shape[2]):
+                    self.ch_bs2ue[idx, :] = raw_channel[:, b, s]
+                    idx += 1
+            
+            # Pre-calculate MCS and SNIR for ALL sectors across the entire episode.
+            self.all_mcs_episode, self.all_snir_episode = VectorizedOracle(self.ch_bs2ue, System)
+            
+            # Store real UE positions
+            ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]
+            self.ue_positions = np.stack([ue_pos_complex.real, ue_pos_complex.imag], axis=1)
+            
+            # Filters
+            M = int(np.ceil(HO["Prep"]["PeriodicityRSRPMeasurement"] / Time["TimeStep"]))
+            b = np.ones(HO["Prep"]["AverageRSRPMeasument_NL1"]) / HO["Prep"]["AverageRSRPMeasument_NL1"]
+            L1 = lfilter(b, 1, self.ch_bs2ue[:, ::M], axis=1)
+            self.pl3 = np.repeat(lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :self.total_time]
+
+            # Cache the data for next time
+            _GLOBAL_UE_CACHE[filename] = {
+                'total_time': self.total_time,
+                'ch_bs2ue': self.ch_bs2ue,
+                'all_mcs_episode': self.all_mcs_episode,
+                'all_snir_episode': self.all_snir_episode,
+                'ue_positions': self.ue_positions,
+                'pl3': self.pl3
+            }
 
         # Initial State
         self.t = 0

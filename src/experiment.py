@@ -107,6 +107,12 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     return float(np.mean(rewards_history[-10:]))
 
 def run_benchmark():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
+    args = parser.parse_args()
+
+    Config.set_config_path(args.config)
     config = Config.get()
     bench_cfg = config['benchmark']
     agent_types = ["dqn", "qrdqn"]

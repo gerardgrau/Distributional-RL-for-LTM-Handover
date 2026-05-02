@@ -31,7 +31,10 @@ class DQNAgent(BaseAgent):
         
         self.q_net = torch.compile(UnifiedQNet(trunk, head).to(self.device))
         self.target_net = UnifiedQNet(trunk, head).to(self.device)
-        self.target_net.load_state_dict(self.q_net.state_dict())
+        
+        # Correctly load state_dict even if q_net is compiled
+        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
+        self.target_net.load_state_dict(orig_net.state_dict())
         self.target_net.eval()
 
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=float(config.get("lr", 1e-4)))
