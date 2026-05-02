@@ -10,7 +10,7 @@ import pandas as pd
 
 from src.distrl.envs.ltm_env import (
     System, Time, HO, BS, NBS, ReceiverSensitivity, 
-    ChannelDirectory, MCSEvaluation, CheckHO_Failure
+    ChannelDirectory, MCSEvaluation, CheckHO_Failure, VectorizedOracle
 )
 
 class LTMEnv(gym.Env):
@@ -48,6 +48,11 @@ class LTMEnv(gym.Env):
                 self.ch_bs2ue[idx, :] = raw_channel[:, b, s]
                 idx += 1
         
+        # --- KARPATHY OPTIMIZATION: Episode Pre-calculation ---
+        # We pre-calculate MCS and SNIR for ALL sectors across the entire episode.
+        # This turns the radio physics simulation into a simple matrix lookup.
+        self.all_mcs_episode, self.all_snir_episode = VectorizedOracle(self.ch_bs2ue, System)
+        
         # Store real UE positions
         ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]
         self.ue_positions = np.stack([ue_pos_complex.real, ue_pos_complex.imag], axis=1)
@@ -69,9 +74,10 @@ class LTMEnv(gym.Env):
         # Load Window Size (p) from config
         self.p_window = self.config.get('ho_state', {}).get('moving_average_window', 50)
         
-        # Global History for all 21 sectors
-        self.mcs_history = []  # List of arrays shape (21,)
-        self.snir_history = [] # List of arrays shape (21,)
+        # Global History for all 21 sectors (Circular Buffer - Karpathy Optimization)
+        self.mcs_history = np.zeros((self.p_window, NBS))
+        self.snir_history = np.zeros((self.p_window, NBS))
+        self.history_count = 0
         
         self.ue_speeds = np.full(self.total_time, 10.0) 
         traj_file = "data/SUMO_Network/fcd.pkl"
@@ -92,16 +98,13 @@ class LTMEnv(gym.Env):
             pbest = np.max(self.ch_bs2ue[:, self.t])
             best = np.argmax(self.ch_bs2ue[:, self.t])
             if pbest + System["TxPower"] > ReceiverSensitivity:
-                self.serving_sector = best
-                # Record initial state metrics for ALL sectors
-                all_mcs = np.zeros(NBS)
-                all_snir = np.zeros(NBS)
-                for i in range(NBS):
-                    m, _, _, s = MCSEvaluation(i, self.ch_bs2ue[:, self.t], System, self.sync.copy())
-                    all_mcs[i] = m
-                    all_snir[i] = s
-                self.mcs_history.append(all_mcs)
-                self.snir_history.append(all_snir)
+                # Check if MCS > 0 in the pre-calculated matrix
+                if self.all_mcs_episode[best, self.t] > 0:
+                    self.serving_sector = best
+                    # Initial state metrics for ALL sectors
+                    self.mcs_history[self.history_count % self.p_window] = self.all_mcs_episode[:, self.t]
+                    self.snir_history[self.history_count % self.p_window] = self.all_snir_episode[:, self.t]
+                    self.history_count += 1
             self.t += 1
             
         return self._get_obs(), {}
@@ -121,12 +124,11 @@ class LTMEnv(gym.Env):
         # 3. Speed: Scale by 30 m/s
         norm_speed = self.ue_speeds[t] / 30.0
 
-        # Calculate Moving Average over ALL sectors (window size p)
-        # Using tail of history list (each element is an array of size 21)
-        history_window = self.mcs_history[-self.p_window:]
-        if history_window:
-            avg_mcs = np.mean(np.array(history_window), axis=0)
-            avg_snir = np.mean(np.array(self.snir_history[-self.p_window:]), axis=0)
+        # Calculate Moving Average over ALL sectors (window size p) using circular buffer
+        if self.history_count > 0:
+            count = min(self.history_count, self.p_window)
+            avg_mcs = np.mean(self.mcs_history[:count], axis=0)
+            avg_snir = np.mean(self.snir_history[:count], axis=0)
         else:
             avg_mcs = np.zeros(NBS)
             avg_snir = np.full(NBS, -100.0)
@@ -160,11 +162,6 @@ class LTMEnv(gym.Env):
         """
         Perform 1 RL step (100ms of simulation).
         """
-        # HYBRID STRATEGY (RL for Handover, Baseline for Recovery):
-        # If the UE is disconnected, we ignore the RL agent's action and use the 
-        # standard 3GPP/Baseline greedy cell search (strongest RSRP).
-        # FUTURE WORK: This could be changed to let the model "learn" which 
-        # base station is best to reconnect to, rather than forcing greedy selection.
         if self.serving_sector == -1:
             # Baseline Recovery Strategy: Find strongest cell
             pbest = np.max(self.ch_bs2ue[:, self.t])
@@ -172,8 +169,8 @@ class LTMEnv(gym.Env):
             
             # If the strongest cell meets sensitivity, attempt connection
             if pbest + System["TxPower"] > ReceiverSensitivity:
-                m, _, _, _ = MCSEvaluation(best, self.ch_bs2ue[:, self.t], System, self.sync.copy())
-                if m > 0:
+                # Use pre-calculated MCS
+                if self.all_mcs_episode[best, self.t] > 0:
                     self.serving_sector = best
                     self.sync["out_sync_count"] = 0
                     self.sync["in_sync_count"] = 0
@@ -181,33 +178,47 @@ class LTMEnv(gym.Env):
                     self.sync["t310_counter"] = np.inf
                     self.serving_tenure = 0
                     
-            # Even if it reconnects this step, it was a "recovery" step, 
-            # so we set HO indicators to 0 and skip normal handover logic.
             self.HO_ind = 0.0
             self.PP_ind = 0.0
             self.HOF_ind = 0.0
         else:
-            # 1. Handle Handover/Mobility logic using the RL agent's action
             self._handle_handover_logic(action)
 
-        # 2. Simulate Radio Physics (10 samples = 100ms)
         r_thr, _ = self._simulate_radio_samples()
-
-        # 3. Calculate Multiplicative Reward
         reward = self._calculate_ltm_ho_reward(r_thr)
-        
-        # Episode ONLY ends at the end of the user trajectory (300s)
         done = self.t >= self.total_time - 1
 
         return self._get_obs(), float(reward), done, False, {}
+
+    def _update_sync(self, snir: float) -> bool:
+        """
+        Refactored Sync logic from MCSEvaluation to ensure 100% parity.
+        """
+        rlf = False
+        if snir <= 0:
+            self.sync["out_sync_count"] += 1
+            self.sync["in_sync_count"] = 0
+            if self.sync["out_sync_count"] >= self.sync["N310"] and not self.sync["t310_running"]:
+                self.sync["t310_running"] = True
+                self.sync["t310_counter"] = self.sync["T310"]
+
+        if snir > 2:
+            self.sync["in_sync_count"] += 1
+            self.sync["out_sync_count"] = 0
+            if self.sync["in_sync_count"] >= self.sync["N311"]:
+                self.sync["t310_running"] = False
+
+        if self.sync["t310_running"]:
+            self.sync["t310_counter"] -= 1
+            rlf = (self.sync["t310_counter"] == 0)
+        
+        return rlf
 
     def _handle_handover_logic(self, action: int) -> None:
         """
         Detects HO, HOF, and Ping-Pong events. Updates serving sector and tenure.
         """
         prev_serving = self.serving_sector
-        
-        # SCIENTIFIC FIX: A Handover (HO) only occurs if we were already connected (prev != -1)
         ho_occurred = (prev_serving != -1) and (action != prev_serving)
         
         self.prev_rsrp = self.pl3[:, min(self.t, self.total_time - 1)].copy()
@@ -234,13 +245,11 @@ class LTMEnv(gym.Env):
             self.serving_sector = action
             self.serving_tenure = 0
         else:
-            # Normal operation: staying with the same cell
             self.serving_tenure += 1
 
     def _simulate_radio_samples(self, step_duration: int = 10) -> tuple[float, bool]:
         """
-        Simulates background radio samples and returns average MCS for serving cell.
-        Also records Oracle metrics for all other sectors.
+        Simulates background radio samples using pre-calculated matrices.
         """
         mcs_sum = 0.0
         rlf_happened = False
@@ -248,28 +257,22 @@ class LTMEnv(gym.Env):
             if self.t >= self.total_time - 1:
                 break
             
-            # 1. Oracle Metrics for ALL sectors
-            all_mcs = np.zeros(NBS)
-            all_snir = np.zeros(NBS)
-            for i in range(NBS):
-                # We use a copy of sync to avoid corruptig the serving cell's stnate
-                m, _, _, s = MCSEvaluation(i, self.ch_bs2ue[:, self.t], System, self.sync.copy())
-                all_mcs[i] = m
-                all_snir[i] = s
+            # 1. Update Oracle History (Zero cost - array slice)
+            self.mcs_history[self.history_count % self.p_window] = self.all_mcs_episode[:, self.t]
+            self.snir_history[self.history_count % self.p_window] = self.all_snir_episode[:, self.t]
+            self.history_count += 1
             
-            self.mcs_history.append(all_mcs)
-            self.snir_history.append(all_snir)
-            
-            # 2. Evaluate Serving Cell specifically
+            # 2. Evaluate Serving Cell
             if self.serving_sector != -1:
-                m, rlf, self.sync, _ = MCSEvaluation(self.serving_sector, self.ch_bs2ue[:, self.t], System, self.sync)
+                m = self.all_mcs_episode[self.serving_sector, self.t]
+                s = self.all_snir_episode[self.serving_sector, self.t]
+                rlf = self._update_sync(s)
                 mcs_sum += float(m)
                 if rlf:
                     self.serving_sector = -1
                     rlf_happened = True
-                    # Simulation continues even on RLF!
             else:
-                mcs_sum += 0.0 # Disconnected
+                mcs_sum += 0.0
             
             self.t += 1
             
@@ -288,4 +291,6 @@ class LTMEnv(gym.Env):
         N_oos = self.sync["out_sync_count"]
         reliability_factor = 1.0 / (1 + np.exp(2 * (N_oos - 2)))
         
+        return r_thr * (ho_factor * pp_factor * hof_factor) * reliability_factor
+     
         return r_thr * (ho_factor * pp_factor * hof_factor) * reliability_factor

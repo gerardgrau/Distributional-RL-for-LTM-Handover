@@ -188,6 +188,67 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
     return MCS, RLF, Sync, SNIR
 
 
+def VectorizedOracle(channels, System):
+    """
+    Karpathy Optimization: Computes SNIR and MCS for all NBS sectors simultaneously.
+    Supports both 1D (NBS,) and 2D (NBS, T) inputs.
+    """
+    if channels.ndim == 1:
+        NBS = len(channels)
+        T = 1
+        channels_2d = channels.reshape(NBS, 1)
+    else:
+        NBS, T = channels.shape
+        channels_2d = channels
+
+    # 1. Powers and Interference
+    # TxPower is in dBm, channels is in dB. Summing them gives P in dBm.
+    # Ps = 10^((P_dBm)/10)
+    Ps = 10 ** ((channels_2d + System["TxPower"]) / 10.0) # (NBS, T)
+    
+    # Calculate group sums for reuse factor (3 groups: 0, 1, 2)
+    group_sums = np.zeros((3, T))
+    for g in range(3):
+        group_sums[g, :] = np.sum(Ps[g::3, :], axis=0)
+        
+    all_sectors = np.arange(NBS)
+    AllInter = group_sums[all_sectors % 3, :] - Ps # (NBS, T)
+
+    # 2. ICIC (Target power per time step)
+    sorted_indices = np.argsort(channels_2d, axis=0)
+    best_overall_idx = sorted_indices[-1, :]   # (T,)
+    second_best_overall_idx = sorted_indices[-2, :] # (T,)
+    
+    best_pwrs = channels_2d[best_overall_idx, np.arange(T)]
+    second_best_pwrs = channels_2d[second_best_overall_idx, np.arange(T)]
+    
+    # For each sector, the "target neighbor" is the strongest overall cell, 
+    # UNLESS that sector IS the strongest overall cell, then it's the second strongest.
+    target_pwrs = np.tile(best_pwrs, (NBS, 1))
+    target_pwrs[best_overall_idx, np.arange(T)] = second_best_pwrs
+    
+    serving_pwrs = channels_2d
+    # ho_margin_db = 10 * log10(serving / target)
+    ho_margin_db = 10 * np.log10(np.abs(serving_pwrs / (target_pwrs + 1e-15)))
+    icic_active = ho_margin_db < 7.0
+    
+    noise_floor = 10**(System["NoiseLevel"] / 10.0)
+    reduction_factor = 0.1
+    inter_noise = np.where(icic_active, 
+                           (AllInter * reduction_factor) + noise_floor, 
+                           AllInter + noise_floor)
+                           
+    SNIR = 10 * np.log10(Ps + 1e-15) - 10 * np.log10(inter_noise + 1e-15)
+    
+    # 3. MCS Vectorized Mapping
+    idx = np.searchsorted(System["SINRThreshold"], SNIR, side='right') - 1
+    idx = np.clip(idx, 0, len(System["SpectralEff"]) - 1)
+    MCS = System["SpectralEff"][idx]
+    
+    if channels.ndim == 1:
+        return MCS.flatten(), SNIR.flatten()
+    return MCS, SNIR
+
 def CheckHO_Failure(serving_sector, channels, System):
     BLER = np.array([
         1, 0.2617, 0.2370, 0.2103, 0.1828, 0.1558, 0.1302, 0.1067, 0.0859,
