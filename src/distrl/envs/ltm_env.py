@@ -216,7 +216,7 @@ def _calculate_snir_matrix(channels_2d: np.ndarray, System: dict[str, Any]) -> n
     target_pwrs[best_overall_idx, np.arange(T)] = second_best_pwrs
     
     # ICIC reduction (0.1 = -10dB) triggered if neighbor is within 7dB
-    ho_margin_db = 10 * np.log10(np.abs(channels_2d / (target_pwrs + 1e-15)))
+    ho_margin_db = 10 * np.log10(channels_2d / (target_pwrs + 1e-15))
     icic_active = ho_margin_db < 7.0
     
     noise_floor = 10**(System["NoiseLevel"] / 10.0)

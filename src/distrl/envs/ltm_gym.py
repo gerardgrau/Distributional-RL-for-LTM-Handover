@@ -89,7 +89,7 @@ class LTMEnv(gym.Env):
                 _GLOBAL_UE_CACHE[filename] = {
                     'total_time': self.total_time,
                     'ch_bs2ue': self.ch_bs2ue.astype(np.float32),
-                    'all_mcs_episode': self.all_mcs_episode.astype(np.int8),
+                    'all_mcs_episode': self.all_mcs_episode.astype(np.float32),
                     'all_snir_episode': self.all_snir_episode.astype(np.float32),
                     'all_pe_episode': self.all_pe_episode.astype(np.float32),
                     'ue_positions': self.ue_positions.astype(np.float32),
