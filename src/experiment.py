@@ -33,8 +33,9 @@ class CSVLogger:
             writer.writerow(row)
 
 def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment_dir: str, 
-             run_idx: int, total_runs: int, bench_start_time: float, save_results: bool = True) -> float:
-    print(f"  -> Starting Run {run_idx+1}/{total_runs}: {agent_type} (Seed {seed})...")
+             run_idx: int, total_runs: int, bench_start_time: float, 
+             device: str = "cpu", save_results: bool = True) -> float:
+    print(f"  -> Starting Run {run_idx+1}/{total_runs}: {agent_type} (Seed {seed}) on {device}...")
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -45,7 +46,6 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         env = gym.make(env_name)
     
     agent_config = config['agent']
-    device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else "cpu"
     
     if agent_type.lower() == "dqn":
         agent = DQNAgent(agent_config, env.observation_space, env.action_space, device=device)
@@ -114,6 +114,7 @@ def run_benchmark():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
     parser.add_argument("--no_save", action="store_true", help="Do not save any results, logs, or plots")
+    parser.add_argument("--device", type=str, default="cpu", help="Execution device (cpu, cuda, xpu)")
     args = parser.parse_args()
 
     Config.set_config_path(args.config)
@@ -145,7 +146,8 @@ def run_benchmark():
         for s in range(bench_cfg['num_seeds']):
             seed = 42 + s
             final_reward = run_seed(agent_type, bench_cfg['env_type'], seed, config, experiment_dir,
-                                    run_idx, total_runs, bench_start_time, save_results=not args.no_save)
+                                    run_idx, total_runs, bench_start_time, 
+                                    device=args.device, save_results=not args.no_save)
             run_idx += 1
             if final_reward > best_reward:
                 best_reward = final_reward
@@ -189,6 +191,17 @@ def run_benchmark():
         plot_learning_curves(csv_dir, save_path=os.path.join(fig_dir, "learning_curves.png"))
         plot_efficiency(csv_dir, metric="reward", save_path=os.path.join(fig_dir, "reward_vs_time.png"))
         plot_efficiency(csv_dir, metric="loss", save_path=os.path.join(fig_dir, "loss_vs_time.png"))
+
+        import json
+        metadata = {
+            "timestamp": timestamp,
+            "total_execution_time_seconds": time.time() - bench_start_time,
+            "device": args.device,
+            "config": config
+        }
+        with open(os.path.join(experiment_dir, "metadata.json"), "w") as f:
+            json.dump(metadata, f, indent=4)
+
         print(f"\nBenchmark completed. All artifacts saved in {experiment_dir}")
     else:
         print("\nProfiling run completed. No artifacts saved.")
