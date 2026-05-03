@@ -162,21 +162,23 @@ def run_benchmark():
             # We need to reload the best agent to sample a state
             env = LTMEnv(config=config)
             agent = QRDQNAgent(config['agent'], env.observation_space, env.action_space)
-            if not args.no_save:
-                agent.load(best_dst)
-            
+
+            # Determine path to best model and skip plotting in profiling/no-save runs
+            best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
+            if args.no_save or not os.path.exists(best_dst):
+                env.close()
+                continue
+
+            agent.load(best_dst)
+
             state, _ = env.reset()
             # Sample a few steps to get a meaningful state
             for _ in range(50):
                 state, _, d, _, _ = env.step(agent.select_action(state, 0))
                 if d: break
-            
-            if not args.no_save:
-                q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
-                plot_quantiles(agent, state, save_path=q_save_path)
-            else:
-                # Still run plot function to profile it, but with no save path
-                plot_quantiles(agent, state, save_path=None)
+
+            q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
+            plot_quantiles(agent, state, save_path=q_save_path)
             env.close()
 
     if not args.no_save:

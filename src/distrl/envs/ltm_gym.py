@@ -83,16 +83,18 @@ class LTMEnv(gym.Env):
             L1 = lfilter(b, 1, self.ch_bs2ue[:, ::M], axis=1)
             self.pl3 = np.repeat(lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :self.total_time]
 
-            # Cache the data for next time
-            _GLOBAL_UE_CACHE[filename] = {
-                'total_time': self.total_time,
-                'ch_bs2ue': self.ch_bs2ue,
-                'all_mcs_episode': self.all_mcs_episode,
-                'all_snir_episode': self.all_snir_episode,
-                'all_pe_episode': self.all_pe_episode,
-                'ue_positions': self.ue_positions,
-                'pl3': self.pl3
-            }
+            # --- MEMORY OPTIMIZATION: Cache casting ---
+            # limit cache to 500 UEs to prevent OOM
+            if len(_GLOBAL_UE_CACHE) < 500:
+                _GLOBAL_UE_CACHE[filename] = {
+                    'total_time': self.total_time,
+                    'ch_bs2ue': self.ch_bs2ue.astype(np.float32),
+                    'all_mcs_episode': self.all_mcs_episode.astype(np.int8),
+                    'all_snir_episode': self.all_snir_episode.astype(np.float32),
+                    'all_pe_episode': self.all_pe_episode.astype(np.float32),
+                    'ue_positions': self.ue_positions.astype(np.float32),
+                    'pl3': self.pl3.astype(np.float32)
+                }
 
         # Initial State
         self.t = 0
@@ -109,7 +111,7 @@ class LTMEnv(gym.Env):
         self.mcs_history = np.zeros((self.p_window, NBS))
         self.snir_history = np.zeros((self.p_window, NBS))
         self.mcs_running_sum = np.zeros(NBS)
-        self.snir_running_sum = np.full(NBS, -100.0 * self.p_window) # Initial SNIR is -100
+        self.snir_running_sum = np.zeros(NBS)
         self.history_count = 0
         
         self.ue_speeds = np.full(self.total_time, 10.0) 
@@ -135,16 +137,23 @@ class LTMEnv(gym.Env):
                 if self.all_mcs_episode[best, self.t] > 0:
                     self.serving_sector = best
                     # Initial state metrics for ALL sectors (Maintain running sum)
-                    idx = self.history_count % self.p_window
-                    self.mcs_running_sum += self.all_mcs_episode[:, self.t] - self.mcs_history[idx]
-                    self.snir_running_sum += self.all_snir_episode[:, self.t] - self.snir_history[idx]
-                    
-                    self.mcs_history[idx] = self.all_mcs_episode[:, self.t]
-                    self.snir_history[idx] = self.all_snir_episode[:, self.t]
-                    self.history_count += 1
+                    self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
             self.t += 1
             
         return self._get_obs(), {}
+
+    def _update_oracle_history(self, mcs_values: np.ndarray, snir_values: np.ndarray) -> None:
+        idx = self.history_count % self.p_window
+
+        if self.history_count >= self.p_window:
+            self.mcs_running_sum -= self.mcs_history[idx]
+            self.snir_running_sum -= self.snir_history[idx]
+
+        self.mcs_history[idx] = mcs_values
+        self.snir_history[idx] = snir_values
+        self.mcs_running_sum += mcs_values
+        self.snir_running_sum += snir_values
+        self.history_count += 1
 
 
     def _get_obs(self) -> np.ndarray:
@@ -293,18 +302,13 @@ class LTMEnv(gym.Env):
         """
         mcs_sum = 0.0
         rlf_happened = False
+        samples_count = 0
         for _ in range(step_duration):
             if self.t >= self.total_time - 1:
                 break
             
             # 1. Update Oracle History (Zero cost - array slice)
-            idx = self.history_count % self.p_window
-            self.mcs_running_sum += self.all_mcs_episode[:, self.t] - self.mcs_history[idx]
-            self.snir_running_sum += self.all_snir_episode[:, self.t] - self.snir_history[idx]
-            
-            self.mcs_history[idx] = self.all_mcs_episode[:, self.t]
-            self.snir_history[idx] = self.all_snir_episode[:, self.t]
-            self.history_count += 1
+            self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
             
             # 2. Evaluate Serving Cell
             if self.serving_sector != -1:
@@ -319,8 +323,10 @@ class LTMEnv(gym.Env):
                 mcs_sum += 0.0
             
             self.t += 1
+            samples_count += 1
             
-        return mcs_sum / step_duration, rlf_happened
+        avg_mcs = mcs_sum / samples_count if samples_count > 0 else 0.0
+        return avg_mcs, rlf_happened
 
     def _calculate_ltm_ho_reward(self, r_thr: float) -> float:
         """

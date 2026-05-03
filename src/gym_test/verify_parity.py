@@ -8,7 +8,9 @@ from src.distrl.envs.ltm_env import (
 )
 
 def get_hof_prob(serving_sector, channels, System):
-    # This is a copy of the logic inside CheckHO_Failure but returning Pe instead of rand < Pe
+    """
+    Simplified reference implementation of HOF probability math for parity checking VectorizedHOF.
+    """
     BLER = np.array([
         1, 0.2617, 0.2370, 0.2103, 0.1828, 0.1558, 0.1302, 0.1067, 0.0859,
         0.0678, 0.0526, 0.0401, 0.0301, 0.0221, 0.0160, 0.0114, 0.0080,
