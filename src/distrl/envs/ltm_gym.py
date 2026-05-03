@@ -10,10 +10,10 @@ import pandas as pd
 
 from src.distrl.envs.ltm_env import (
     System, Time, HO, BS, NBS, ReceiverSensitivity, 
-    ChannelDirectory, MCSEvaluation, CheckHO_Failure, VectorizedOracle
+    ChannelDirectory, VectorizedOracle, VectorizedHOF
 )
 
-# Global Cache to store pre-calculated trajectory data (Karpathy Optimization)
+# Global Cache to store pre-calculated trajectory data (Performance Optimization)
 # Format: {ue_filename: {all_mcs: ..., all_snir: ..., pl3: ..., ue_positions: ..., total_time: ..., ch_bs2ue: ...}}
 _GLOBAL_UE_CACHE = {}
 
@@ -45,8 +45,7 @@ class LTMEnv(gym.Env):
         self.current_ue_idx += 1
         
         if filename in _GLOBAL_UE_CACHE:
-            print(f"DEBUG: Cache Hit for {os.path.basename(filename)}")
-            # --- KARPATHY OPTIMIZATION: Cache Hit (Zero-Cost Reset) ---
+            # --- PERFORMANCE OPTIMIZATION: Cache Hit (Zero-Cost Reset) ---
             cache_data = _GLOBAL_UE_CACHE[filename]
             self.total_time = cache_data['total_time']
             self.ch_bs2ue = cache_data['ch_bs2ue']
@@ -56,8 +55,7 @@ class LTMEnv(gym.Env):
             self.ue_positions = cache_data['ue_positions']
             self.pl3 = cache_data['pl3']
         else:
-            print(f"DEBUG: Cache Miss for {os.path.basename(filename)}")
-            # --- KARPATHY OPTIMIZATION: Cache Miss (Calculate and Store) ---
+            # --- PERFORMANCE OPTIMIZATION: Cache Miss (Calculate and Store) ---
             mat_data = loadmat(filename)
             raw_channel = mat_data['ChannelBS2UE'] 
             
@@ -72,7 +70,7 @@ class LTMEnv(gym.Env):
             # Pre-calculate MCS and SNIR for ALL sectors across the entire episode.
             self.all_mcs_episode, self.all_snir_episode = VectorizedOracle(self.ch_bs2ue, System)
             
-            # --- KARPATHY OPTIMIZATION: Vectorized HOF ---
+            # --- PERFORMANCE OPTIMIZATION: Vectorized HOF ---
             from src.distrl.envs.ltm_env import VectorizedHOF
             self.all_pe_episode = VectorizedHOF(self.ch_bs2ue, System)
             
@@ -108,7 +106,7 @@ class LTMEnv(gym.Env):
         # Load Window Size (p) from config
         self.p_window = self.config.get('ho_state', {}).get('moving_average_window', 50)
         
-        # Global History for all 21 sectors (Circular Buffer - Karpathy Optimization)
+        # Global History for all 21 sectors (Circular Buffer - Performance Optimization)
         self.mcs_history = np.zeros((self.p_window, NBS))
         self.snir_history = np.zeros((self.p_window, NBS))
         self.mcs_running_sum = np.zeros(NBS)
@@ -232,27 +230,29 @@ class LTMEnv(gym.Env):
 
     def _update_sync(self, snir: float) -> bool:
         """
-        Refactored Sync logic from MCSEvaluation to ensure 100% parity.
+        Maintains the 3GPP synchronization state machine (N310/N311/T310).
+        Ensures 100% logic parity with the original simulation.
         """
-        rlf = False
+        sync = self.sync
         if snir <= 0:
-            self.sync["out_sync_count"] += 1
-            self.sync["in_sync_count"] = 0
-            if self.sync["out_sync_count"] >= self.sync["N310"] and not self.sync["t310_running"]:
-                self.sync["t310_running"] = True
-                self.sync["t310_counter"] = self.sync["T310"]
+            sync["out_sync_count"] += 1
+            sync["in_sync_count"] = 0
+            if sync["out_sync_count"] >= sync["N310"] and not sync["t310_running"]:
+                sync["t310_running"] = True
+                sync["t310_counter"] = sync["T310"]
 
-        if snir > 2:
-            self.sync["in_sync_count"] += 1
-            self.sync["out_sync_count"] = 0
-            if self.sync["in_sync_count"] >= self.sync["N311"]:
-                self.sync["t310_running"] = False
+        elif snir > 2:
+            sync["in_sync_count"] += 1
+            sync["out_sync_count"] = 0
+            if sync["in_sync_count"] >= sync["N311"]:
+                sync["t310_running"] = False
 
-        if self.sync["t310_running"]:
-            self.sync["t310_counter"] -= 1
-            rlf = (self.sync["t310_counter"] == 0)
+        if sync["t310_running"]:
+            sync["t310_counter"] -= 1
+            if sync["t310_counter"] == 0:
+                return True
         
-        return rlf
+        return False
 
     def _handle_handover_logic(self, action: int) -> None:
         """
