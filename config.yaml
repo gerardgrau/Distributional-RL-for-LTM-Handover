@@ -8,7 +8,7 @@ system:
 simulation:
   total_sim_time: 300         # seconds (Aligned with CMAP paper)
   time_step: 0.01             # 10 ms (10e-3)
-  ue_number: 5                # Reduced for quick testing
+  ue_number: 1000             # Increased to full dataset for 500-ep run
   bs_number: 7                # Set to 7 for hexagonal cells
 
 agent:

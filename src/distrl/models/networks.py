@@ -51,11 +51,11 @@ class QuantileHead(nn.Module):
         self.fc = nn.Linear(input_dim, action_dim * num_quantiles)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size = x.size(0)
         # Output shape: [batch_size, action_dim * num_quantiles]
         quantiles = self.fc(x)
         # Reshape to: [batch_size, action_dim, num_quantiles]
-        return quantiles.view(batch_size, self.action_dim, self.num_quantiles)
+        # Use -1 for batch dimension to avoid graph breaks in torch.compile
+        return quantiles.view(-1, self.action_dim, self.num_quantiles)
 
 class UnifiedQNet(nn.Module):
     """
