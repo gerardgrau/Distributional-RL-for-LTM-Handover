@@ -71,7 +71,6 @@ class LTMEnv(gym.Env):
             self.all_mcs_episode, self.all_snir_episode = VectorizedOracle(self.ch_bs2ue, System)
             
             # --- PERFORMANCE OPTIMIZATION: Vectorized HOF ---
-            from src.distrl.envs.ltm_env import VectorizedHOF
             self.all_pe_episode = VectorizedHOF(self.ch_bs2ue, System)
             
             # Store real UE positions
@@ -336,6 +335,4 @@ class LTMEnv(gym.Env):
         N_oos = self.sync["out_sync_count"]
         reliability_factor = 1.0 / (1 + np.exp(2 * (N_oos - 2)))
         
-        return r_thr * (ho_factor * pp_factor * hof_factor) * reliability_factor
-     
         return r_thr * (ho_factor * pp_factor * hof_factor) * reliability_factor
