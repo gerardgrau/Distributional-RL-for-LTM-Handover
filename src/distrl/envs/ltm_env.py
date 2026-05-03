@@ -3,6 +3,7 @@ from scipy.io import loadmat
 from scipy.signal import lfilter
 import os
 import glob
+from typing import Any
 
 ChannelDirectory = "data/ChannelGains"
 
@@ -187,6 +188,100 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
 
     return MCS, RLF, Sync, SNIR
 
+
+def _calculate_snir_matrix(channels_2d: np.ndarray, System: dict[str, Any]) -> np.ndarray:
+    """
+    Private helper to compute the (NBS, T) SNIR matrix using vectorized ICIC logic.
+    """
+    NBS, T = channels_2d.shape
+    
+    # 1. Powers and Interference (Reuse-3)
+    Ps = 10 ** ((channels_2d + System["TxPower"]) / 10.0)
+    group_sums = np.zeros((3, T))
+    for g in range(3):
+        group_sums[g, :] = np.sum(Ps[g::3, :], axis=0)
+        
+    all_sectors = np.arange(NBS)
+    AllInter = group_sums[all_sectors % 3, :] - Ps
+
+    # 2. ICIC (Neighbor detection and power reduction)
+    sorted_indices = np.argsort(channels_2d, axis=0)
+    best_overall_idx = sorted_indices[-1, :]
+    second_best_overall_idx = sorted_indices[-2, :]
+    
+    best_pwrs = channels_2d[best_overall_idx, np.arange(T)]
+    second_best_pwrs = channels_2d[second_best_overall_idx, np.arange(T)]
+    
+    target_pwrs = np.tile(best_pwrs, (NBS, 1))
+    target_pwrs[best_overall_idx, np.arange(T)] = second_best_pwrs
+    
+    # ICIC reduction (0.1 = -10dB) triggered if neighbor is within 7dB
+    ho_margin_db = 10 * np.log10(channels_2d / (target_pwrs + 1e-15))
+    icic_active = ho_margin_db < 7.0
+    
+    noise_floor = 10**(System["NoiseLevel"] / 10.0)
+    reduction_factor = 0.1
+    inter_noise = np.where(icic_active, 
+                           (AllInter * reduction_factor) + noise_floor, 
+                           AllInter + noise_floor)
+                           
+    return 10 * np.log10(Ps + 1e-15) - 10 * np.log10(inter_noise + 1e-15)
+
+def VectorizedOracle(channels: np.ndarray, System: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Computes SNIR and MCS for all NBS sectors simultaneously.
+    """
+    input_ndim = channels.ndim
+    if input_ndim == 1:
+        channels_2d = channels.reshape(-1, 1)
+    else:
+        channels_2d = channels
+
+    SNIR = _calculate_snir_matrix(channels_2d, System)
+    
+    # MCS Vectorized Mapping
+    idx = np.searchsorted(System["SINRThreshold"], SNIR, side='right') - 1
+    idx = np.clip(idx, 0, len(System["SpectralEff"]) - 1)
+    MCS = System["SpectralEff"][idx]
+    
+    if input_ndim == 1:
+        return MCS.flatten(), SNIR.flatten()
+    return MCS, SNIR
+
+def VectorizedHOF(channels: np.ndarray, System: dict[str, Any]) -> np.ndarray:
+    """
+    Computes Handover Failure Probability (Pe) for all NBS sectors simultaneously.
+    """
+    input_ndim = channels.ndim
+    if input_ndim == 1:
+        channels_2d = channels.reshape(-1, 1)
+    else:
+        channels_2d = channels
+
+    BLER = np.array([
+        1, 0.2617, 0.2370, 0.2103, 0.1828, 0.1558, 0.1302, 0.1067, 0.0859,
+        0.0678, 0.0526, 0.0401, 0.0301, 0.0221, 0.0160, 0.0114, 0.0080,
+        0.0056, 0.0038, 0.0025, 0.0017, 0.0011, 0.0007, 0.0004, 0.0003,
+        0.0002, 0.0001
+    ])
+
+    SNR_level = np.array([
+        -np.inf, -1.7609, -1.6609, -1.5609, -1.4609, -1.3609, -1.2609,
+        -1.1609, -1.0609, -0.9609, -0.8609, -0.7609, -0.6609, -0.5609,
+        -0.4609, -0.3609, -0.2609, -0.1609, -0.0609, 0.0391, 0.1391,
+        0.2391, 0.3391, 0.4391, 0.5391, 0.6391, 0.7391
+    ])
+
+    SNIR = _calculate_snir_matrix(channels_2d, System)
+    
+    # BLER Mapping (Pe)
+    idx = np.searchsorted(SNR_level, SNIR, side='right') - 1
+    idx = np.clip(idx, 0, len(BLER) - 1)
+    Pe = BLER[idx]
+    
+    if input_ndim == 1:
+        return Pe.flatten()
+    return Pe
 
 def CheckHO_Failure(serving_sector, channels, System):
     BLER = np.array([

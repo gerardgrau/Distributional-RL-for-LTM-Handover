@@ -35,7 +35,10 @@ class QRDQNAgent(BaseAgent):
         
         self.q_net = torch.compile(UnifiedQNet(trunk, head).to(self.device))
         self.target_net = UnifiedQNet(trunk, head).to(self.device)
-        self.target_net.load_state_dict(self.q_net.state_dict())
+        
+        # Correctly load state_dict even if q_net is compiled
+        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
+        self.target_net.load_state_dict(orig_net.state_dict())
         self.target_net.eval()
 
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=float(config.get("lr", 1e-4)))
@@ -106,7 +109,8 @@ class QRDQNAgent(BaseAgent):
             for target_param, q_param in zip(self.target_net.parameters(), self.q_net.parameters()):
                 target_param.data.copy_(self.tau * q_param.data + (1.0 - self.tau) * target_param.data)
         elif self.update_counter % self.target_update_freq == 0:
-            self.target_net.load_state_dict(self.q_net.state_dict())
+            orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
+            self.target_net.load_state_dict(orig_net.state_dict())
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)

@@ -33,7 +33,7 @@ class CSVLogger:
             writer.writerow(row)
 
 def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment_dir: str, 
-             run_idx: int, total_runs: int, bench_start_time: float) -> float:
+             run_idx: int, total_runs: int, bench_start_time: float, save_results: bool = True) -> float:
     print(f"  -> Starting Run {run_idx+1}/{total_runs}: {agent_type} (Seed {seed})...")
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -55,9 +55,10 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
     
     # Save CSV logs in experiment_dir/output/
-    log_file = os.path.join(experiment_dir, "output", f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
-    headers = ["episode", "reward", "loss", "steps", "wall_time"]
-    logger = CSVLogger(log_file, headers)
+    if save_results:
+        log_file = os.path.join(experiment_dir, "output", f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
+        headers = ["episode", "reward", "loss", "steps", "wall_time"]
+        logger = CSVLogger(log_file, headers)
     
     num_episodes = agent_config.get('num_episodes', 20)
     epsilon = agent_config.get('epsilon_start', 1.0)
@@ -86,7 +87,8 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         
         epsilon = max(eps_end, epsilon * eps_mult)
         avg_loss = np.mean(episode_loss) if episode_loss else 0.0
-        logger.log([ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time])
+        if save_results:
+            logger.log([ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time])
         rewards_history.append(episode_reward)
         
         if (ep+1) % 100 == 0 or (ep+1 <= 50 and (ep+1) % 10 == 0):
@@ -100,13 +102,21 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             print(f"    Run {run_idx+1}/{total_runs} | Ep {ep+1}/{num_episodes} | Avg Reward: {np.mean(rewards_history[-10:]):.2f} | Time: {total_elapsed:.1f}s | ETA: {eta_str}")
 
     # SAVE MODEL FOR THIS SEED in experiment_dir/models/
-    model_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
-    os.makedirs(os.path.dirname(model_path), exist_ok=True)
-    agent.save(model_path)
+    if save_results:
+        model_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        agent.save(model_path)
     env.close()
     return float(np.mean(rewards_history[-10:]))
 
 def run_benchmark():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
+    parser.add_argument("--no_save", action="store_true", help="Do not save any results, logs, or plots")
+    args = parser.parse_args()
+
+    Config.set_config_path(args.config)
     config = Config.get()
     bench_cfg = config['benchmark']
     agent_types = ["dqn", "qrdqn"]
@@ -114,12 +124,14 @@ def run_benchmark():
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     experiment_dir = os.path.join(bench_cfg['results_dir'], f"benchmark_{timestamp}")
     
-    # Pre-create subdirectories
-    os.makedirs(os.path.join(experiment_dir, "output"), exist_ok=True)
-    os.makedirs(os.path.join(experiment_dir, "models"), exist_ok=True)
-    os.makedirs(os.path.join(experiment_dir, "figures"), exist_ok=True)
-    
-    print(f"=== Starting Independent Benchmark: {experiment_dir} ===")
+    if not args.no_save:
+        # Pre-create subdirectories
+        os.makedirs(os.path.join(experiment_dir, "output"), exist_ok=True)
+        os.makedirs(os.path.join(experiment_dir, "models"), exist_ok=True)
+        os.makedirs(os.path.join(experiment_dir, "figures"), exist_ok=True)
+        print(f"=== Starting Independent Benchmark: {experiment_dir} ===")
+    else:
+        print("=== Starting Profiling Run (No artifacts will be saved) ===")
     
     bench_start_time = time.time()
     total_runs = len(agent_types) * bench_cfg['num_seeds']
@@ -133,15 +145,16 @@ def run_benchmark():
         for s in range(bench_cfg['num_seeds']):
             seed = 42 + s
             final_reward = run_seed(agent_type, bench_cfg['env_type'], seed, config, experiment_dir,
-                                    run_idx, total_runs, bench_start_time)
+                                    run_idx, total_runs, bench_start_time, save_results=not args.no_save)
             run_idx += 1
             if final_reward > best_reward:
                 best_reward = final_reward
                 best_seed_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
         
-        # Save "Best" for this specific run in models/
-        best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
-        shutil.copy(best_seed_path, best_dst)
+        if not args.no_save:
+            # Save "Best" for this specific run in models/
+            best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
+            shutil.copy(best_seed_path, best_dst)
 
         # Generate Quantile Plot if it's QRDQN
         if agent_type.lower() == "qrdqn":
@@ -149,26 +162,36 @@ def run_benchmark():
             # We need to reload the best agent to sample a state
             env = LTMEnv(config=config)
             agent = QRDQNAgent(config['agent'], env.observation_space, env.action_space)
+
+            # Determine path to best model and skip plotting in profiling/no-save runs
+            best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
+            if args.no_save or not os.path.exists(best_dst):
+                env.close()
+                continue
+
             agent.load(best_dst)
+
             state, _ = env.reset()
             # Sample a few steps to get a meaningful state
             for _ in range(50):
                 state, _, d, _, _ = env.step(agent.select_action(state, 0))
                 if d: break
-            
+
             q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
             plot_quantiles(agent, state, save_path=q_save_path)
             env.close()
 
-    # AUTO-PLOT in figures/
-    print("\nGenerating performance plots...")
-    fig_dir = os.path.join(experiment_dir, "figures")
-    csv_dir = os.path.join(experiment_dir, "output")
-    plot_learning_curves(csv_dir, save_path=os.path.join(fig_dir, "learning_curves.png"))
-    plot_efficiency(csv_dir, metric="reward", save_path=os.path.join(fig_dir, "reward_vs_time.png"))
-    plot_efficiency(csv_dir, metric="loss", save_path=os.path.join(fig_dir, "loss_vs_time.png"))
-
-    print(f"\nBenchmark completed. All artifacts saved in {experiment_dir}")
+    if not args.no_save:
+        # AUTO-PLOT in figures/
+        print("\nGenerating performance plots...")
+        fig_dir = os.path.join(experiment_dir, "figures")
+        csv_dir = os.path.join(experiment_dir, "output")
+        plot_learning_curves(csv_dir, save_path=os.path.join(fig_dir, "learning_curves.png"))
+        plot_efficiency(csv_dir, metric="reward", save_path=os.path.join(fig_dir, "reward_vs_time.png"))
+        plot_efficiency(csv_dir, metric="loss", save_path=os.path.join(fig_dir, "loss_vs_time.png"))
+        print(f"\nBenchmark completed. All artifacts saved in {experiment_dir}")
+    else:
+        print("\nProfiling run completed. No artifacts saved.")
 
 if __name__ == "__main__":
     run_benchmark()
