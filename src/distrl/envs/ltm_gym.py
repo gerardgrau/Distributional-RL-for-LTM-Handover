@@ -84,8 +84,8 @@ class LTMEnv(gym.Env):
             self.pl3 = np.repeat(lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :self.total_time]
 
             # --- MEMORY OPTIMIZATION: Cache casting ---
-            # limit cache to 500 UEs to prevent OOM
-            if len(_GLOBAL_UE_CACHE) < 500:
+            # limit cache to 1000 UEs to prevent OOM
+            if len(_GLOBAL_UE_CACHE) < 1000:
                 _GLOBAL_UE_CACHE[filename] = {
                     'total_time': self.total_time,
                     'ch_bs2ue': self.ch_bs2ue.astype(np.float32),

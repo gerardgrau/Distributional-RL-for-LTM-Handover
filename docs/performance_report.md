@@ -10,6 +10,7 @@ Through a series of advanced performance optimizations, the `LTMEnv` was acceler
 4.  **Global UE Caching:** Implemented in-RAM caching of pre-calculated matrices to make subsequent episode resets instantaneous (~0.1ms).
 5.  **O(1) Observations:** Converted moving average calculations to running sums, removing `np.mean` from the observation loop.
 6.  **Vectorized HOF:** Pre-calculated Handover Failure probabilities for all potential actions and time steps.
+7.  **Expanded Global Cache:** Increased cache limit to **1,000 users** (~10.9 GB total) to fully utilize 32GB RAM environments.
 
 ## 2. Hardware Benchmarking (CPU vs. XPU)
 Benchmarking was performed on an Intel Laptop with Integrated Graphics (iGPU) using `src/experiment.py` logic.
