@@ -17,6 +17,7 @@ from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
 from src.distrl.utils.replay_buffer import ReplayBuffer
 from src.distrl.utils.plot import plot_learning_curves, plot_efficiency, plot_quantiles
+from src.distrl.utils.metrics import calculate_8_metrics
 
 class CSVLogger:
     def __init__(self, filepath: str, headers: list[str]):
@@ -57,7 +58,9 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     # Save CSV logs in experiment_dir/output/
     if save_results:
         log_file = os.path.join(experiment_dir, "output", f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
-        headers = ["episode", "reward", "loss", "steps", "wall_time"]
+        headers = ["episode", "reward", "loss", "steps", "wall_time", 
+                   "capacity", "rlf_rate", "ho_rate", "pp_rate", 
+                   "reliability", "prep_rate", "res_reservation", "hof_rate"]
         logger = CSVLogger(log_file, headers)
     
     num_episodes = agent_config.get('num_episodes', 20)
@@ -70,25 +73,52 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     rewards_history = []
     
     for ep in range(num_episodes):
+        print(f"      DEBUG: Episode {ep+1} started")
         state, _ = env.reset(seed=seed)
         episode_reward = 0
         episode_loss = []
         done = False
+        last_info = {}
         
         while not done:
             action = agent.select_action(state, epsilon)
-            next_state, reward, done, _, _ = env.step(action)
+            next_state, reward, done, _, info = env.step(action)
             buffer.push(state, action, reward, next_state, done)
             state = next_state
             episode_reward += reward
             if len(buffer) > batch_size:
                 metrics = agent.train_step(buffer.sample(batch_size, device=device))
                 episode_loss.append(metrics['loss'])
+            if done:
+                last_info = info
+        
+        print(f"      DEBUG: Episode {ep+1} finished simulation")
+        # Calculate LTM metrics at end of episode
+        metrics_8 = calculate_8_metrics(
+            mcs_history=last_info["metrics"]["mcs"],
+            rlf_history=last_info["metrics"]["rlf"],
+            ho_history=last_info["metrics"]["ho"],
+            hof_history=last_info["metrics"]["hof"],
+            pp_history=last_info["metrics"]["pp"],
+            serving_history=last_info["metrics"]["serving"],
+            pl3_history=last_info["metrics"]["pl3"],
+            config=config
+        )
         
         epsilon = max(eps_end, epsilon * eps_mult)
         avg_loss = np.mean(episode_loss) if episode_loss else 0.0
         if save_results:
-            logger.log([ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time])
+            logger.log([
+                ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time,
+                metrics_8["capacity_avg"],
+                metrics_8["rlf_rate"],
+                metrics_8["ho_rate"],
+                metrics_8["pp_rate"],
+                metrics_8["reliability_pct"],
+                metrics_8["prep_rate"],
+                metrics_8["res_reservation_pct"],
+                metrics_8["hof_rate"]
+            ])
         rewards_history.append(episode_reward)
         
         if (ep+1) % 100 == 0 or (ep+1 <= 50 and (ep+1) % 10 == 0):
@@ -160,28 +190,27 @@ def run_benchmark():
 
         # Generate Quantile Plot if it's QRDQN
         if agent_type.lower() == "qrdqn":
-            print(f"  -> Generating distributional insight plot for {agent_type}...")
-            # We need to reload the best agent to sample a state
-            env = LTMEnv(config=config)
-            agent = QRDQNAgent(config['agent'], env.observation_space, env.action_space)
+            if not args.no_save:
+                print(f"  -> Generating distributional insight plot for {agent_type}...")
+                # We need to reload the best agent to sample a state
+                env = LTMEnv(config=config)
+                agent = QRDQNAgent(config['agent'], env.observation_space, env.action_space)
 
-            # Determine path to best model and skip plotting in profiling/no-save runs
-            best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
-            if args.no_save or not os.path.exists(best_dst):
+                # Determine path to best model
+                best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
+                if os.path.exists(best_dst):
+                    agent.load(best_dst)
+
+                    state, _ = env.reset()
+                    # Sample a few steps to get a meaningful state
+                    for _ in range(50):
+                        state, _, d, _, _ = env.step(agent.select_action(state, 0))
+                        if d: break
+
+                    q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
+                    plot_quantiles(agent, state, save_path=q_save_path)
+                
                 env.close()
-                continue
-
-            agent.load(best_dst)
-
-            state, _ = env.reset()
-            # Sample a few steps to get a meaningful state
-            for _ in range(50):
-                state, _, d, _, _ = env.step(agent.select_action(state, 0))
-                if d: break
-
-            q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
-            plot_quantiles(agent, state, save_path=q_save_path)
-            env.close()
 
     if not args.no_save:
         # AUTO-PLOT in figures/
