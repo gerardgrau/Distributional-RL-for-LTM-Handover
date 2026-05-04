@@ -5,8 +5,8 @@ system:
   receiver_sensitivity: -95
 
 simulation:
-  total_sim_time: 5
-  time_step: 0.1             # Larger time step for fewer iterations
+  total_sim_time: 1
+  time_step: 0.1
   ue_number: 1
   bs_number: 7
 

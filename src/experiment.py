@@ -73,7 +73,6 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     rewards_history = []
     
     for ep in range(num_episodes):
-        print(f"      DEBUG: Episode {ep+1} started")
         state, _ = env.reset(seed=seed)
         episode_reward = 0
         episode_loss = []
@@ -92,7 +91,6 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             if done:
                 last_info = info
         
-        print(f"      DEBUG: Episode {ep+1} finished simulation")
         # Calculate LTM metrics at end of episode
         metrics_8 = calculate_8_metrics(
             mcs_history=last_info["metrics"]["mcs"],

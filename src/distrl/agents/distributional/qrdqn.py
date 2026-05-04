@@ -31,12 +31,9 @@ class QRDQNAgent(BaseAgent):
         trunk = MLPTrunk(input_dim, config.get("hidden_dims", [128, 128]))
         head = QuantileHead(trunk.output_dim, action_dim, self.num_quantiles)
         
-        self.q_net = torch.compile(UnifiedQNet(trunk, head).to(self.device))
+        self.q_net = UnifiedQNet(trunk, head).to(self.device)
         self.target_net = UnifiedQNet(trunk, head).to(self.device)
-        
-        # Correctly load state_dict even if q_net is compiled
-        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
-        self.target_net.load_state_dict(orig_net.state_dict())
+        self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=float(config.get("lr", 1e-4)))
@@ -47,7 +44,6 @@ class QRDQNAgent(BaseAgent):
         self.update_counter = 0
 
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
-        # TODO: per ara fem epsilon-greedy, canviar?
         if np.random.rand() < epsilon:
             return int(self.action_space.sample())
         
@@ -56,7 +52,6 @@ class QRDQNAgent(BaseAgent):
             # [1, action_dim, num_quantiles]
             quantiles = self.q_net(state_t)
             # q_values = mean across quantiles: [1, action_dim]
-            # TODO: provar amb la mitja dels X quantils més petits
             q_values = quantiles.mean(dim=2)
             return int(q_values.argmax(dim=1).item())
 
@@ -83,11 +78,10 @@ class QRDQNAgent(BaseAgent):
         # [batch_size, action_dim, num_quantiles]
         current_all_quantiles = self.q_net(states)
         # [batch_size, num_quantiles]
+        # actions is (batch_size, 1), squeeze to (batch_size,) for indexing
         current_quantiles = current_all_quantiles[range(batch_size), actions.squeeze(1)]
 
         # 3. Compute Quantile Huber Loss
-        # target_quantiles: [batch_size, num_quantiles] -> [batch_size, 1, num_quantiles]
-        # current_quantiles: [batch_size, num_quantiles] -> [batch_size, num_quantiles, 1]
         # Pairwise differences: [batch_size, num_quantiles (current), num_quantiles (target)]
         diff = target_quantiles.unsqueeze(1) - current_quantiles.unsqueeze(2)
         
@@ -118,20 +112,17 @@ class QRDQNAgent(BaseAgent):
             for target_param, q_param in zip(self.target_net.parameters(), self.q_net.parameters()):
                 target_param.data.copy_(self.tau * q_param.data + (1.0 - self.tau) * target_param.data)
         elif self.update_counter % self.target_update_freq == 0:
-            orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
-            self.target_net.load_state_dict(orig_net.state_dict())
+            self.target_net.load_state_dict(self.q_net.state_dict())
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
         torch.save({
-            'q_net_state_dict': orig_net.state_dict(),
+            'q_net_state_dict': self.q_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
         }, path)
 
     def load(self, path: str) -> None:
         checkpoint = torch.load(path, map_location=self.device)
-        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
-        orig_net.load_state_dict(checkpoint['q_net_state_dict'])
+        self.q_net.load_state_dict(checkpoint['q_net_state_dict'])
         self.target_net.load_state_dict(checkpoint['q_net_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

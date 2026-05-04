@@ -40,11 +40,13 @@ class LTMEnv(gym.Env):
 
     def reset(self, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
+        print("DEBUG: LTMEnv.reset() entering")
         
         filename = self.files[self.current_ue_idx % len(self.files)]
         self.current_ue_idx += 1
         
         if filename in _GLOBAL_UE_CACHE:
+            print(f"DEBUG: Cache Hit for {os.path.basename(filename)}")
             # --- PERFORMANCE OPTIMIZATION: Cache Hit (Zero-Cost Reset) ---
             cache_data = _GLOBAL_UE_CACHE[filename]
             self.total_time = cache_data['total_time']
@@ -55,6 +57,7 @@ class LTMEnv(gym.Env):
             self.ue_positions = cache_data['ue_positions']
             self.pl3 = cache_data['pl3']
         else:
+            print(f"DEBUG: Cache Miss for {os.path.basename(filename)}")
             # --- PERFORMANCE OPTIMIZATION: Cache Miss (Calculate and Store) ---
             mat_data = loadmat(filename)
             raw_channel = mat_data['ChannelBS2UE'] 
@@ -137,6 +140,7 @@ class LTMEnv(gym.Env):
         self.metrics_pp = np.zeros(self.total_time)
         self.metrics_serving = np.full(self.total_time, -1, dtype=int)
 
+        print(f"DEBUG: reset() entering connection loop (total_time={self.total_time})")
         while self.serving_sector == -1 and self.t < self.total_time:
             pbest = np.max(self.ch_bs2ue[:, self.t])
             best = np.argmax(self.ch_bs2ue[:, self.t])
@@ -149,7 +153,10 @@ class LTMEnv(gym.Env):
                     # Initial state metrics for ALL sectors (Maintain running sum)
                     self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
             self.t += 1
+            if self.t % 10000 == 0:
+                print(f"DEBUG: reset() loop t={self.t}")
             
+        print("DEBUG: LTMEnv.reset() exiting")
         return self._get_obs(), {}
 
     def _update_oracle_history(self, mcs_values: np.ndarray, snir_values: np.ndarray) -> None:

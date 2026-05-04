@@ -28,12 +28,9 @@ class DQNAgent(BaseAgent):
         trunk = MLPTrunk(input_dim, config.get("hidden_dims", [128, 128]))
         head = QHead(trunk.output_dim, action_dim)
         
-        self.q_net = torch.compile(UnifiedQNet(trunk, head).to(self.device))
+        self.q_net = UnifiedQNet(trunk, head).to(self.device)
         self.target_net = UnifiedQNet(trunk, head).to(self.device)
-        
-        # Correctly load state_dict even if q_net is compiled
-        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
-        self.target_net.load_state_dict(orig_net.state_dict())
+        self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=float(config.get("lr", 1e-4)))
@@ -44,7 +41,6 @@ class DQNAgent(BaseAgent):
         self.update_counter = 0
 
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
-        # TODO: per ara fem epsilon-greedy, canviar?
         if np.random.rand() < epsilon:
             return int(self.action_space.sample())
         
@@ -59,7 +55,6 @@ class DQNAgent(BaseAgent):
         # Squeeze tensors for standard Q-learning (target/prediction should be [batch_size])
         rewards = rewards.squeeze(1)
         dones = dones.squeeze(1)
-        actions = actions # Keep as [batch_size, 1] for gather
 
         # Compute Target Q-values
         with torch.no_grad():
@@ -86,20 +81,17 @@ class DQNAgent(BaseAgent):
             for target_param, q_param in zip(self.target_net.parameters(), self.q_net.parameters()):
                 target_param.data.copy_(self.tau * q_param.data + (1.0 - self.tau) * target_param.data)
         elif self.update_counter % self.target_update_freq == 0:
-            orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
-            self.target_net.load_state_dict(orig_net.state_dict())
+            self.target_net.load_state_dict(self.q_net.state_dict())
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
         torch.save({
-            'q_net_state_dict': orig_net.state_dict(),
+            'q_net_state_dict': self.q_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
         }, path)
 
     def load(self, path: str) -> None:
         checkpoint = torch.load(path, map_location=self.device)
-        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
-        orig_net.load_state_dict(checkpoint['q_net_state_dict'])
+        self.q_net.load_state_dict(checkpoint['q_net_state_dict'])
         self.target_net.load_state_dict(checkpoint['q_net_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
