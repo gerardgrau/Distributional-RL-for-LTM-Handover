@@ -55,6 +55,11 @@ class DQNAgent(BaseAgent):
 
     def train_step(self, batch: tuple[torch.Tensor, ...]) -> dict[str, float]:
         states, actions, rewards, next_states, dones = batch
+        
+        # Squeeze tensors for standard Q-learning (target/prediction should be [batch_size])
+        rewards = rewards.squeeze(1)
+        dones = dones.squeeze(1)
+        actions = actions # Keep as [batch_size, 1] for gather
 
         # Compute Target Q-values
         with torch.no_grad():
@@ -63,7 +68,7 @@ class DQNAgent(BaseAgent):
             target_q_values = rewards + (1 - dones) * self.gamma * max_next_q_values
 
         # Compute Current Q-values
-        current_q_values = self.q_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+        current_q_values = self.q_net(states).gather(1, actions).squeeze(1)
 
         # Loss and Optimization
         loss = F.mse_loss(current_q_values, target_q_values)

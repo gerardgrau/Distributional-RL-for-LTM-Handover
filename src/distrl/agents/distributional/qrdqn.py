@@ -76,15 +76,18 @@ class QRDQNAgent(BaseAgent):
             best_next_quantiles = next_quantiles[range(batch_size), best_next_actions]
             
             # T_theta = r + gamma * theta_next
-            target_quantiles = rewards.unsqueeze(1) + (1 - dones.unsqueeze(1)) * self.gamma * best_next_quantiles
+            # rewards/dones are [batch_size, 1], broadcast over [batch_size, num_quantiles]
+            target_quantiles = rewards + (1 - dones) * self.gamma * best_next_quantiles
 
         # 2. Compute current quantiles
         # [batch_size, action_dim, num_quantiles]
         current_all_quantiles = self.q_net(states)
         # [batch_size, num_quantiles]
-        current_quantiles = current_all_quantiles[range(batch_size), actions]
+        current_quantiles = current_all_quantiles[range(batch_size), actions.squeeze(1)]
 
         # 3. Compute Quantile Huber Loss
+        # target_quantiles: [batch_size, num_quantiles] -> [batch_size, 1, num_quantiles]
+        # current_quantiles: [batch_size, num_quantiles] -> [batch_size, num_quantiles, 1]
         # Pairwise differences: [batch_size, num_quantiles (current), num_quantiles (target)]
         diff = target_quantiles.unsqueeze(1) - current_quantiles.unsqueeze(2)
         
