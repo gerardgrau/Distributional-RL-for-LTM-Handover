@@ -9,7 +9,9 @@ def test_qrdqn_select():
     act_space = gym.spaces.Discrete(21)
     config = {
         'hidden_dims': [128, 128],
-        'num_quantiles': 50
+        'num_quantiles': 50,
+        'risk_type': 'cvar',
+        'risk_fraction': 0.2
     }
     agent = QRDQNAgent(config, obs_space, act_space, device="cpu")
     obs = obs_space.sample()

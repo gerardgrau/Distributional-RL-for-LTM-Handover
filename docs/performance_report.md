@@ -25,5 +25,17 @@ Benchmarking was performed on an Intel Laptop with Integrated Graphics (iGPU) us
 *   **Small Model Overhead:** The neural networks are relatively small (128x128 MLPs). The overhead of copying tensors to the iGPU memory space every step (Observation -> GPU, Action -> CPU) outweighs the parallel processing benefits.
 *   **Vectorization Sympathy:** NumPy is highly optimized for CPU SIMD (AVX-512/AVX2). Since the environment is now purely NumPy-based, it stays in the CPU cache, avoiding the PCIE/Bus bottleneck.
 
-### Recommendation:
-For iterative research and benchmarking on this laptop, **always use CPU mode**.
+## 3. torch.compile Analysis
+We performed a comparison between standard Eager Execution and `torch.compile` (Inductor backend) on CPU.
+
+| Mode | Total Execution Time | Impact |
+| :--- | :--- | :--- |
+| **Standard (Eager)** | 197s | Baseline |
+| **torch.compile** | 218s | **~10% Slower** |
+
+### Findings:
+1.  **Compilation Overhead**: For small MLP models (128x128), the initial JIT compilation time (~2-4 mins) far exceeds any execution speedup.
+2.  **Incompatibility**: `torch.compile` triggered multiple `Backend compiler exceptions` and graph breaks in the distributional (QRDQN) head due to symbolic inference limits on CPU.
+3.  **Stability**: Eager mode is 100% stable and provides immediate startup.
+
+**Conclusion**: `torch.compile` has been disabled in the production agents.

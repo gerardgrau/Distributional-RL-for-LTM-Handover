@@ -27,6 +27,8 @@ class QRDQNAgent(BaseAgent):
         
         self.num_quantiles = int(config.get("num_quantiles", 50))
         self.kappa = float(config.get("kappa", 1.0)) # Huber loss threshold
+        self.risk_type = config.get("risk_type", "mean") # "mean" or "cvar"
+        self.risk_fraction = float(config.get("risk_fraction", 0.1)) # For CVaR, bottom k
         
         trunk = MLPTrunk(input_dim, config.get("hidden_dims", [128, 128]))
         head = QuantileHead(trunk.output_dim, action_dim, self.num_quantiles)
@@ -51,8 +53,13 @@ class QRDQNAgent(BaseAgent):
         with torch.no_grad():
             # [1, action_dim, num_quantiles]
             quantiles = self.q_net(state_t)
-            # q_values = mean across quantiles: [1, action_dim]
-            q_values = quantiles.mean(dim=2)
+            
+            if self.risk_type == "cvar":
+                k = max(1, int(self.num_quantiles * self.risk_fraction))
+                q_values = quantiles[:, :, :k].mean(dim=2)
+            else:
+                q_values = quantiles.mean(dim=2)
+                
             return int(q_values.argmax(dim=1).item())
 
     def train_step(self, batch: tuple[torch.Tensor, ...]) -> dict[str, float]:
@@ -63,26 +70,31 @@ class QRDQNAgent(BaseAgent):
         with torch.no_grad():
             # [batch_size, action_dim, num_quantiles]
             next_quantiles = self.target_net(next_states)
-            # Select best action using mean: [batch_size, action_dim]
-            next_q_values = next_quantiles.mean(dim=2)
+            
+            # Select best action
+            if self.risk_type == "cvar":
+                k = max(1, int(self.num_quantiles * self.risk_fraction))
+                next_q_values = next_quantiles[:, :, :k].mean(dim=2)
+            else:
+                next_q_values = next_quantiles.mean(dim=2)
+                
             best_next_actions = next_q_values.argmax(dim=1) # [batch_size]
             
             # Extract quantiles for best actions: [batch_size, num_quantiles]
             best_next_quantiles = next_quantiles[range(batch_size), best_next_actions]
             
             # T_theta = r + gamma * theta_next
-            # rewards/dones are [batch_size, 1], broadcast over [batch_size, num_quantiles]
             target_quantiles = rewards + (1 - dones) * self.gamma * best_next_quantiles
 
         # 2. Compute current quantiles
         # [batch_size, action_dim, num_quantiles]
         current_all_quantiles = self.q_net(states)
         # [batch_size, num_quantiles]
-        # actions is (batch_size, 1), squeeze to (batch_size,) for indexing
         current_quantiles = current_all_quantiles[range(batch_size), actions.squeeze(1)]
 
         # 3. Compute Quantile Huber Loss
-        # Pairwise differences: [batch_size, num_quantiles (current), num_quantiles (target)]
+        # target_quantiles: [batch_size, num_quantiles]
+        # current_quantiles: [batch_size, num_quantiles]
         diff = target_quantiles.unsqueeze(1) - current_quantiles.unsqueeze(2)
         
         # Huber loss
@@ -93,7 +105,6 @@ class QRDQNAgent(BaseAgent):
         
         # Quantile weights
         tau = torch.arange(0.5 / self.num_quantiles, 1, 1 / self.num_quantiles, device=self.device)
-        # weight = |tau - I(diff < 0)|
         weight = torch.abs(tau.unsqueeze(1) - (diff.detach() < 0).float())
         
         loss = (weight * huber_loss).mean()
