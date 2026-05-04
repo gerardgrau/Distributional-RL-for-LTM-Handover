@@ -11,10 +11,8 @@ from src.distrl.models.networks import MLPTrunk, QuantileHead, UnifiedQNet
 
 class QRDQNAgent(BaseAgent):
     """
-    Quantile Regression DQN (QR-DQN) Agent.
-    Models the return distribution using a fixed set of quantiles.
+    Quantile Regression DQN Agent.
     """
-
     def __init__(
         self, 
         config: dict[str, Any], 
@@ -33,9 +31,12 @@ class QRDQNAgent(BaseAgent):
         trunk = MLPTrunk(input_dim, config.get("hidden_dims", [128, 128]))
         head = QuantileHead(trunk.output_dim, action_dim, self.num_quantiles)
         
-        self.q_net = UnifiedQNet(trunk, head).to(self.device)
+        self.q_net = torch.compile(UnifiedQNet(trunk, head).to(self.device))
         self.target_net = UnifiedQNet(trunk, head).to(self.device)
-        self.target_net.load_state_dict(self.q_net.state_dict())
+        
+        # Correctly load state_dict even if q_net is compiled
+        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
+        self.target_net.load_state_dict(orig_net.state_dict())
         self.target_net.eval()
 
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=float(config.get("lr", 1e-4)))
@@ -44,79 +45,90 @@ class QRDQNAgent(BaseAgent):
         self.tau = float(config.get("tau", 0.005))
         self.target_update_freq = int(config.get("target_update_freq", 1000))
         self.update_counter = 0
-        
-        self.cumulative_probabilities = torch.arange(
-            0.5, self.num_quantiles, 1.0, device=self.device
-        ) / self.num_quantiles
 
-    def select_action(self, state: np.ndarray | torch.Tensor, epsilon: float = 0.0) -> int:
+    def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
         # TODO: per ara fem epsilon-greedy, canviar?
-        if np.random.random() < epsilon:
+        if np.random.rand() < epsilon:
             return int(self.action_space.sample())
         
+        state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            state = torch.as_tensor(state, dtype=torch.float32, device=self.device).view(1, -1)
-            quantiles = self.q_net(state)
-            q_values = quantiles.mean(dim=2)
+            # [1, action_dim, num_quantiles]
+            quantiles = self.q_net(state_t)
+            # q_values = mean across quantiles: [1, action_dim]
             # TODO: provar amb la mitja dels X quantils més petits
-        
-        return int(q_values.argmax(dim=1).item())
+            q_values = quantiles.mean(dim=2)
+            return int(q_values.argmax(dim=1).item())
 
     def train_step(self, batch: tuple[torch.Tensor, ...]) -> dict[str, float]:
         states, actions, rewards, next_states, dones = batch
         batch_size = states.size(0)
 
-        # 1. Current Quantiles
-        curr_quantiles = self.q_net(states)
-        curr_quantiles = curr_quantiles.gather(
-            1, actions.long().unsqueeze(-1).expand(batch_size, 1, self.num_quantiles)
-        ).squeeze(1) 
-
-        # 2. Target Quantiles
+        # 1. Compute target quantiles
         with torch.no_grad():
-            next_quantiles = self.target_net(next_states) 
-            next_actions = next_quantiles.mean(dim=2).argmax(dim=1, keepdim=True) 
-            next_quantiles = next_quantiles.gather(
-                1, next_actions.unsqueeze(-1).expand(batch_size, 1, self.num_quantiles)
-            ).squeeze(1) 
-            target_quantiles = rewards + (1 - dones) * self.gamma * next_quantiles 
+            # [batch_size, action_dim, num_quantiles]
+            next_quantiles = self.target_net(next_states)
+            # Select best action using mean: [batch_size, action_dim]
+            next_q_values = next_quantiles.mean(dim=2)
+            best_next_actions = next_q_values.argmax(dim=1) # [batch_size]
+            
+            # Extract quantiles for best actions: [batch_size, num_quantiles]
+            best_next_quantiles = next_quantiles[range(batch_size), best_next_actions]
+            
+            # T_theta = r + gamma * theta_next
+            target_quantiles = rewards.unsqueeze(1) + (1 - dones.unsqueeze(1)) * self.gamma * best_next_quantiles
 
-        # 3. Quantile Huber Loss
-        diff = target_quantiles.unsqueeze(2) - curr_quantiles.unsqueeze(1)
+        # 2. Compute current quantiles
+        # [batch_size, action_dim, num_quantiles]
+        current_all_quantiles = self.q_net(states)
+        # [batch_size, num_quantiles]
+        current_quantiles = current_all_quantiles[range(batch_size), actions]
+
+        # 3. Compute Quantile Huber Loss
+        # Pairwise differences: [batch_size, num_quantiles (current), num_quantiles (target)]
+        diff = target_quantiles.unsqueeze(1) - current_quantiles.unsqueeze(2)
+        
+        # Huber loss
         abs_diff = diff.abs()
-        huber_loss = torch.where(abs_diff <= self.kappa, 0.5 * diff.pow(2), self.kappa * (abs_diff - 0.5 * self.kappa))
-        tau = self.cumulative_probabilities.view(1, 1, -1)
-        weight = torch.abs(tau - (diff.detach() < 0).float())
+        huber_loss = torch.where(abs_diff <= self.kappa, 
+                                 0.5 * diff.pow(2), 
+                                 self.kappa * (abs_diff - 0.5 * self.kappa))
+        
+        # Quantile weights
+        tau = torch.arange(0.5 / self.num_quantiles, 1, 1 / self.num_quantiles, device=self.device)
+        # weight = |tau - I(diff < 0)|
+        weight = torch.abs(tau.unsqueeze(1) - (diff.detach() < 0).float())
+        
         loss = (weight * huber_loss).mean()
 
-        # 4. Optimize
         self.optimizer.zero_grad()
         loss.backward()
-        nn.utils.clip_grad_norm_(self.q_net.parameters(), 1.0)
         self.optimizer.step()
 
-        # 5. Update Target
         self.update_counter += 1
         self._update_target()
 
-        return {"loss": loss.item(), "mean_q": curr_quantiles.mean().item()}
+        return {"loss": float(loss.item())}
 
     def _update_target(self) -> None:
         if self.tau < 1.0:
             for target_param, q_param in zip(self.target_net.parameters(), self.q_net.parameters()):
                 target_param.data.copy_(self.tau * q_param.data + (1.0 - self.tau) * target_param.data)
         elif self.update_counter % self.target_update_freq == 0:
-            self.target_net.load_state_dict(self.q_net.state_dict())
+            orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
+            self.target_net.load_state_dict(orig_net.state_dict())
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
         torch.save({
-            'q_net_state_dict': self.q_net.state_dict(),
+            'q_net_state_dict': orig_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
         }, path)
 
     def load(self, path: str) -> None:
         checkpoint = torch.load(path, map_location=self.device)
-        self.q_net.load_state_dict(checkpoint['q_net_state_dict'])
+        orig_net = self.q_net._orig_mod if hasattr(self.q_net, "_orig_mod") else self.q_net
+        orig_net.load_state_dict(checkpoint['q_net_state_dict'])
         self.target_net.load_state_dict(checkpoint['q_net_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
