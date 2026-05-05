@@ -22,7 +22,33 @@ Optimize the handover process across conflicting metrics:
 *   **Cost Efficiency:** Minimize unnecessary resource reservations and ping-pong effects.
 
 ### 4. Risk-Aware Strategies
-Leverage the "Distributional" aspect of the agents to implement risk-aware policies (e.g., using CVaR or CPW) that prioritize network stability during critical mobility events.
+Leverage the "Distributional" aspect of the agents to implement risk-aware policies (e.g., using **Conditional Value-at-Risk (CVaR)**) that prioritize network stability during critical mobility events.
+
+---
+
+## 🔬 Research Methodology & Features
+
+### 1. Performance-Optimized Environment
+The LTM simulator has been heavily optimized for research-scale iterations:
+*   **Vectorized Radio Physics**: Replaced scalar loops with parallel NumPy matrix math.
+*   **Global Trajectory Caching**: In-RAM caching of 1,000 UE radio paths for zero-cost resets.
+*   **Speed**: Runs at **~5,200 steps/s**, providing a **23x speedup** over the original procedural code.
+
+### 2. Formal Evaluation Protocol
+To ensure scientific rigor, the project enforces a formal evaluation cycle:
+*   **Train/Test Split**: Trajectories are split 80/20. The agent only trains on a subset and is tested on unseen users.
+*   **Automated Post-Training Eval**: At the end of training, the model is automatically frozen (epsilon=0) and evaluated on the hold-out set to measure generalization.
+
+### 3. Comprehensive Metric Suite
+The framework evaluates agents across **8 scientific metrics**:
+*   **Capacity**: Average spectral efficiency (MCS).
+*   **RLF Rate**: Radio Link Failures per minute.
+*   **HO Rate**: Successful handovers per minute.
+*   **PP Rate**: Ping-Pong events per minute.
+*   **Reliability**: % of time spent in-service.
+*   **Prep Rate**: Signaling overhead (cell preparations) per minute.
+*   **Resource Reservation**: % of system resources held by the UE.
+*   **HOF Rate**: Handover Failures per minute.
 
 ---
 
@@ -40,7 +66,7 @@ The project is organized as a modular Python package to ensure scalability and c
 - `data/`: Data storage for simulation artifacts.
     - `ChannelGains/`: Storage for generated channel gain datasets.
 - `conductor/`: Local project management and planning (untracked).
-- `config.yaml`: Global configuration file for hyperparameters and simulation settings.
+- `configs/config.yaml`: Global configuration file for hyperparameters and simulation settings.
 
 ---
 

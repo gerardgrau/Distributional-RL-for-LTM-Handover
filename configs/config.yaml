@@ -10,6 +10,7 @@ simulation:
   time_step: 0.01             # 10 ms (10e-3)
   ue_number: 1000             # Increased to full dataset for 500-ep run
   bs_number: 7                # Set to 7 for hexagonal cells
+  train_split: 0.8            # 80% for training, 20% for unseen evaluation
 
 agent:
   type: "dqn"                 # "dqn" or "qrdqn"

@@ -5,6 +5,7 @@ import sys
 import time
 import csv
 import shutil
+import pandas as pd
 from datetime import datetime
 from typing import Any
 
@@ -32,6 +33,62 @@ class CSVLogger:
         with open(self.filepath, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(row)
+
+def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: str, seed: int, device: str, save_results: bool = True) -> dict[str, float]:
+    """
+    Evaluates the frozen agent on unseen trajectories (Eval Set).
+    """
+    print(f"    -> Starting Formal Evaluation Phase (Seed {seed})...")
+    eval_env = LTMEnv(config=config, mode="eval")
+    num_eval_episodes = len(eval_env.files)
+    
+    if num_eval_episodes == 0:
+        print("    -> Skipping Evaluation: No unseen trajectories in test split.")
+        eval_env.close()
+        return {}
+
+    all_eval_metrics = []
+    
+    for ep in range(num_eval_episodes):
+        state, _ = eval_env.reset()
+        done = False
+        last_info = {}
+        
+        while not done:
+            # Pure greedy selection
+            action = agent.select_action(state, epsilon=0.0)
+            state, reward, done, _, info = eval_env.step(action)
+            if done:
+                last_info = info
+                
+        # Calculate 8 metrics for this unseen user
+        m8 = calculate_8_metrics(
+            mcs_history=last_info["metrics"]["mcs"],
+            rlf_history=last_info["metrics"]["rlf"],
+            ho_history=last_info["metrics"]["ho"],
+            hof_history=last_info["metrics"]["hof"],
+            pp_history=last_info["metrics"]["pp"],
+            serving_history=last_info["metrics"]["serving"],
+            pl3_history=last_info["metrics"]["pl3"],
+            config=config
+        )
+        all_eval_metrics.append(m8)
+        
+    eval_env.close()
+    
+    # Aggregate results
+    df = pd.DataFrame(all_eval_metrics)
+    summary = df.mean().to_dict()
+    
+    # Save to JSON
+    if save_results:
+        import json
+        eval_file = os.path.join(experiment_dir, "output", f"{agent_type}_eval_seed{seed}.json")
+        with open(eval_file, 'w') as f:
+            json.dump(summary, f, indent=4)
+        
+    print(f"    -> Evaluation Complete. HO Rate: {summary['ho_rate']:.2f}, Reliability: {summary['reliability_pct']:.2f}%")
+    return summary
 
 def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment_dir: str, 
              run_idx: int, total_runs: int, bench_start_time: float, 
@@ -134,13 +191,18 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         model_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
         agent.save(model_path)
+        
+    # --- FORMAL EVALUATION PROTOCOL ---
+    # Evaluate on unseen users from the test split
+    run_evaluation(agent, config, experiment_dir, agent_type, seed, device, save_results=save_results)
+
     env.close()
     return float(np.mean(rewards_history[-10:]))
 
 def run_benchmark():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
+    parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file")
     parser.add_argument("--no_save", action="store_true", help="Do not save any results, logs, or plots")
     parser.add_argument("--device", type=str, default="cpu", help="Execution device (cpu, cuda, xpu)")
     args = parser.parse_args()

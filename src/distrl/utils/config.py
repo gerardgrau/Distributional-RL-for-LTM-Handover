@@ -2,7 +2,7 @@ from typing import Any
 import yaml
 import os
 
-def load_config(config_path: str = "config.yaml") -> dict[str, Any]:
+def load_config(config_path: str = "configs/config.yaml") -> dict[str, Any]:
     """
     Loads configuration from a YAML file.
     """
@@ -18,7 +18,7 @@ class Config:
     Static class to hold configuration.
     """
     _config: dict[str, Any] | None = None
-    _config_path: str = "config.yaml"
+    _config_path: str = "configs/config.yaml"
 
     @classmethod
     def set_config_path(cls, path: str) -> None:
