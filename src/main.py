@@ -16,6 +16,11 @@ def run_experiment():
     """
     Main entry point for running RL experiments.
     """
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--device", type=str, default="cpu", help="Execution device (cpu, cuda, xpu)")
+    args = parser.parse_args()
+
     print("=== Distributional RL for LTM Handover ===")
     
     # 1. Load Configuration
@@ -29,7 +34,7 @@ def run_experiment():
     env = LTMEnv()
     
     # 3. Setup Agent
-    device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else "cpu"
+    device = args.device
     
     if agent_cfg['type'].lower() == "dqn":
         agent = DQNAgent(agent_cfg, env.observation_space, env.action_space, device=device)

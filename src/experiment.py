@@ -209,6 +209,9 @@ def run_benchmark():
 
     Config.set_config_path(args.config)
     config = Config.get()
+    
+    device = args.device
+    
     bench_cfg = config['benchmark']
     agent_types = ["dqn", "qrdqn"]
     
@@ -237,7 +240,7 @@ def run_benchmark():
             seed = 42 + s
             final_reward = run_seed(agent_type, bench_cfg['env_type'], seed, config, experiment_dir,
                                     run_idx, total_runs, bench_start_time, 
-                                    device=args.device, save_results=not args.no_save)
+                                    device=device, save_results=not args.no_save)
             run_idx += 1
             if final_reward > best_reward:
                 best_reward = final_reward
