@@ -205,6 +205,7 @@ def run_benchmark():
     parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file")
     parser.add_argument("--no_save", action="store_true", help="Do not save any results, logs, or plots")
     parser.add_argument("--device", type=str, default="cpu", help="Execution device (cpu, cuda, xpu)")
+    parser.add_argument("--description", type=str, default="benchmark", help="Short description for the benchmark")
     args = parser.parse_args()
 
     Config.set_config_path(args.config)
@@ -214,16 +215,32 @@ def run_benchmark():
     
     bench_cfg = config['benchmark']
     agent_types = ["dqn", "qrdqn"]
-    
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    experiment_dir = os.path.join(bench_cfg['results_dir'], f"benchmark_{timestamp}")
-    
+    # --- PERFORMANCE OPTIMIZATION: Unique Naming Convention ---
+    # Format: bmk_YYYY-MM-DD_num_description
+    now = datetime.now()
+    date_str = now.strftime("%Y-%m-%d")
+    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+    desc_slug = args.description.replace(" ", "-")
+    results_dir = bench_cfg['results_dir']
+
+    num = 1
+    import glob
+    while True:
+        # Check if any directory exists with this date and number, regardless of description
+        pattern = os.path.join(results_dir, f"bmk_{date_str}_{num}_*")
+        if not glob.glob(pattern):
+            break
+        num += 1
+
+    experiment_dir = os.path.join(results_dir, f"bmk_{date_str}_{num}_{desc_slug}")
+
     if not args.no_save:
         # Pre-create subdirectories
         os.makedirs(os.path.join(experiment_dir, "output"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "models"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "figures"), exist_ok=True)
         print(f"=== Starting Independent Benchmark: {experiment_dir} ===")
+
     else:
         print("=== Starting Profiling Run (No artifacts will be saved) ===")
     
