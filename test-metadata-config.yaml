@@ -5,8 +5,8 @@ system:
   receiver_sensitivity: -95
 
 simulation:
-  total_sim_time: 10
-  time_step: 0.01
+  total_sim_time: 1
+  time_step: 0.1
   ue_number: 1
   bs_number: 7
 

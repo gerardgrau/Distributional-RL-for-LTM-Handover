@@ -40,11 +40,13 @@ class LTMEnv(gym.Env):
 
     def reset(self, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
+        print("DEBUG: LTMEnv.reset() entering")
         
         filename = self.files[self.current_ue_idx % len(self.files)]
         self.current_ue_idx += 1
         
         if filename in _GLOBAL_UE_CACHE:
+            print(f"DEBUG: Cache Hit for {os.path.basename(filename)}")
             # --- PERFORMANCE OPTIMIZATION: Cache Hit (Zero-Cost Reset) ---
             cache_data = _GLOBAL_UE_CACHE[filename]
             self.total_time = cache_data['total_time']
@@ -55,6 +57,7 @@ class LTMEnv(gym.Env):
             self.ue_positions = cache_data['ue_positions']
             self.pl3 = cache_data['pl3']
         else:
+            print(f"DEBUG: Cache Miss for {os.path.basename(filename)}")
             # --- PERFORMANCE OPTIMIZATION: Cache Miss (Calculate and Store) ---
             mat_data = loadmat(filename)
             raw_channel = mat_data['ChannelBS2UE'] 
@@ -129,6 +132,15 @@ class LTMEnv(gym.Env):
         
         self.sync = {"N310": 4, "N311": 2, "T310": 50, "out_sync_count": 0, "in_sync_count": 0, "t310_running": False, "t310_counter": np.inf}
         
+        # Performance Tracking (8 Metrics)
+        self.metrics_mcs = np.zeros(self.total_time)
+        self.metrics_rlf = np.zeros(self.total_time)
+        self.metrics_ho = np.zeros(self.total_time)
+        self.metrics_hof = np.zeros(self.total_time)
+        self.metrics_pp = np.zeros(self.total_time)
+        self.metrics_serving = np.full(self.total_time, -1, dtype=int)
+
+        print(f"DEBUG: reset() entering connection loop (total_time={self.total_time})")
         while self.serving_sector == -1 and self.t < self.total_time:
             pbest = np.max(self.ch_bs2ue[:, self.t])
             best = np.argmax(self.ch_bs2ue[:, self.t])
@@ -136,10 +148,15 @@ class LTMEnv(gym.Env):
                 # Check if MCS > 0 in the pre-calculated matrix
                 if self.all_mcs_episode[best, self.t] > 0:
                     self.serving_sector = best
+                    self.metrics_mcs[self.t] = self.all_mcs_episode[best, self.t]
+                    self.metrics_serving[self.t] = best
                     # Initial state metrics for ALL sectors (Maintain running sum)
                     self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
             self.t += 1
+            if self.t % 10000 == 0:
+                print(f"DEBUG: reset() loop t={self.t}")
             
+        print("DEBUG: LTMEnv.reset() exiting")
         return self._get_obs(), {}
 
     def _update_oracle_history(self, mcs_values: np.ndarray, snir_values: np.ndarray) -> None:
@@ -234,7 +251,19 @@ class LTMEnv(gym.Env):
         reward = self._calculate_ltm_ho_reward(r_thr)
         done = self.t >= self.total_time - 1
 
-        return self._get_obs(), float(reward), done, False, {}
+        info = {}
+        if done:
+            info["metrics"] = {
+                "mcs": self.metrics_mcs,
+                "rlf": self.metrics_rlf,
+                "ho": self.metrics_ho,
+                "hof": self.metrics_hof,
+                "pp": self.metrics_pp,
+                "serving": self.metrics_serving,
+                "pl3": self.pl3
+            }
+
+        return self._get_obs(), float(reward), done, False, info
 
     def _update_sync(self, snir: float) -> bool:
         """
@@ -280,6 +309,7 @@ class LTMEnv(gym.Env):
             pe = self.all_pe_episode[action, self.t]
             if np.random.rand() < pe:
                 self.HOF_ind = 1.0
+                self.metrics_hof[self.t] = 1.0
                 self.serving_sector = -1 # Disconnected
                 return
             
@@ -287,8 +317,10 @@ class LTMEnv(gym.Env):
             is_pp = (action == self.prev_prev_serving_sector) and (self.t - self.last_ho_time < 1.0 / Time["TimeStep"])
             if is_pp:
                 self.PP_ind = 1.0
+                self.metrics_pp[self.t] = 1.0
             
             self.HO_ind = 1.0
+            self.metrics_ho[self.t] = 1.0
             self.prev_prev_serving_sector = prev_serving
             self.last_ho_time = self.t
             self.serving_sector = action
@@ -316,11 +348,18 @@ class LTMEnv(gym.Env):
                 s = self.all_snir_episode[self.serving_sector, self.t]
                 rlf = self._update_sync(s)
                 mcs_sum += float(m)
+                
+                # Tracking
+                self.metrics_mcs[self.t] = m
+                self.metrics_rlf[self.t] = float(rlf)
+                self.metrics_serving[self.t] = self.serving_sector
+
                 if rlf:
                     self.serving_sector = -1
                     rlf_happened = True
             else:
                 mcs_sum += 0.0
+                self.metrics_serving[self.t] = -1
             
             self.t += 1
             samples_count += 1
