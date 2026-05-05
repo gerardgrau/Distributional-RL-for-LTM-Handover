@@ -210,6 +210,15 @@ def run_benchmark():
                 
                 env.close()
 
+    if not args.no_save:
+        # AUTO-PLOT in figures/
+        print("\nGenerating performance plots...")
+        fig_dir = os.path.join(experiment_dir, "figures")
+        csv_dir = os.path.join(experiment_dir, "output")
+        plot_learning_curves(csv_dir, save_path=os.path.join(fig_dir, "learning_curves.png"))
+        plot_efficiency(csv_dir, metric="reward", save_path=os.path.join(fig_dir, "reward_vs_time.png"))
+        plot_efficiency(csv_dir, metric="loss", save_path=os.path.join(fig_dir, "loss_vs_time.png"))
+
         import json
         metadata = {
             "timestamp": timestamp,
@@ -223,10 +232,7 @@ def run_benchmark():
         with open(os.path.join(experiment_dir, "metadata.json"), "w") as f:
             json.dump(metadata, f, indent=4)
 
-        if not args.no_save:
-            print(f"\nBenchmark completed. All artifacts saved in {experiment_dir}")
-        else:
-            print(f"\nProfiling run completed. Benchmark metadata saved in {experiment_dir}")
+        print(f"\nBenchmark completed. All artifacts saved in {experiment_dir}")
     else:
         print("\nProfiling run completed. No artifacts saved.")
 
