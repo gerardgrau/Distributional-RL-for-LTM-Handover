@@ -37,15 +37,15 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
 
 ## 4. Evaluation & Reporting
 - **8 Metrics Suite**: Automated calculation of Capacity, RLF, HO Rate, Ping-Pong, Reliability, Cell Preparation, Resource Reservation, and HOF Rate.
-- **Dual Reporting**: Every evaluation generates a **JSON Summary** (Mean ± Std) and a **Raw CSV** (per-episode data).
-- **Branch Strategy**: Use feature branches (e.g., `refactor-dataset-all-1000`) and Pull Requests for all modifications.
+- **Dual Reporting**: Every evaluation generates a **CSV Summary** (Metric, Mean, Std) and a **Raw CSV** (per-episode data).
+- **Branch Strategy**: Use feature branches (e.g., `feature/codebase-refactor`) and Pull Requests for all modifications.
 - **Benchmark Naming**: Follow the convention `bmk_YYYY-MM-DD_num_description`.
 
 ---
 
 ## 5. Workflow & Planning
 - **Agentic Task Planning**: ALL agentic task planning and track management must go through the **Conductor** extension. Refer to `conductor/GEMINI.md` for specific planning protocols and track management rules.
-- **Reproducibility**: `src/experiment.py` copies the active `config.yaml` into every benchmark folder.
+- **Reproducibility**: `src/main.py` (previously `experiment.py`) copies the active `config.yaml` into every benchmark folder.
 
 ---
 
