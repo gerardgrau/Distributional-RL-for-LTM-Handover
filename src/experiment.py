@@ -6,6 +6,7 @@ import time
 import csv
 import shutil
 import pandas as pd
+import json
 from datetime import datetime
 from typing import Any
 
@@ -36,32 +37,36 @@ class CSVLogger:
 
 def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: str, seed: int, device: str, save_results: bool = True) -> dict[str, float]:
     """
-    Evaluates the frozen agent on unseen trajectories (Eval Set).
+    Evaluates the frozen agent on ALL trajectories (1000 UEs) with epsilon=0.
     """
     print(f"    -> Starting Formal Evaluation Phase (Seed {seed})...")
-    eval_env = LTMEnv(config=config, mode="eval")
+    
+    # Use a fresh environment instance to ensure deterministic evaluation over all 1000 users
+    eval_env = LTMEnv(config=config)
     num_eval_episodes = len(eval_env.files)
     
     if num_eval_episodes == 0:
-        print("    -> Skipping Evaluation: No unseen trajectories in test split.")
+        print("    -> Skipping Evaluation: No trajectories found.")
         eval_env.close()
         return {}
 
     all_eval_metrics = []
+    print(f"    -> Evaluating on all {num_eval_episodes} trajectories...")
     
     for ep in range(num_eval_episodes):
         state, _ = eval_env.reset()
         done = False
         last_info = {}
+        episode_reward = 0
         
         while not done:
-            # Pure greedy selection
+            # Pure greedy selection (Frozen weights, No exploration)
             action = agent.select_action(state, epsilon=0.0)
             state, reward, done, _, info = eval_env.step(action)
+            episode_reward += reward
             if done:
                 last_info = info
                 
-        # Calculate 8 metrics for this unseen user
         m8 = calculate_8_metrics(
             mcs_history=last_info["metrics"]["mcs"],
             rlf_history=last_info["metrics"]["rlf"],
@@ -72,23 +77,37 @@ def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: st
             pl3_history=last_info["metrics"]["pl3"],
             config=config
         )
+        m8['reward'] = episode_reward
         all_eval_metrics.append(m8)
+        
+        if (ep + 1) % 100 == 0:
+            print(f"       Progress: {ep+1}/{num_eval_episodes} evaluated.")
         
     eval_env.close()
     
     # Aggregate results
     df = pd.DataFrame(all_eval_metrics)
-    summary = df.mean().to_dict()
+    summary = {
+        "mean": df.mean().to_dict(),
+        "std": df.std().to_dict()
+    }
     
-    # Save to JSON
+    # Save to files
     if save_results:
-        import json
-        eval_file = os.path.join(experiment_dir, "output", f"{agent_type}_eval_seed{seed}.json")
-        with open(eval_file, 'w') as f:
-            json.dump(summary, f, indent=4)
+        eval_dir = os.path.join(experiment_dir, "eval")
+        os.makedirs(eval_dir, exist_ok=True)
         
-    print(f"    -> Evaluation Complete. HO Rate: {summary['ho_rate']:.2f}, Reliability: {summary['reliability_pct']:.2f}%")
-    return summary
+        # 1. Save Summary JSON (Mean/Std)
+        eval_json = os.path.join(eval_dir, f"{agent_type}_summary_seed{seed}.json")
+        with open(eval_json, 'w') as f:
+            json.dump(summary, f, indent=4)
+            
+        # 2. Save Raw CSV (Per-episode metrics)
+        eval_csv = os.path.join(eval_dir, f"{agent_type}_raw_seed{seed}.csv")
+        df.to_csv(eval_csv, index_label="eval_episode")
+        
+    print(f"    -> Evaluation Complete. HO Rate: {summary['mean']['ho_rate']:.2f} ± {summary['std']['ho_rate']:.2f}")
+    return summary['mean']
 
 def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment_dir: str, 
              run_idx: int, total_runs: int, bench_start_time: float, 
@@ -112,9 +131,9 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     
     buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
     
-    # Save CSV logs in experiment_dir/output/
+    # Save CSV logs in experiment_dir/train/
     if save_results:
-        log_file = os.path.join(experiment_dir, "output", f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
+        log_file = os.path.join(experiment_dir, "train", f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
         headers = ["episode", "reward", "loss", "steps", "wall_time", 
                    "capacity", "rlf_rate", "ho_rate", "pp_rate", 
                    "reliability", "prep_rate", "res_reservation", "hof_rate"]
@@ -148,7 +167,7 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             if done:
                 last_info = info
         
-        # Calculate LTM metrics at end of episode
+        # Calculate LTM metrics at end of episode (Tracking during training)
         metrics_8 = calculate_8_metrics(
             mcs_history=last_info["metrics"]["mcs"],
             rlf_history=last_info["metrics"]["rlf"],
@@ -193,7 +212,7 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         agent.save(model_path)
         
     # --- FORMAL EVALUATION PROTOCOL ---
-    # Evaluate on unseen users from the test split
+    # Evaluate on ALL users after training finishes
     run_evaluation(agent, config, experiment_dir, agent_type, seed, device, save_results=save_results)
 
     env.close()
@@ -205,21 +224,47 @@ def run_benchmark():
     parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file")
     parser.add_argument("--no_save", action="store_true", help="Do not save any results, logs, or plots")
     parser.add_argument("--device", type=str, default="cpu", help="Execution device (cpu, cuda, xpu)")
+    parser.add_argument("--description", type=str, default="benchmark", help="Short description for the benchmark")
+    parser.add_argument("--agents", type=str, default="dqn,qrdqn", help="Comma-separated list of agents to run")
     args = parser.parse_args()
 
     Config.set_config_path(args.config)
     config = Config.get()
-    bench_cfg = config['benchmark']
-    agent_types = ["dqn", "qrdqn"]
     
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    experiment_dir = os.path.join(bench_cfg['results_dir'], f"benchmark_{timestamp}")
+    device = args.device
+    
+    bench_cfg = config['benchmark']
+    agent_types = [a.strip().lower() for a in args.agents.split(",")]
+    
+    # --- PERFORMANCE OPTIMIZATION: Unique Naming Convention ---
+    # Format: bmk_YYYY-MM-DD_num_description
+    now = datetime.now()
+    date_str = now.strftime("%Y-%m-%d")
+    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+    desc_slug = args.description.replace(" ", "-")
+    results_dir = bench_cfg['results_dir']
+    
+    num = 1
+    import glob
+    while True:
+        # Check if any directory exists with this date and number, regardless of description
+        pattern = os.path.join(results_dir, f"bmk_{date_str}_{num}_*")
+        if not glob.glob(pattern):
+            break
+        num += 1
+    
+    experiment_dir = os.path.join(results_dir, f"bmk_{date_str}_{num}_{desc_slug}")
     
     if not args.no_save:
-        # Pre-create subdirectories
-        os.makedirs(os.path.join(experiment_dir, "output"), exist_ok=True)
+        # Pre-create subdirectories (Restructured)
+        os.makedirs(os.path.join(experiment_dir, "train"), exist_ok=True)
+        os.makedirs(os.path.join(experiment_dir, "eval"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "models"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "figures"), exist_ok=True)
+        
+        # Copy config file to experiment directory for provenance
+        shutil.copy(args.config, os.path.join(experiment_dir, "config.yaml"))
+        
         print(f"=== Starting Independent Benchmark: {experiment_dir} ===")
     else:
         print("=== Starting Profiling Run (No artifacts will be saved) ===")
@@ -237,7 +282,7 @@ def run_benchmark():
             seed = 42 + s
             final_reward = run_seed(agent_type, bench_cfg['env_type'], seed, config, experiment_dir,
                                     run_idx, total_runs, bench_start_time, 
-                                    device=args.device, save_results=not args.no_save)
+                                    device=device, save_results=not args.no_save)
             run_idx += 1
             if final_reward > best_reward:
                 best_reward = final_reward
@@ -276,7 +321,7 @@ def run_benchmark():
         # AUTO-PLOT in figures/
         print("\nGenerating performance plots...")
         fig_dir = os.path.join(experiment_dir, "figures")
-        csv_dir = os.path.join(experiment_dir, "output")
+        csv_dir = os.path.join(experiment_dir, "train")
         plot_learning_curves(csv_dir, save_path=os.path.join(fig_dir, "learning_curves.png"))
         plot_efficiency(csv_dir, metric="reward", save_path=os.path.join(fig_dir, "reward_vs_time.png"))
         plot_efficiency(csv_dir, metric="loss", save_path=os.path.join(fig_dir, "loss_vs_time.png"))
@@ -285,7 +330,7 @@ def run_benchmark():
         metadata = {
             "timestamp": timestamp,
             "total_execution_time_seconds": time.time() - bench_start_time,
-            "device": args.device,
+            "device": device,
             "config": config
         }
         

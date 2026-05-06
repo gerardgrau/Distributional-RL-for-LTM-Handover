@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Any, Dict
+from typing import Any
 
 def calculate_8_metrics(
     mcs_history: np.ndarray,
@@ -9,8 +9,8 @@ def calculate_8_metrics(
     pp_history: np.ndarray,
     serving_history: np.ndarray,
     pl3_history: np.ndarray,
-    config: Dict[str, Any]
-) -> Dict[str, Any]:
+    config: dict[str, Any]
+) -> dict[str, Any]:
     """
     Computes the 8 LTM metrics based on the provided episode history.
     """

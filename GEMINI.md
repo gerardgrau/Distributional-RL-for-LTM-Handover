@@ -26,7 +26,7 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
 ## 3. Engineering Standards
 - **Architecture**: Modular structure in `src/distrl/` isolating `envs`, `agents`, `models`, and `utils`.
 - **Frameworks**: PyTorch 2.0+ (utilizing `torch.compile`), Gymnasium, NumPy, SciPy.
-- **Hardware Sympathy**: Environment is heavily optimized for **CPU-bound NumPy vectorization**. CPU mode is 2.5x faster than XPU for this workload.
+- **Hardware Sympathy**: Environment is heavily optimized for **CPU-bound NumPy vectorization**. CPU mode is 2.5x faster than XPU for this workload. Default execution device is set via the `--device` CLI flag (defaults to `cpu`).
 - **Type Safety**: Fully modernized with Python 3.10+ type hints (`|` union, `dict[str, Any]`, etc.).
 
 ---

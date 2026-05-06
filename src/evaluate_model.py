@@ -3,6 +3,7 @@ import numpy as np
 import os
 import sys
 import pandas as pd
+import json
 from typing import Any
 
 # Ensure src is in PYTHONPATH
@@ -14,18 +15,21 @@ from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
 from src.distrl.utils.metrics import calculate_8_metrics
 
-def evaluate(agent_type: str, model_path: str, num_episodes: int = 20):
+def evaluate(agent_type: str, model_path: str, config_path: str = "configs/config.yaml", num_episodes: int = 50, output_path: str = None):
     print(f"\n--- Starting Evaluation ---")
     print(f"Agent: {agent_type}")
     print(f"Model: {model_path}")
-    print(f"Episodes: {num_episodes}")
+    print(f"Config: {config_path}")
+    print(f"Target Episodes: {num_episodes}")
     
-    # Load config from configs/config.yaml (default)
+    # Load custom config
+    Config.set_config_path(config_path)
     config = Config.get()
     
-    # Ensure we use 1000 UEs for full diversity if possible
+    # Ensure we use 1000 UEs for full coverage as per the new protocol
     config['simulation']['ue_number'] = 1000
     
+    # New Protocol: All users are used for both training and evaluation
     env = LTMEnv(config=config)
     
     if agent_type.lower() == "dqn":
@@ -40,7 +44,10 @@ def evaluate(agent_type: str, model_path: str, num_episodes: int = 20):
     
     all_metrics = []
     
-    for ep in range(num_episodes):
+    actual_episodes = min(num_episodes, len(env.files))
+    print(f"Evaluating on {actual_episodes} trajectories...")
+
+    for ep in range(actual_episodes):
         state, _ = env.reset()
         done = False
         last_info = {}
@@ -67,30 +74,53 @@ def evaluate(agent_type: str, model_path: str, num_episodes: int = 20):
         )
         m8['reward'] = episode_reward
         all_metrics.append(m8)
-        print(f"  Episode {ep+1}/{num_episodes} | Reward: {episode_reward:.2f} | RLF: {m8['rlf_rate']:.2f}")
+        if (ep+1) % 10 == 0:
+            print(f"  Progress: {ep+1}/{actual_episodes}")
 
     df = pd.DataFrame(all_metrics)
-    summary = df.mean().to_dict()
-    std = df.std().to_dict()
+    summary = {
+        "mean": df.mean().to_dict(),
+        "std": df.std().to_dict()
+    }
     
     print(f"\n--- Evaluation Results (Mean ± Std) ---")
-    print(f"Capacity (bps):      {summary['capacity_avg']:.2f} ± {std['capacity_avg']:.2f}")
-    print(f"RLF Rate (per min):  {summary['rlf_rate']:.2f} ± {std['rlf_rate']:.2f}")
-    print(f"HO Rate (per min):   {summary['ho_rate']:.2f} ± {std['ho_rate']:.2f}")
-    print(f"PP Rate (per min):   {summary['pp_rate']:.2f} ± {std['pp_rate']:.2f}")
-    print(f"Reliability (%):     {summary['reliability_pct']:.2f} ± {std['reliability_pct']:.2f}")
-    print(f"Prep Rate (per min): {summary['prep_rate']:.2f} ± {std['prep_rate']:.2f}")
-    print(f"Res Reservation (%): {summary['res_reservation_pct']:.2f} ± {std['res_reservation_pct']:.2f}")
-    print(f"HOF Rate (per min):  {summary['hof_rate']:.2f} ± {std['hof_rate']:.2f}")
-    print(f"Total Reward:        {summary['reward']:.2f} ± {std['reward']:.2f}")
+    print(f"Capacity (bps):      {summary['mean']['capacity_avg']:.2f} ± {summary['std']['capacity_avg']:.2f}")
+    print(f"RLF Rate (per min):  {summary['mean']['rlf_rate']:.2f} ± {summary['std']['rlf_rate']:.2f}")
+    print(f"HO Rate (per min):   {summary['mean']['ho_rate']:.2f} ± {summary['std']['ho_rate']:.2f}")
+    print(f"Reliability (%):     {summary['mean']['reliability_pct']:.2f} ± {summary['std']['reliability_pct']:.2f}")
+    print(f"Total Reward:        {summary['mean']['reward']:.2f} ± {summary['std']['reward']:.2f}")
     print(f"----------------------------------------\n")
+
+    if output_path:
+        out_dir = os.path.dirname(output_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+            
+        # 1. Save Summary JSON
+        if output_path.endswith(".json"):
+            json_path = output_path
+            csv_path = output_path.replace(".json", ".csv")
+        else:
+            json_path = output_path + ".json"
+            csv_path = output_path + ".csv"
+            
+        with open(json_path, 'w') as f:
+            json.dump(summary, f, indent=4)
+            
+        # 2. Save Raw CSV
+        df.to_csv(csv_path, index_label="eval_episode")
+        
+        print(f"Summary saved to {json_path}")
+        print(f"Raw metrics saved to {csv_path}")
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent", type=str, required=True, help="dqn or qrdqn")
     parser.add_argument("--model", type=str, required=True, help="Path to .pth file")
-    parser.add_argument("--episodes", type=int, default=20, help="Number of episodes")
+    parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file")
+    parser.add_argument("--episodes", type=int, default=1000, help="Number of episodes")
+    parser.add_argument("--output", type=str, help="Path to save JSON output")
     args = parser.parse_args()
     
-    evaluate(args.agent, args.model, args.episodes)
+    evaluate(args.agent, args.model, args.config, args.episodes, args.output)

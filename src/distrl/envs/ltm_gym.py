@@ -21,10 +21,9 @@ class LTMEnv(gym.Env):
     """
     Gymnasium wrapper for the LTM Handover simulation.
     """
-    def __init__(self, config: dict[str, Any] | None = None, mode: str = "train") -> None:
+    def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__()
         self.config = config or {}
-        self.mode = mode.lower()
 
         # Observation Space: 88-dim Markovian vector (Paper Aligned)
         # [Speed(1), Tenure(1), OneHot(21), RSRP(21), MCS_All(21), SNIR_All(21), X(1), Y(1)]
@@ -32,19 +31,10 @@ class LTMEnv(gym.Env):
         self.action_space = spaces.Discrete(NBS)
 
         
-        # Load data paths
+        # Load all 1000 data paths (Refactored: No train/test split at Env level)
         all_files = sorted(glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat")))
         ue_count = self.config.get('simulation', {}).get('ue_number', len(all_files))
-        split = self.config.get('simulation', {}).get('train_split', 0.8)
-        
-        # Train/Test Split logic
-        num_train = int(ue_count * split)
-        if self.mode == "train":
-            self.files = all_files[:num_train]
-        else:
-            # Eval on the remainder of the pool
-            self.files = all_files[num_train:ue_count]
-            
+        self.files = all_files[:ue_count]
         self.current_ue_idx = 0
 
 
@@ -308,6 +298,11 @@ class LTMEnv(gym.Env):
         self.HOF_ind = 0.0
         
         if ho_occurred:
+            # --- HO ATTEMPT ---
+            # Every HO attempt must be recorded in metrics_ho
+            self.metrics_ho[self.t] = 1.0
+            self.HO_ind = 1.0
+            
             # Check for Handover Failure (HOF) using pre-calculated Pe matrix
             pe = self.all_pe_episode[action, self.t]
             if np.random.rand() < pe:
@@ -322,8 +317,6 @@ class LTMEnv(gym.Env):
                 self.PP_ind = 1.0
                 self.metrics_pp[self.t] = 1.0
             
-            self.HO_ind = 1.0
-            self.metrics_ho[self.t] = 1.0
             self.prev_prev_serving_sector = prev_serving
             self.last_ho_time = self.t
             self.serving_sector = action
