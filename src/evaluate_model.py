@@ -94,22 +94,28 @@ def evaluate(agent_type: str, model_path: str, config_path: str = "configs/confi
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
             
-        # 1. Save Summary JSON
-        if output_path.endswith(".json"):
-            json_path = output_path
-            csv_path = output_path.replace(".json", ".csv")
+        # Ensure path ends with _summary.csv or similar if not provided
+        if output_path.endswith(".json") or output_path.endswith(".csv"):
+            base_path = output_path.rsplit('.', 1)[0]
         else:
-            json_path = output_path + ".json"
-            csv_path = output_path + ".csv"
+            base_path = output_path
+
+        summary_csv = base_path + "_summary.csv"
+        raw_csv = base_path + "_raw.csv"
             
-        with open(json_path, 'w') as f:
-            json.dump(summary, f, indent=4)
+        # 1. Save Summary CSV (Metric, Mean, Std)
+        summary_df = pd.DataFrame({
+            "metric": summary["mean"].keys(),
+            "mean": summary["mean"].values(),
+            "std": summary["std"].values()
+        })
+        summary_df.to_csv(summary_csv, index=False)
             
-        # 2. Save Raw CSV
-        df.to_csv(csv_path, index_label="eval_episode")
+        # 2. Save Raw CSV (Per-episode metrics)
+        df.to_csv(raw_csv, index_label="eval_episode")
         
-        print(f"Summary saved to {json_path}")
-        print(f"Raw metrics saved to {csv_path}")
+        print(f"Summary saved to {summary_csv}")
+        print(f"Raw metrics saved to {raw_csv}")
 
 if __name__ == "__main__":
     import argparse

@@ -94,14 +94,18 @@ def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: st
         eval_dir = os.path.join(experiment_dir, "eval")
         os.makedirs(eval_dir, exist_ok=True)
         
-        # 1. Save Summary JSON (Mean/Std)
-        eval_json = os.path.join(eval_dir, f"{agent_type}_summary_seed{seed}.json")
-        with open(eval_json, 'w') as f:
-            json.dump(summary, f, indent=4)
+        # 1. Save Summary CSV (Metric, Mean, Std)
+        summary_csv = os.path.join(eval_dir, f"{agent_type}_summary_seed{seed}.csv")
+        summary_df = pd.DataFrame({
+            "metric": summary["mean"].keys(),
+            "mean": summary["mean"].values(),
+            "std": summary["std"].values()
+        })
+        summary_df.to_csv(summary_csv, index=False)
             
         # 2. Save Raw CSV (Per-episode metrics)
-        eval_csv = os.path.join(eval_dir, f"{agent_type}_raw_seed{seed}.csv")
-        df.to_csv(eval_csv, index_label="eval_episode")
+        raw_csv = os.path.join(eval_dir, f"{agent_type}_raw_seed{seed}.csv")
+        df.to_csv(raw_csv, index_label="eval_episode")
         
     print(f"    -> Evaluation Complete. HO Rate: {summary['mean']['ho_rate']:.2f} ± {summary['std']['ho_rate']:.2f}")
     return summary['mean']
