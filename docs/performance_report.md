@@ -13,16 +13,16 @@ Through a series of advanced performance optimizations, the `LTMEnv` was acceler
 7.  **Expanded Global Cache:** Increased cache limit to **1,000 users** (~10.9 GB total) to fully utilize 32GB RAM environments.
 
 ## 2. Hardware Benchmarking (CPU vs. XPU)
-Benchmarking was performed on an Intel Laptop with Integrated Graphics (iGPU) using `src/experiment.py` logic.
+Benchmarking was performed using the faithful production training workload (QRDQN agent, training every step) for 60 episodes per device.
 
-| Device | Total Time (20 eps) | Steps / Second |
+| Device | Total Time (60 eps) | Steps / Second |
 | :--- | :--- | :--- |
-| **CPU** | 214.19s | **280.13** |
-| **XPU (iGPU)** | 532.23s | 112.73 |
+| **CPU** | 1,930.43s | **93.24** |
+| **XPU (iGPU)** | 2,186.20s | 82.33 |
 
 ### Analysis:
-*   **CPU dominance:** The CPU is **2.5x faster** than the Intel iGPU for this specific training task.
-*   **Small Model Overhead:** The neural networks are relatively small (128x128 MLPs). The overhead of copying tensors to the iGPU memory space every step (Observation -> GPU, Action -> CPU) outweighs the parallel processing benefits.
+*   **CPU dominance:** The CPU is **13% faster** than the Intel iGPU for the standard QRDQN training task.
+*   **Small Model Overhead:** The neural networks are relatively small (128x128 MLPs). The overhead of copying tensors to the iGPU memory space every step (Observation -> GPU, Action -> CPU) outweighs any parallel processing gains.
 *   **Vectorization Sympathy:** NumPy is highly optimized for CPU SIMD (AVX-512/AVX2). Since the environment is now purely NumPy-based, it stays in the CPU cache, avoiding the PCIE/Bus bottleneck.
 
 ## 3. torch.compile Analysis
