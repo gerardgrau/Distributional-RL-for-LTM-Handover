@@ -11,7 +11,8 @@ def run_evaluation(
     experiment_dir: str, 
     agent_type: str, 
     seed: int, 
-    save_results: bool = True
+    save_results: bool = True,
+    output_prefix: str = None
 ) -> dict[str, float]:
     """
     Evaluates the frozen agent on ALL trajectories (1000 UEs) with epsilon=0.
@@ -67,11 +68,26 @@ def run_evaluation(
     
     # Save to files
     if save_results:
-        eval_dir = os.path.join(experiment_dir, "eval")
-        os.makedirs(eval_dir, exist_ok=True)
+        if output_prefix:
+            # If explicit prefix provided, use it directly
+            base_path = output_prefix
+            if base_path.endswith(".csv"):
+                base_path = base_path.rsplit('.', 1)[0]
+            
+            # Smart suffixing: only append if not already there
+            summary_csv = base_path if "_summary" in base_path else f"{base_path}_summary"
+            raw_csv = base_path if "_raw" in base_path else f"{base_path}_raw"
+            
+            summary_csv += ".csv"
+            raw_csv += ".csv"
+        else:
+            # Default behavior for benchmarks
+            eval_dir = os.path.join(experiment_dir, "eval")
+            os.makedirs(eval_dir, exist_ok=True)
+            summary_csv = os.path.join(eval_dir, f"{agent_type}_summary_seed{seed}.csv")
+            raw_csv = os.path.join(eval_dir, f"{agent_type}_raw_seed{seed}.csv")
         
         # 1. Save Summary CSV (Metric, Mean, Std)
-        summary_csv = os.path.join(eval_dir, f"{agent_type}_summary_seed{seed}.csv")
         summary_df = pd.DataFrame({
             "metric": summary["mean"].keys(),
             "mean": summary["mean"].values(),
@@ -80,8 +96,10 @@ def run_evaluation(
         summary_df.to_csv(summary_csv, index=False)
             
         # 2. Save Raw CSV (Per-episode metrics)
-        raw_csv = os.path.join(eval_dir, f"{agent_type}_raw_seed{seed}.csv")
         df.to_csv(raw_csv, index_label="eval_episode")
+        
+        print(f"    -> Summary saved to {summary_csv}")
+        print(f"    -> Raw metrics saved to {raw_csv}")
         
     print(f"    -> Evaluation Complete. HO Rate: {summary['mean']['ho_rate']:.2f} ± {summary['std']['ho_rate']:.2f}")
     return summary['mean']

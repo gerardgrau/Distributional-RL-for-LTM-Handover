@@ -53,7 +53,8 @@ def evaluate(agent_type: str, model_path: str, config_path: str = "configs/confi
         experiment_dir=experiment_dir,
         agent_type=agent_type,
         seed=42,
-        save_results=True if output else False
+        save_results=True if output else False,
+        output_prefix=output
     )
 
     env.close()
@@ -65,7 +66,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, required=True, help="Path to .pth file")
     parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file")
     parser.add_argument("--episodes", type=int, default=1000, help="Number of episodes (unused, always uses full dataset)")
-    parser.add_argument("--output", type=str, help="Path to save evaluation summary CSV")
+    parser.add_argument("--output", type=str, help="Path prefix to save evaluation summary and raw metrics CSVs")
     args = parser.parse_args()
     
     evaluate(args.agent, args.model, args.config, args.episodes, args.output)
