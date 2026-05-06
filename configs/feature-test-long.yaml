@@ -9,7 +9,6 @@ simulation:
   time_step: 0.01
   ue_number: 1000
   bs_number: 7
-  train_split: 0.8
 
 agent:
   type: "qrdqn"

@@ -19,16 +19,16 @@ def evaluate(agent_type: str, model_path: str, num_episodes: int = 50, output_pa
     print(f"\n--- Starting Evaluation ---")
     print(f"Agent: {agent_type}")
     print(f"Model: {model_path}")
-    print(f"Episodes: {num_episodes}")
+    print(f"Target Episodes: {num_episodes}")
     
     # Load config from configs/config.yaml (default)
     config = Config.get()
     
-    # Ensure we use 1000 UEs for full diversity (Testing on unseen/full set)
+    # Ensure we use 1000 UEs for full coverage as per the new protocol
     config['simulation']['ue_number'] = 1000
     
-    # Force 'eval' mode to use trajectories from the test set
-    env = LTMEnv(config=config, mode="eval")
+    # New Protocol: All 1000 users are used for both training and evaluation
+    env = LTMEnv(config=config)
     
     if agent_type.lower() == "dqn":
         agent = DQNAgent(config['agent'], env.observation_space, env.action_space)
@@ -43,7 +43,7 @@ def evaluate(agent_type: str, model_path: str, num_episodes: int = 50, output_pa
     all_metrics = []
     
     actual_episodes = min(num_episodes, len(env.files))
-    print(f"Evaluating on {actual_episodes} hold-out trajectories...")
+    print(f"Evaluating on {actual_episodes} trajectories...")
 
     for ep in range(actual_episodes):
         state, _ = env.reset()
@@ -79,7 +79,7 @@ def evaluate(agent_type: str, model_path: str, num_episodes: int = 50, output_pa
     summary = {
         "mean": df.mean().to_dict(),
         "std": df.std().to_dict(),
-        "raw_episodes": all_eval_metrics if 'all_eval_metrics' in locals() else all_metrics
+        "raw_episodes": all_metrics
     }
     
     print(f"\n--- Evaluation Results (Mean ± Std) ---")
@@ -91,7 +91,9 @@ def evaluate(agent_type: str, model_path: str, num_episodes: int = 50, output_pa
     print(f"----------------------------------------\n")
 
     if output_path:
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        out_dir = os.path.dirname(output_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
         with open(output_path, 'w') as f:
             json.dump(summary, f, indent=4)
         print(f"Results saved to {output_path}")

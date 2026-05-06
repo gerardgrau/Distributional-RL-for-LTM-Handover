@@ -10,7 +10,6 @@ simulation:
   time_step: 0.01
   ue_number: 1000             # Use full pool for diversity
   bs_number: 7
-  train_split: 0.8            # 800 train, 200 eval
 
 agent:
   type: "qrdqn"
