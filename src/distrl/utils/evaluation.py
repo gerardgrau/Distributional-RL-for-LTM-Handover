@@ -15,7 +15,8 @@ def run_evaluation(
     output_prefix: str = None
 ) -> dict[str, float]:
     """
-    Evaluates the frozen agent on ALL trajectories (1000 UEs) with epsilon=0.
+    Evaluates the frozen agent on all trajectories available in the environment 
+    (based on the dataset and config) with epsilon=0.
     """
     print(f"    -> Starting Formal Evaluation Phase (Seed {seed})...")
     

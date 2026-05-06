@@ -5,7 +5,6 @@ import sys
 import time
 import csv
 import shutil
-import pandas as pd
 import json
 from tqdm import tqdm
 from datetime import datetime
@@ -42,11 +41,10 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     torch.manual_seed(seed)
     np.random.seed(seed)
     
-    if env_name == "ltm":
-        env = LTMEnv(config=config)
-    else:
-        import gymnasium as gym
-        env = gym.make(env_name)
+    if env_name != "ltm":
+        raise ValueError(f"Only 'ltm' environment is supported. Received: {env_name}")
+    
+    env = LTMEnv(config=config)
     
     agent_config = config['agent']
     
@@ -54,6 +52,8 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         agent = DQNAgent(agent_config, env.observation_space, env.action_space, device=device)
     elif agent_type.lower() == "qrdqn":
         agent = QRDQNAgent(agent_config, env.observation_space, env.action_space, device=device)
+    else:
+        raise ValueError(f"Unknown agent type: {agent_type}")
     
     buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
     
@@ -185,15 +185,15 @@ def run_benchmark():
         os.makedirs(os.path.join(experiment_dir, "eval"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "models"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "figures"), exist_ok=True)
+        
         # Copy config file to experiment directory for provenance
         shutil.copy(args.config, os.path.join(experiment_dir, "config.yaml"))
-
+        
         print(f"=== Starting Independent Benchmark: {experiment_dir} ===")
-        else:
+    else:
         print("=== Starting Profiling Run (No artifacts will be saved) ===")
-
-        bench_start_time = time.time()
-
+    
+    bench_start_time = time.time()
     total_runs = len(agent_types) * bench_cfg['num_seeds']
     num_episodes = config['agent'].get('num_episodes', 20)
     total_eps_overall = total_runs * num_episodes

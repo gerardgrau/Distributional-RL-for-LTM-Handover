@@ -14,7 +14,7 @@ from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
 from src.distrl.utils.evaluation import run_evaluation
 
-def evaluate(agent_type: str, model_path: str, config_path: str = "configs/config.yaml", episodes: int = 1000, output: str = None):
+def evaluate(agent_type: str, model_path: str, config_path: str = "configs/config.yaml", output: str = None):
     print(f"\n--- Starting Standalone Evaluation ---")
     print(f"Agent:  {agent_type}")
     print(f"Model:  {model_path}")
@@ -25,7 +25,6 @@ def evaluate(agent_type: str, model_path: str, config_path: str = "configs/confi
     config = Config.get()
     
     # Ensure we use the correct number of UEs
-    # Note: run_evaluation defaults to all available files if we don't constrain it.
     
     # New Protocol: All users are used for both training and evaluation
     env = LTMEnv(config=config)
@@ -65,8 +64,11 @@ if __name__ == "__main__":
     parser.add_argument("--agent", type=str, required=True, help="dqn or qrdqn")
     parser.add_argument("--model", type=str, required=True, help="Path to .pth file")
     parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file")
-    parser.add_argument("--episodes", type=int, default=1000, help="Number of episodes (unused, always uses full dataset)")
     parser.add_argument("--output", type=str, help="Path prefix to save evaluation summary and raw metrics CSVs")
+    args = parser.parse_args()
+    
+    evaluate(args.agent, args.model, args.config, args.output)
+  parser.add_argument("--output", type=str, help="Path prefix to save evaluation summary and raw metrics CSVs")
     args = parser.parse_args()
     
     evaluate(args.agent, args.model, args.config, args.episodes, args.output)
