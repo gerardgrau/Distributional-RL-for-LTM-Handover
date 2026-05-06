@@ -68,7 +68,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     evaluate(args.agent, args.model, args.config, args.output)
-  parser.add_argument("--output", type=str, help="Path prefix to save evaluation summary and raw metrics CSVs")
-    args = parser.parse_args()
-    
-    evaluate(args.agent, args.model, args.config, args.episodes, args.output)
