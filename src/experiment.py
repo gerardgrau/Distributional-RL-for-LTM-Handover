@@ -262,6 +262,7 @@ def run_benchmark():
     else:
         print("=== Starting Profiling Run (No artifacts will be saved) ===")
     
+    bench_start_time = time.time()
     total_runs = len(agent_types) * bench_cfg['num_seeds']
     num_episodes = config['agent'].get('num_episodes', 20)
     total_eps_overall = total_runs * num_episodes
@@ -278,35 +279,35 @@ def run_benchmark():
                 if final_reward > best_reward:
                     best_reward = final_reward
                     best_seed_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
-        
-        if not args.no_save:
-            # Save "Best" for this specific run in models/
-            best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
-            shutil.copy(best_seed_path, best_dst)
-
-        # Generate Quantile Plot if it's QRDQN
-        if agent_type.lower() == "qrdqn":
+            
             if not args.no_save:
-                print(f"  -> Generating distributional insight plot for {agent_type}...")
-                # We need to reload the best agent to sample a state
-                env = LTMEnv(config=config)
-                agent = QRDQNAgent(config['agent'], env.observation_space, env.action_space)
-
-                # Determine path to best model
+                # Save "Best" for this specific run in models/
                 best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
-                if os.path.exists(best_dst):
-                    agent.load(best_dst)
+                shutil.copy(best_seed_path, best_dst)
 
-                    state, _ = env.reset()
-                    # Sample a few steps to get a meaningful state
-                    for _ in range(50):
-                        state, _, d, _, _ = env.step(agent.select_action(state, 0))
-                        if d: break
+            # Generate Quantile Plot if it's QRDQN
+            if agent_type.lower() == "qrdqn":
+                if not args.no_save:
+                    print(f"  -> Generating distributional insight plot for {agent_type}...")
+                    # We need to reload the best agent to sample a state
+                    env = LTMEnv(config=config)
+                    agent = QRDQNAgent(config['agent'], env.observation_space, env.action_space)
 
-                    q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
-                    plot_quantiles(agent, state, save_path=q_save_path)
-                
-                env.close()
+                    # Determine path to best model
+                    best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
+                    if os.path.exists(best_dst):
+                        agent.load(best_dst)
+
+                        state, _ = env.reset()
+                        # Sample a few steps to get a meaningful state
+                        for _ in range(50):
+                            state, _, d, _, _ = env.step(agent.select_action(state, 0))
+                            if d: break
+
+                        q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
+                        plot_quantiles(agent, state, save_path=q_save_path)
+                    
+                    env.close()
 
     if not args.no_save:
         # AUTO-PLOT in figures/
