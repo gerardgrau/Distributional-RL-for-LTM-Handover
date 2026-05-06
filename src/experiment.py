@@ -57,15 +57,16 @@ def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: st
         state, _ = eval_env.reset()
         done = False
         last_info = {}
+        episode_reward = 0
         
         while not done:
             # Pure greedy selection (Frozen weights, No exploration)
             action = agent.select_action(state, epsilon=0.0)
             state, reward, done, _, info = eval_env.step(action)
+            episode_reward += reward
             if done:
                 last_info = info
                 
-        # Calculate 8 metrics for this user
         m8 = calculate_8_metrics(
             mcs_history=last_info["metrics"]["mcs"],
             rlf_history=last_info["metrics"]["rlf"],
@@ -76,6 +77,7 @@ def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: st
             pl3_history=last_info["metrics"]["pl3"],
             config=config
         )
+        m8['reward'] = episode_reward
         all_eval_metrics.append(m8)
         
         if (ep + 1) % 100 == 0:
@@ -87,15 +89,22 @@ def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: st
     df = pd.DataFrame(all_eval_metrics)
     summary = {
         "mean": df.mean().to_dict(),
-        "std": df.std().to_dict(),
-        "raw_episodes": all_eval_metrics
+        "std": df.std().to_dict()
     }
     
-    # Save to JSON
+    # Save to files
     if save_results:
-        eval_file = os.path.join(experiment_dir, "output", f"{agent_type}_eval_seed{seed}.json")
-        with open(eval_file, 'w') as f:
+        eval_dir = os.path.join(experiment_dir, "eval")
+        os.makedirs(eval_dir, exist_ok=True)
+        
+        # 1. Save Summary JSON (Mean/Std)
+        eval_json = os.path.join(eval_dir, f"{agent_type}_summary_seed{seed}.json")
+        with open(eval_json, 'w') as f:
             json.dump(summary, f, indent=4)
+            
+        # 2. Save Raw CSV (Per-episode metrics)
+        eval_csv = os.path.join(eval_dir, f"{agent_type}_raw_seed{seed}.csv")
+        df.to_csv(eval_csv, index_label="eval_episode")
         
     print(f"    -> Evaluation Complete. HO Rate: {summary['mean']['ho_rate']:.2f} ± {summary['std']['ho_rate']:.2f}")
     return summary['mean']
@@ -122,9 +131,9 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     
     buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
     
-    # Save CSV logs in experiment_dir/output/
+    # Save CSV logs in experiment_dir/train/
     if save_results:
-        log_file = os.path.join(experiment_dir, "output", f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
+        log_file = os.path.join(experiment_dir, "train", f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
         headers = ["episode", "reward", "loss", "steps", "wall_time", 
                    "capacity", "rlf_rate", "ho_rate", "pp_rate", 
                    "reliability", "prep_rate", "res_reservation", "hof_rate"]
@@ -247,10 +256,15 @@ def run_benchmark():
     experiment_dir = os.path.join(results_dir, f"bmk_{date_str}_{num}_{desc_slug}")
     
     if not args.no_save:
-        # Pre-create subdirectories
-        os.makedirs(os.path.join(experiment_dir, "output"), exist_ok=True)
+        # Pre-create subdirectories (Restructured)
+        os.makedirs(os.path.join(experiment_dir, "train"), exist_ok=True)
+        os.makedirs(os.path.join(experiment_dir, "eval"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "models"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "figures"), exist_ok=True)
+        
+        # Copy config file to experiment directory for provenance
+        shutil.copy(args.config, os.path.join(experiment_dir, "config.yaml"))
+        
         print(f"=== Starting Independent Benchmark: {experiment_dir} ===")
     else:
         print("=== Starting Profiling Run (No artifacts will be saved) ===")
@@ -307,7 +321,7 @@ def run_benchmark():
         # AUTO-PLOT in figures/
         print("\nGenerating performance plots...")
         fig_dir = os.path.join(experiment_dir, "figures")
-        csv_dir = os.path.join(experiment_dir, "output")
+        csv_dir = os.path.join(experiment_dir, "train")
         plot_learning_curves(csv_dir, save_path=os.path.join(fig_dir, "learning_curves.png"))
         plot_efficiency(csv_dir, metric="reward", save_path=os.path.join(fig_dir, "reward_vs_time.png"))
         plot_efficiency(csv_dir, metric="loss", save_path=os.path.join(fig_dir, "loss_vs_time.png"))

@@ -27,7 +27,7 @@ def evaluate(agent_type: str, model_path: str, num_episodes: int = 50, output_pa
     # Ensure we use 1000 UEs for full coverage as per the new protocol
     config['simulation']['ue_number'] = 1000
     
-    # New Protocol: All 1000 users are used for both training and evaluation
+    # New Protocol: All users are used for both training and evaluation
     env = LTMEnv(config=config)
     
     if agent_type.lower() == "dqn":
@@ -78,8 +78,7 @@ def evaluate(agent_type: str, model_path: str, num_episodes: int = 50, output_pa
     df = pd.DataFrame(all_metrics)
     summary = {
         "mean": df.mean().to_dict(),
-        "std": df.std().to_dict(),
-        "raw_episodes": all_metrics
+        "std": df.std().to_dict()
     }
     
     print(f"\n--- Evaluation Results (Mean ± Std) ---")
@@ -94,9 +93,23 @@ def evaluate(agent_type: str, model_path: str, num_episodes: int = 50, output_pa
         out_dir = os.path.dirname(output_path)
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
-        with open(output_path, 'w') as f:
+            
+        # 1. Save Summary JSON
+        if output_path.endswith(".json"):
+            json_path = output_path
+            csv_path = output_path.replace(".json", ".csv")
+        else:
+            json_path = output_path + ".json"
+            csv_path = output_path + ".csv"
+            
+        with open(json_path, 'w') as f:
             json.dump(summary, f, indent=4)
-        print(f"Results saved to {output_path}")
+            
+        # 2. Save Raw CSV
+        df.to_csv(csv_path, index_label="eval_episode")
+        
+        print(f"Summary saved to {json_path}")
+        print(f"Raw metrics saved to {csv_path}")
 
 if __name__ == "__main__":
     import argparse
