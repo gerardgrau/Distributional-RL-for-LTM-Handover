@@ -8,11 +8,12 @@ from datetime import datetime
 from tqdm import tqdm
 
 # Ensure src is in PYTHONPATH
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from src.distrl.utils.config import Config
 from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.agents.standard.dqn import DQNAgent
+from src.distrl.agents.distributional.qrdqn import QRDQNAgent
 from src.distrl.utils.replay_buffer import ReplayBuffer
 
 def run_device_benchmark(device_name: str, num_episodes: int = 10):
@@ -20,11 +21,9 @@ def run_device_benchmark(device_name: str, num_episodes: int = 10):
     config = Config.get()
     agent_config = config['agent']
     
-    # Force device
-    device = torch.device(device_name)
-    
+    # Use simulation time from config to reflect production workload
     env = LTMEnv(config=config)
-    agent = DQNAgent(agent_config, env.observation_space, env.action_space, device=device_name)
+    agent = QRDQNAgent(agent_config, env.observation_space, env.action_space, device=device_name)
     buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
     
     batch_size = agent_config.get('batch_size', 64)
@@ -44,6 +43,7 @@ def run_device_benchmark(device_name: str, num_episodes: int = 10):
             state = next_state
             total_steps += 1
             
+            # Train EVERY step once buffer is ready (Logic identical to src/main.py)
             if len(buffer) > batch_size:
                 agent.train_step(buffer.sample(batch_size, device=device_name))
         
@@ -67,7 +67,7 @@ def main():
         print("Intel XPU not detected or not available. Only CPU will be benchmarked.")
 
     results = {}
-    num_episodes = 20 # Increased to allow torch.compile to warm up
+    num_episodes = 60 # Definitive ~1h total run across CPU/XPU with QRDQN
     
     for d in devices_to_test:
         total_time, steps_per_sec = run_device_benchmark(d, num_episodes=num_episodes)

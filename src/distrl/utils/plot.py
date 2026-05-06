@@ -33,9 +33,9 @@ def plot_learning_curves(results_dir: str, save_path: Optional[str] = None):
         agent_data = all_data[all_data['agent'] == agent]
         grouped = agent_data.groupby('episode')['reward'].agg(['mean', 'std']).reset_index()
         
-        # Calculate Moving Average
-        window = 50
-        grouped['moving_avg'] = grouped['mean'].rolling(window=window, min_periods=1).mean()
+        # Calculate Moving Average (Centered)
+        window = 51
+        grouped['moving_avg'] = grouped['mean'].rolling(window=window, min_periods=1, center=True).mean()
         
         # Plot Raw Mean (Transparent)
         line = plt.plot(grouped['episode'], grouped['mean'], alpha=0.3)[0]
@@ -86,9 +86,9 @@ def plot_efficiency(results_dir: str, metric: str = "reward", save_path: Optiona
         # Aggregate trend
         grouped = agent_data.groupby('episode')[['wall_time', metric]].mean().reset_index()
         
-        # Calculate Moving Average
-        window = 50
-        grouped['moving_avg'] = grouped[metric].rolling(window=window, min_periods=1).mean()
+        # Calculate Moving Average (Centered)
+        window = 51
+        grouped['moving_avg'] = grouped[metric].rolling(window=window, min_periods=1, center=True).mean()
         
         # Plot Aggregate Trend (Transparent)
         line = plt.plot(grouped['wall_time'], grouped[metric], alpha=0.3)[0]
