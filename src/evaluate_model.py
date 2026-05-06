@@ -119,7 +119,7 @@ if __name__ == "__main__":
     parser.add_argument("--agent", type=str, required=True, help="dqn or qrdqn")
     parser.add_argument("--model", type=str, required=True, help="Path to .pth file")
     parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file")
-    parser.add_argument("--episodes", type=int, default=50, help="Number of episodes")
+    parser.add_argument("--episodes", type=int, default=1000, help="Number of episodes")
     parser.add_argument("--output", type=str, help="Path to save JSON output")
     args = parser.parse_args()
     

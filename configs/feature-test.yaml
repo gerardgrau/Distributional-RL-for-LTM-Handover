@@ -1,5 +1,5 @@
 # Feature Test Configuration
-# Testing: 8 Metrics, CVaR, Small Quantiles (N=10), Train/Test Split
+# Testing: 8 Metrics, CVaR, Small Quantiles (N=10), Full-Dataset Protocol
 system:
   tx_power: 25
   noise_level: -174
