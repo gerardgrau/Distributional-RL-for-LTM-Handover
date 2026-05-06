@@ -4,6 +4,7 @@ import os
 import sys
 import pandas as pd
 import json
+from tqdm import tqdm
 from typing import Any
 
 # Ensure src is in PYTHONPATH
@@ -45,9 +46,8 @@ def evaluate(agent_type: str, model_path: str, config_path: str = "configs/confi
     all_metrics = []
     
     actual_episodes = min(num_episodes, len(env.files))
-    print(f"Evaluating on {actual_episodes} trajectories...")
-
-    for ep in range(actual_episodes):
+    
+    for ep in tqdm(range(actual_episodes), desc="Evaluating"):
         state, _ = env.reset()
         done = False
         last_info = {}
@@ -74,8 +74,6 @@ def evaluate(agent_type: str, model_path: str, config_path: str = "configs/confi
         )
         m8['reward'] = episode_reward
         all_metrics.append(m8)
-        if (ep+1) % 10 == 0:
-            print(f"  Progress: {ep+1}/{actual_episodes}")
 
     df = pd.DataFrame(all_metrics)
     summary = {
