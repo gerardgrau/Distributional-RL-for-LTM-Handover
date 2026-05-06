@@ -30,7 +30,7 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
 - **Performance**: Environment is highly optimized for **CPU-bound NumPy vectorization** (~5,250 steps/s, 23x speedup).
   - **Global Caching**: 1,000-user in-RAM trajectory cache (~11GB footprint).
   - **O(1) Complexity**: Observation moving averages use running sums.
-- **Hardware Selection**: Always use **CPU** for training/benchmarking (2.5x faster than XPU for this workload). Select via `--device cpu` CLI flag.
+- **Hardware Selection**: Always use **CPU** for training/benchmarking. Definitive QRDQN benchmarks show the **CPU (~93 steps/s) is 13% faster than XPU (~82 steps/s)** for the standard training workload. Select via `--device cpu` CLI flag.
 - **Type Safety**: Fully modernized with Python 3.10+ type hints (`|` union, `dict[str, Any]`, etc.).
 
 ---
