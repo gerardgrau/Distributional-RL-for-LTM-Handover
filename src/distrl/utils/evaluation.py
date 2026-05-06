@@ -64,7 +64,7 @@ def run_evaluation(
     df = pd.DataFrame(all_eval_metrics)
     summary = {
         "mean": df.mean().to_dict(),
-        "std": df.std().fillna(0.0).to_dict()
+        "std": df.std().to_dict()
     }
     
     # Save to files
