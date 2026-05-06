@@ -69,19 +69,11 @@ def run_evaluation(
     # Save to files
     if save_results:
         if output_prefix:
-            # If explicit prefix provided, use it directly
-            base_path = output_prefix
-            if base_path.endswith(".csv"):
-                base_path = base_path.rsplit('.', 1)[0]
-            
-            # Smart suffixing: only append if not already there
-            summary_csv = base_path if "_summary" in base_path else f"{base_path}_summary"
-            raw_csv = base_path if "_raw" in base_path else f"{base_path}_raw"
-            
-            summary_csv += ".csv"
-            raw_csv += ".csv"
+            # Predictable naming: always append suffixes to the user prefix
+            summary_csv = f"{output_prefix}_summary.csv"
+            raw_csv = f"{output_prefix}_raw.csv"
         else:
-            # Default behavior for benchmarks
+            # Default behavior for benchmarks (organized in folders)
             eval_dir = os.path.join(experiment_dir, "eval")
             os.makedirs(eval_dir, exist_ok=True)
             summary_csv = os.path.join(eval_dir, f"{agent_type}_summary_seed{seed}.csv")
