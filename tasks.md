@@ -9,6 +9,9 @@
 # Feina a fer:
 
 1. Executar el benchmark definitiu (5000 ep) amb les noves mètriques i CVaR.
+com es calcula ho_rate i hof_rate? (tinc més `hof` que `ho`!)
+Anar pensant títol, subtítol, estructura del document a entregar
+
 
 # Possible feina a fer:
 - Canviar hiperparàmetres del reward (alpha_ho...)
@@ -17,3 +20,5 @@
 
 # Preguntes:
 Train / test split per les 8 mètriques finals? Quins usuaris?
+- Entrenar amb tots els 1000 (i evaluar amb tots els 1000 quan acabi, congelar model i eps=0)
+

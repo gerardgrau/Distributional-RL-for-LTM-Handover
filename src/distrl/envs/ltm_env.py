@@ -417,6 +417,7 @@ def run_simulation():
             # print(f"sample={t}, ServingBSSector={ServingBSSector[t]}")
             if ServingBSSector[t] > 0 and not RLF[t]:
                 # cell search
+                # ! 
 
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
@@ -536,6 +537,7 @@ def run_simulation():
                 ListBSPrepared, # ! TODO: no passa res per no filtrar per prepared
                 PL1_report > (PL1_report[ServingBSSector[t]] + HO["Prep"]["ExecPowerOffset"])
             )
+            # !
 
             Tf = min(t + int(np.ceil((Time_MeasReportL1_67 + Time_HOdecision_8) / Time["TimeStep"])), Max_iter-1)
             while t < Tf:

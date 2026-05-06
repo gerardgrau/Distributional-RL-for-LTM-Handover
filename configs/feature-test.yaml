@@ -1,0 +1,55 @@
+# Feature Test Configuration
+# Testing: 8 Metrics, CVaR, Small Quantiles (N=10), Train/Test Split
+system:
+  tx_power: 25
+  noise_level: -174
+  receiver_sensitivity: -95
+
+simulation:
+  total_sim_time: 300         # Full 300s episodes
+  time_step: 0.01
+  ue_number: 1000             # Use full pool for diversity
+  bs_number: 7
+  train_split: 0.8            # 800 train, 200 eval
+
+agent:
+  type: "qrdqn"
+  hidden_dims: [128, 128]
+  lr: 1e-4
+  gamma: 0.99
+  tau: 0.005
+  target_update_freq: 1000
+  buffer_size: 50000
+  batch_size: 64
+  num_quantiles: 10           # Smaller quantile count as requested
+  risk_type: "cvar"           # CVaR Active
+  risk_fraction: 0.1          # Bottom 10%
+  epsilon_start: 1.0
+  epsilon_end: 0.05
+  epsilon_mult: 0.995
+  num_episodes: 40            # ~20-25 mins total including eval
+
+benchmark:
+  num_seeds: 1
+  results_dir: "results/benchmarks"
+  env_type: "ltm"
+
+ho_reward:
+  alpha_hof: 0.1
+  alpha_ho: 0.8
+  alpha_pp: 0.9
+
+ho_state:
+  moving_average_window: 50
+
+ho_prep:
+  periodicity_rsrp_measurement: 0.02
+  average_rsrp_measurement_nl1: 10
+  kl3: 8
+  preparation_power_offset: -3
+  preparation_time: 0.04
+  exec_power_offset: 3
+  max_number_prepared_bs: 5
+
+paths:
+  channel_data_directory: "data/ChannelGains"

@@ -6,6 +6,7 @@ import time
 import csv
 import shutil
 import pandas as pd
+import json
 from datetime import datetime
 from typing import Any
 
@@ -36,18 +37,21 @@ class CSVLogger:
 
 def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: str, seed: int, device: str, save_results: bool = True) -> dict[str, float]:
     """
-    Evaluates the frozen agent on unseen trajectories (Eval Set).
+    Evaluates the frozen agent on ALL trajectories (1000 UEs) with epsilon=0.
     """
     print(f"    -> Starting Formal Evaluation Phase (Seed {seed})...")
-    eval_env = LTMEnv(config=config, mode="eval")
+    
+    # Use a fresh environment instance to ensure deterministic evaluation over all 1000 users
+    eval_env = LTMEnv(config=config)
     num_eval_episodes = len(eval_env.files)
     
     if num_eval_episodes == 0:
-        print("    -> Skipping Evaluation: No unseen trajectories in test split.")
+        print("    -> Skipping Evaluation: No trajectories found.")
         eval_env.close()
         return {}
 
     all_eval_metrics = []
+    print(f"    -> Evaluating on all {num_eval_episodes} trajectories...")
     
     for ep in range(num_eval_episodes):
         state, _ = eval_env.reset()
@@ -55,13 +59,13 @@ def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: st
         last_info = {}
         
         while not done:
-            # Pure greedy selection
+            # Pure greedy selection (Frozen weights, No exploration)
             action = agent.select_action(state, epsilon=0.0)
             state, reward, done, _, info = eval_env.step(action)
             if done:
                 last_info = info
                 
-        # Calculate 8 metrics for this unseen user
+        # Calculate 8 metrics for this user
         m8 = calculate_8_metrics(
             mcs_history=last_info["metrics"]["mcs"],
             rlf_history=last_info["metrics"]["rlf"],
@@ -74,21 +78,27 @@ def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: st
         )
         all_eval_metrics.append(m8)
         
+        if (ep + 1) % 100 == 0:
+            print(f"       Progress: {ep+1}/{num_eval_episodes} evaluated.")
+        
     eval_env.close()
     
     # Aggregate results
     df = pd.DataFrame(all_eval_metrics)
-    summary = df.mean().to_dict()
+    summary = {
+        "mean": df.mean().to_dict(),
+        "std": df.std().to_dict(),
+        "raw_episodes": all_eval_metrics
+    }
     
     # Save to JSON
     if save_results:
-        import json
         eval_file = os.path.join(experiment_dir, "output", f"{agent_type}_eval_seed{seed}.json")
         with open(eval_file, 'w') as f:
             json.dump(summary, f, indent=4)
         
-    print(f"    -> Evaluation Complete. HO Rate: {summary['ho_rate']:.2f}, Reliability: {summary['reliability_pct']:.2f}%")
-    return summary
+    print(f"    -> Evaluation Complete. HO Rate: {summary['mean']['ho_rate']:.2f} ± {summary['std']['ho_rate']:.2f}")
+    return summary['mean']
 
 def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment_dir: str, 
              run_idx: int, total_runs: int, bench_start_time: float, 
@@ -148,7 +158,7 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             if done:
                 last_info = info
         
-        # Calculate LTM metrics at end of episode
+        # Calculate LTM metrics at end of episode (Tracking during training)
         metrics_8 = calculate_8_metrics(
             mcs_history=last_info["metrics"]["mcs"],
             rlf_history=last_info["metrics"]["rlf"],
@@ -193,7 +203,7 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         agent.save(model_path)
         
     # --- FORMAL EVALUATION PROTOCOL ---
-    # Evaluate on unseen users from the test split
+    # Evaluate on ALL users after training finishes
     run_evaluation(agent, config, experiment_dir, agent_type, seed, device, save_results=save_results)
 
     env.close()
@@ -206,6 +216,7 @@ def run_benchmark():
     parser.add_argument("--no_save", action="store_true", help="Do not save any results, logs, or plots")
     parser.add_argument("--device", type=str, default="cpu", help="Execution device (cpu, cuda, xpu)")
     parser.add_argument("--description", type=str, default="benchmark", help="Short description for the benchmark")
+    parser.add_argument("--agents", type=str, default="dqn,qrdqn", help="Comma-separated list of agents to run")
     args = parser.parse_args()
 
     Config.set_config_path(args.config)
@@ -214,7 +225,8 @@ def run_benchmark():
     device = args.device
     
     bench_cfg = config['benchmark']
-    agent_types = ["dqn", "qrdqn"]
+    agent_types = [a.strip().lower() for a in args.agents.split(",")]
+    
     # --- PERFORMANCE OPTIMIZATION: Unique Naming Convention ---
     # Format: bmk_YYYY-MM-DD_num_description
     now = datetime.now()
@@ -222,7 +234,7 @@ def run_benchmark():
     timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
     desc_slug = args.description.replace(" ", "-")
     results_dir = bench_cfg['results_dir']
-
+    
     num = 1
     import glob
     while True:
@@ -231,16 +243,15 @@ def run_benchmark():
         if not glob.glob(pattern):
             break
         num += 1
-
+    
     experiment_dir = os.path.join(results_dir, f"bmk_{date_str}_{num}_{desc_slug}")
-
+    
     if not args.no_save:
         # Pre-create subdirectories
         os.makedirs(os.path.join(experiment_dir, "output"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "models"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "figures"), exist_ok=True)
         print(f"=== Starting Independent Benchmark: {experiment_dir} ===")
-
     else:
         print("=== Starting Profiling Run (No artifacts will be saved) ===")
     
@@ -305,7 +316,7 @@ def run_benchmark():
         metadata = {
             "timestamp": timestamp,
             "total_execution_time_seconds": time.time() - bench_start_time,
-            "device": args.device,
+            "device": device,
             "config": config
         }
         
