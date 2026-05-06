@@ -7,7 +7,7 @@ from typing import Any
 import os
 
 from src.distrl.agents.base import BaseAgent
-from src.distrl.models.networks import MLPTrunk, QuantileHead, UnifiedQNet
+from src.distrl.agents.networks import MLPTrunk, QuantileHead, UnifiedQNet
 
 class QRDQNAgent(BaseAgent):
     """

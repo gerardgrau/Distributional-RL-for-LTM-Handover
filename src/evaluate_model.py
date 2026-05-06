@@ -3,8 +3,6 @@ import numpy as np
 import os
 import sys
 import pandas as pd
-import json
-from tqdm import tqdm
 from typing import Any
 
 # Ensure src is in PYTHONPATH
@@ -14,21 +12,20 @@ from src.distrl.utils.config import Config
 from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
-from src.distrl.utils.metrics import calculate_8_metrics
+from src.distrl.utils.evaluation import run_evaluation
 
-def evaluate(agent_type: str, model_path: str, config_path: str = "configs/config.yaml", num_episodes: int = 50, output_path: str = None):
-    print(f"\n--- Starting Evaluation ---")
-    print(f"Agent: {agent_type}")
-    print(f"Model: {model_path}")
+def evaluate(agent_type: str, model_path: str, config_path: str = "configs/config.yaml", episodes: int = 1000, output: str = None):
+    print(f"\n--- Starting Standalone Evaluation ---")
+    print(f"Agent:  {agent_type}")
+    print(f"Model:  {model_path}")
     print(f"Config: {config_path}")
-    print(f"Target Episodes: {num_episodes}")
     
     # Load custom config
     Config.set_config_path(config_path)
     config = Config.get()
     
-    # Ensure we use 1000 UEs for full coverage as per the new protocol
-    config['simulation']['ue_number'] = 1000
+    # Ensure we use the correct number of UEs
+    # Note: run_evaluation defaults to all available files if we don't constrain it.
     
     # New Protocol: All users are used for both training and evaluation
     env = LTMEnv(config=config)
@@ -43,79 +40,23 @@ def evaluate(agent_type: str, model_path: str, config_path: str = "configs/confi
     print("Loading weights...")
     agent.load(model_path)
     
-    all_metrics = []
-    
-    actual_episodes = min(num_episodes, len(env.files))
-    
-    for ep in tqdm(range(actual_episodes), desc="Evaluating"):
-        state, _ = env.reset()
-        done = False
-        last_info = {}
-        episode_reward = 0
+    # Setup directory for results if output is provided
+    experiment_dir = "."
+    if output:
+        experiment_dir = os.path.dirname(output) or "."
+        os.makedirs(experiment_dir, exist_ok=True)
         
-        while not done:
-            # Epsilon = 0 for pure greedy evaluation
-            action = agent.select_action(state, epsilon=0.0)
-            state, reward, done, _, info = env.step(action)
-            episode_reward += reward
-            if done:
-                last_info = info
-        
-        # Calculate the 8 metrics
-        m8 = calculate_8_metrics(
-            mcs_history=last_info["metrics"]["mcs"],
-            rlf_history=last_info["metrics"]["rlf"],
-            ho_history=last_info["metrics"]["ho"],
-            hof_history=last_info["metrics"]["hof"],
-            pp_history=last_info["metrics"]["pp"],
-            serving_history=last_info["metrics"]["serving"],
-            pl3_history=last_info["metrics"]["pl3"],
-            config=config
-        )
-        m8['reward'] = episode_reward
-        all_metrics.append(m8)
+    # Use the unified evaluation utility
+    run_evaluation(
+        agent=agent,
+        config=config,
+        experiment_dir=experiment_dir,
+        agent_type=agent_type,
+        seed=42,
+        save_results=True if output else False
+    )
 
-    df = pd.DataFrame(all_metrics)
-    summary = {
-        "mean": df.mean().to_dict(),
-        "std": df.std().to_dict()
-    }
-    
-    print(f"\n--- Evaluation Results (Mean ± Std) ---")
-    print(f"Capacity (bps):      {summary['mean']['capacity_avg']:.2f} ± {summary['std']['capacity_avg']:.2f}")
-    print(f"RLF Rate (per min):  {summary['mean']['rlf_rate']:.2f} ± {summary['std']['rlf_rate']:.2f}")
-    print(f"HO Rate (per min):   {summary['mean']['ho_rate']:.2f} ± {summary['std']['ho_rate']:.2f}")
-    print(f"Reliability (%):     {summary['mean']['reliability_pct']:.2f} ± {summary['std']['reliability_pct']:.2f}")
-    print(f"Total Reward:        {summary['mean']['reward']:.2f} ± {summary['std']['reward']:.2f}")
-    print(f"----------------------------------------\n")
-
-    if output_path:
-        out_dir = os.path.dirname(output_path)
-        if out_dir:
-            os.makedirs(out_dir, exist_ok=True)
-            
-        # Ensure path ends with _summary.csv or similar if not provided
-        if output_path.endswith(".json") or output_path.endswith(".csv"):
-            base_path = output_path.rsplit('.', 1)[0]
-        else:
-            base_path = output_path
-
-        summary_csv = base_path + "_summary.csv"
-        raw_csv = base_path + "_raw.csv"
-            
-        # 1. Save Summary CSV (Metric, Mean, Std)
-        summary_df = pd.DataFrame({
-            "metric": summary["mean"].keys(),
-            "mean": summary["mean"].values(),
-            "std": summary["std"].values()
-        })
-        summary_df.to_csv(summary_csv, index=False)
-            
-        # 2. Save Raw CSV (Per-episode metrics)
-        df.to_csv(raw_csv, index_label="eval_episode")
-        
-        print(f"Summary saved to {summary_csv}")
-        print(f"Raw metrics saved to {raw_csv}")
+    env.close()
 
 if __name__ == "__main__":
     import argparse
@@ -123,8 +64,8 @@ if __name__ == "__main__":
     parser.add_argument("--agent", type=str, required=True, help="dqn or qrdqn")
     parser.add_argument("--model", type=str, required=True, help="Path to .pth file")
     parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file")
-    parser.add_argument("--episodes", type=int, default=1000, help="Number of episodes")
-    parser.add_argument("--output", type=str, help="Path to save JSON output")
+    parser.add_argument("--episodes", type=int, default=1000, help="Number of episodes (unused, always uses full dataset)")
+    parser.add_argument("--output", type=str, help="Path to save evaluation summary CSV")
     args = parser.parse_args()
     
     evaluate(args.agent, args.model, args.config, args.episodes, args.output)

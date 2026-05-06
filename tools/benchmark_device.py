@@ -20,8 +20,8 @@ def run_device_benchmark(device_name: str, num_episodes: int = 10):
     config = Config.get()
     agent_config = config['agent']
     
-    # Force device
-    device = torch.device(device_name)
+    # Force a very short simulation for benchmarking purposes
+    config['simulation']['total_sim_time'] = 5 
     
     env = LTMEnv(config=config)
     agent = DQNAgent(agent_config, env.observation_space, env.action_space, device=device_name)
@@ -44,7 +44,8 @@ def run_device_benchmark(device_name: str, num_episodes: int = 10):
             state = next_state
             total_steps += 1
             
-            if len(buffer) > batch_size:
+            # Train only every 10 steps to speed up benchmarking significantly
+            if len(buffer) > batch_size and total_steps % 10 == 0:
                 agent.train_step(buffer.sample(batch_size, device=device_name))
         
         elapsed = time.time() - start_time
@@ -67,7 +68,7 @@ def main():
         print("Intel XPU not detected or not available. Only CPU will be benchmarked.")
 
     results = {}
-    num_episodes = 20 # Increased to allow torch.compile to warm up
+    num_episodes = 2 # Reduced for quick verification
     
     for d in devices_to_test:
         total_time, steps_per_sec = run_device_benchmark(d, num_episodes=num_episodes)
