@@ -5,6 +5,7 @@ import sys
 import time
 import matplotlib.pyplot as plt
 from datetime import datetime
+from tqdm import tqdm
 
 # Ensure src is in PYTHONPATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
@@ -32,7 +33,8 @@ def run_device_benchmark(device_name: str, num_episodes: int = 10):
     start_time = time.time()
     total_steps = 0
     
-    for ep in range(num_episodes):
+    pbar = tqdm(range(num_episodes), desc=f"Benchmarking {device_name.upper()}")
+    for ep in pbar:
         state, _ = env.reset(seed=42)
         done = False
         while not done:
@@ -45,9 +47,8 @@ def run_device_benchmark(device_name: str, num_episodes: int = 10):
             if len(buffer) > batch_size:
                 agent.train_step(buffer.sample(batch_size, device=device_name))
         
-        if (ep + 1) % 2 == 0:
-            elapsed = time.time() - start_time
-            print(f"  Episode {ep+1}/{num_episodes} | Steps: {total_steps} | Elapsed: {elapsed:.2f}s")
+        elapsed = time.time() - start_time
+        pbar.set_postfix({"steps": total_steps, "elapsed": f"{elapsed:.1f}s"})
 
     end_time = time.time()
     total_time = end_time - start_time

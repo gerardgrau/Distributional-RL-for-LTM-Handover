@@ -20,37 +20,37 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
 - **Reward Formula**: Multiplicative Ainna-Reward.
   - $R = R_{thr} \cdot (\alpha_{HO}^{ind_{HO}} \cdot \alpha_{PP}^{ind_{PP}} \cdot \alpha_{HOF}^{ind_{HOF}}) \cdot \text{reliability\_factor}$
   - Alphas: $\alpha_{HOF}=0.1, \alpha_{HO}=0.8, \alpha_{PP}=0.9$.
+- **Research Protocol**: **Full Dataset Protocol**. Agents are trained on all 1,000 trajectories and definitively evaluated on the same 1,000 trajectories with frozen weights and $\epsilon=0$.
 
 ---
 
 ## 3. Engineering Standards
 - **Architecture**: Modular structure in `src/distrl/` isolating `envs`, `agents`, `models`, and `utils`.
-- **Frameworks**: PyTorch 2.0+ (utilizing `torch.compile`), Gymnasium, NumPy, SciPy.
-- **Hardware Sympathy**: Environment is heavily optimized for **CPU-bound NumPy vectorization**. CPU mode is 2.5x faster than XPU for this workload. Default execution device is set via the `--device` CLI flag (defaults to `cpu`).
+- **Frameworks**: PyTorch 2.0+, Gymnasium, NumPy, SciPy.
+- **Performance**: Environment is highly optimized for **CPU-bound NumPy vectorization** (~5,250 steps/s, 23x speedup).
+  - **Global Caching**: 1,000-user in-RAM trajectory cache (~11GB footprint).
+  - **O(1) Complexity**: Observation moving averages use running sums.
+- **Hardware Selection**: Always use **CPU** for training/benchmarking (2.5x faster than XPU for this workload). Select via `--device cpu` CLI flag.
 - **Type Safety**: Fully modernized with Python 3.10+ type hints (`|` union, `dict[str, Any]`, etc.).
 
 ---
 
-## 4. Benchmark & Visualization Results
-- **Success Case**: Both agents successfully navigate the 300s journey with the 88-dim state.
-- **DQN Observation**: Standard DQN shows high variance and instability (e.g., higher HOF/PP frequency) in noisy environments.
-- **QRDQN Observation**: Superior stability by modeling the return distribution. Risk analysis via quantile plots shows narrower distributions in stable regions and wider, multi-modal spreads during handover transitions.
-- **Risk-Averse Policy**: Supports **Conditional Value-at-Risk (CVaR)** selection. By choosing actions based on the mean of the bottom $k$ quantiles, the agent can prioritize reliability in high-interference zones.
-- **Evaluation Protocol**: Implements a formal **Train/Test Split** (80/20). Agents are trained on 800 trajectories and definitively evaluated on 200 unseen trajectories with frozen weights and $\epsilon=0$.
+## 4. Evaluation & Reporting
 - **8 Metrics Suite**: Automated calculation of Capacity, RLF, HO Rate, Ping-Pong, Reliability, Cell Preparation, Resource Reservation, and HOF Rate.
-- **Hardcore Benchmark (2026-04-23)**: 500-episode multi-seed run completed. Artifacts in `results/benchmarks/benchmark_2026-04-23_20-30-46/`.
-- **Optimization Artifacts**: The environment is now optimized to ~5,200 steps/s utilizing trajectory caching and vectorized HOF logic.
+- **Dual Reporting**: Every evaluation generates a **JSON Summary** (Mean ± Std) and a **Raw CSV** (per-episode data).
+- **Branch Strategy**: Use feature branches (e.g., `refactor-dataset-all-1000`) and Pull Requests for all modifications.
+- **Benchmark Naming**: Follow the convention `bmk_YYYY-MM-DD_num_description`.
 
 ---
 
 ## 5. Workflow & Planning
-- **Agentic Task Planning**: ALL agentic task planning and track management must go through the **Conductor** extension. Refer to `conductor/GEMINI.md` for specific planning protocols, track management rules, and the universal file resolution protocol.
-- **Track Management**: No major changes should be implemented without an active Conductor track and an approved implementation plan (`plan.md`).
+- **Agentic Task Planning**: ALL agentic task planning and track management must go through the **Conductor** extension. Refer to `conductor/GEMINI.md` for specific planning protocols and track management rules.
+- **Reproducibility**: `src/experiment.py` copies the active `config.yaml` into every benchmark folder.
 
 ---
 
 ## 6. Project Conventions & Rules
-- **Distributed `.gitignore`**: To keep the repository clean while tracking folder structures, use local `.gitignore` files in subdirectories (e.g., `results/models/`, `results/benchmarks/`) with local rules (prefix `/`, e.g., `/*.pth`).
-- **Maintenance Policy**: This file (`GEMINI.md`) is the ground truth context and must be updated with any change to the state space, reward formula, or architecture.
+- **Configuration**: All YAML files must reside in the `configs/` directory.
 - **Python Path**: Always export the `src` directory to ensure correct package resolution:
   `export PYTHONPATH=$PYTHONPATH:$(pwd)/src`
+- **Maintenance Policy**: This file (`GEMINI.md`) is the ground truth context and must be updated with any change to the state space, reward formula, or architecture.

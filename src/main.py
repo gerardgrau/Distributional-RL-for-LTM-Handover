@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import os
 import sys
+from tqdm import tqdm
 
 # Ensure src is in PYTHONPATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
@@ -55,7 +56,8 @@ def run_experiment():
     eps_end = agent_cfg.get('epsilon_end', 0.05)
     batch_size = agent_cfg.get('batch_size', 64)
     
-    for ep in range(num_episodes):
+    pbar = tqdm(range(num_episodes), desc="Training")
+    for ep in pbar:
         state, _ = env.reset()
         episode_reward = 0
         done = False
@@ -81,8 +83,7 @@ def run_experiment():
             # Logarithmic epsilon
             epsilon = max(eps_end, epsilon*eps_mult)
             
-        if (ep + 1) % 5 == 0 or ep == 0:
-            print(f"Episode {ep+1}/{num_episodes} | Reward: {episode_reward:.2f} | Epsilon: {epsilon:.2f}")
+        pbar.set_postfix({"reward": f"{episode_reward:.1f}", "eps": f"{epsilon:.2f}"})
 
     print("Experiment completed successfully.")
     

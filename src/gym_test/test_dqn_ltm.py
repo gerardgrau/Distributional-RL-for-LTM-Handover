@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import os
 import sys
+from tqdm import tqdm
 
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
@@ -34,7 +35,8 @@ def train_ltm_minimal():
     num_episodes = 20
     epsilon = config["epsilon_start"]
     
-    for ep in range(num_episodes):
+    pbar = tqdm(range(num_episodes), desc="DQN Test")
+    for ep in pbar:
         state, _ = env.reset()
         episode_reward = 0
         done = False
@@ -53,7 +55,7 @@ def train_ltm_minimal():
             # Decay epsilon per step
             epsilon = max(config["epsilon_end"], epsilon * config['epsilon_mult'])
             
-        print(f"Episode {ep+1}/{num_episodes} | Reward: {episode_reward:.2f} | Epsilon: {epsilon:.2f}")
+        pbar.set_postfix({"reward": f"{episode_reward:.1f}"})
 
     print("DQN LTM-HO validation successful.")
 

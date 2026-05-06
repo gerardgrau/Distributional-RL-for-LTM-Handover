@@ -7,6 +7,7 @@ import csv
 import shutil
 import pandas as pd
 import json
+from tqdm import tqdm
 from datetime import datetime
 from typing import Any
 
@@ -51,9 +52,8 @@ def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: st
         return {}
 
     all_eval_metrics = []
-    print(f"    -> Evaluating on all {num_eval_episodes} trajectories...")
     
-    for ep in range(num_eval_episodes):
+    for ep in tqdm(range(num_eval_episodes), desc=f"    Eval {agent_type}", leave=False):
         state, _ = eval_env.reset()
         done = False
         last_info = {}
@@ -79,9 +79,6 @@ def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: st
         )
         m8['reward'] = episode_reward
         all_eval_metrics.append(m8)
-        
-        if (ep + 1) % 100 == 0:
-            print(f"       Progress: {ep+1}/{num_eval_episodes} evaluated.")
         
     eval_env.close()
     
@@ -110,9 +107,7 @@ def run_evaluation(agent: Any, config: dict, experiment_dir: str, agent_type: st
     return summary['mean']
 
 def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment_dir: str, 
-             run_idx: int, total_runs: int, bench_start_time: float, 
-             device: str = "cpu", save_results: bool = True) -> float:
-    print(f"  -> Starting Run {run_idx+1}/{total_runs}: {agent_type} (Seed {seed}) on {device}...")
+             pbar: tqdm, device: str = "cpu", save_results: bool = True) -> float:
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -195,15 +190,13 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             ])
         rewards_history.append(episode_reward)
         
-        if (ep+1) % 100 == 0 or (ep+1 <= 50 and (ep+1) % 10 == 0):
-            total_elapsed = time.time() - bench_start_time
-            total_eps_done = (run_idx * num_episodes) + (ep + 1)
-            total_eps_overall = total_runs * num_episodes
-            avg_time_per_ep = total_elapsed / total_eps_done
-            remaining_eps = total_eps_overall - total_eps_done
-            eta_seconds = avg_time_per_ep * remaining_eps
-            eta_str = time.strftime('%H:%M:%S', time.gmtime(eta_seconds))
-            print(f"    Run {run_idx+1}/{total_runs} | Ep {ep+1}/{num_episodes} | Avg Reward: {np.mean(rewards_history[-10:]):.2f} | Time: {total_elapsed:.1f}s | ETA: {eta_str}")
+        # Update progress bar
+        pbar.update(1)
+        pbar.set_postfix({
+            "agent": agent_type,
+            "seed": seed,
+            "reward": f"{np.mean(rewards_history[-10:]):.1f}"
+        })
 
     # SAVE MODEL FOR THIS SEED in experiment_dir/models/
     if save_results:
@@ -271,51 +264,50 @@ def run_benchmark():
     
     bench_start_time = time.time()
     total_runs = len(agent_types) * bench_cfg['num_seeds']
-    run_idx = 0
+    num_episodes = config['agent'].get('num_episodes', 20)
+    total_eps_overall = total_runs * num_episodes
     
-    for agent_type in agent_types:
-        print(f"\nBenchmarking Agent: {agent_type}")
-        best_reward = -np.inf
-        best_seed_path = ""
-        
-        for s in range(bench_cfg['num_seeds']):
-            seed = 42 + s
-            final_reward = run_seed(agent_type, bench_cfg['env_type'], seed, config, experiment_dir,
-                                    run_idx, total_runs, bench_start_time, 
-                                    device=device, save_results=not args.no_save)
-            run_idx += 1
-            if final_reward > best_reward:
-                best_reward = final_reward
-                best_seed_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
-        
-        if not args.no_save:
-            # Save "Best" for this specific run in models/
-            best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
-            shutil.copy(best_seed_path, best_dst)
-
-        # Generate Quantile Plot if it's QRDQN
-        if agent_type.lower() == "qrdqn":
+    with tqdm(total=total_eps_overall, desc="Benchmark Overall") as pbar:
+        for agent_type in agent_types:
+            best_reward = -np.inf
+            best_seed_path = ""
+            
+            for s in range(bench_cfg['num_seeds']):
+                seed = 42 + s
+                final_reward = run_seed(agent_type, bench_cfg['env_type'], seed, config, experiment_dir,
+                                        pbar, device=device, save_results=not args.no_save)
+                if final_reward > best_reward:
+                    best_reward = final_reward
+                    best_seed_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
+            
             if not args.no_save:
-                print(f"  -> Generating distributional insight plot for {agent_type}...")
-                # We need to reload the best agent to sample a state
-                env = LTMEnv(config=config)
-                agent = QRDQNAgent(config['agent'], env.observation_space, env.action_space)
-
-                # Determine path to best model
+                # Save "Best" for this specific run in models/
                 best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
-                if os.path.exists(best_dst):
-                    agent.load(best_dst)
+                shutil.copy(best_seed_path, best_dst)
 
-                    state, _ = env.reset()
-                    # Sample a few steps to get a meaningful state
-                    for _ in range(50):
-                        state, _, d, _, _ = env.step(agent.select_action(state, 0))
-                        if d: break
+            # Generate Quantile Plot if it's QRDQN
+            if agent_type.lower() == "qrdqn":
+                if not args.no_save:
+                    print(f"  -> Generating distributional insight plot for {agent_type}...")
+                    # We need to reload the best agent to sample a state
+                    env = LTMEnv(config=config)
+                    agent = QRDQNAgent(config['agent'], env.observation_space, env.action_space)
 
-                    q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
-                    plot_quantiles(agent, state, save_path=q_save_path)
-                
-                env.close()
+                    # Determine path to best model
+                    best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
+                    if os.path.exists(best_dst):
+                        agent.load(best_dst)
+
+                        state, _ = env.reset()
+                        # Sample a few steps to get a meaningful state
+                        for _ in range(50):
+                            state, _, d, _, _ = env.step(agent.select_action(state, 0))
+                            if d: break
+
+                        q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
+                        plot_quantiles(agent, state, save_path=q_save_path)
+                    
+                    env.close()
 
     if not args.no_save:
         # AUTO-PLOT in figures/

@@ -7,3 +7,4 @@ sumolib
 matplotlib
 networkx
 pandas
+tqdm
