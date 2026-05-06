@@ -185,15 +185,15 @@ def run_benchmark():
         os.makedirs(os.path.join(experiment_dir, "eval"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "models"), exist_ok=True)
         os.makedirs(os.path.join(experiment_dir, "figures"), exist_ok=True)
-        
         # Copy config file to experiment directory for provenance
         shutil.copy(args.config, os.path.join(experiment_dir, "config.yaml"))
-        
+
         print(f"=== Starting Independent Benchmark: {experiment_dir} ===")
-    else:
+        else:
         print("=== Starting Profiling Run (No artifacts will be saved) ===")
-    
-    bench_start_time = time.time()
+
+        bench_start_time = time.time()
+
     total_runs = len(agent_types) * bench_cfg['num_seeds']
     num_episodes = config['agent'].get('num_episodes', 20)
     total_eps_overall = total_runs * num_episodes
