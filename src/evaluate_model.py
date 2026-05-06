@@ -15,13 +15,15 @@ from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
 from src.distrl.utils.metrics import calculate_8_metrics
 
-def evaluate(agent_type: str, model_path: str, num_episodes: int = 50, output_path: str = None):
+def evaluate(agent_type: str, model_path: str, config_path: str = "configs/config.yaml", num_episodes: int = 50, output_path: str = None):
     print(f"\n--- Starting Evaluation ---")
     print(f"Agent: {agent_type}")
     print(f"Model: {model_path}")
+    print(f"Config: {config_path}")
     print(f"Target Episodes: {num_episodes}")
     
-    # Load config from configs/config.yaml (default)
+    # Load custom config
+    Config.set_config_path(config_path)
     config = Config.get()
     
     # Ensure we use 1000 UEs for full coverage as per the new protocol
@@ -116,8 +118,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent", type=str, required=True, help="dqn or qrdqn")
     parser.add_argument("--model", type=str, required=True, help="Path to .pth file")
+    parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file")
     parser.add_argument("--episodes", type=int, default=50, help="Number of episodes")
     parser.add_argument("--output", type=str, help="Path to save JSON output")
     args = parser.parse_args()
     
-    evaluate(args.agent, args.model, args.episodes, args.output)
+    evaluate(args.agent, args.model, args.config, args.episodes, args.output)
