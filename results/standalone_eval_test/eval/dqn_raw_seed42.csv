@@ -1,2 +1,0 @@
-eval_episode,capacity_avg,rlf_rate,ho_rate,pp_rate,reliability_pct,prep_rate,res_reservation_pct,hof_rate,total_steps,total_minutes,reward
-0,3.1671946666666666,0.1,0.32,0.02,95.24666666666667,17.82,15.942380952380953,0.1,30000,50.0,9210.720914948259
