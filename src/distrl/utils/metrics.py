@@ -49,12 +49,16 @@ def calculate_8_metrics(
     serving_history_int = serving_history.astype(int)
     valid_mask = serving_history_int != -1
     
-    pl3_serving = np.zeros(total_steps)
+    pl3_serving = np.zeros(total_steps, dtype=pl3_history.dtype)
     pl3_serving[valid_mask] = pl3_history[serving_history_int[valid_mask], np.where(valid_mask)[0]]
     
     # in_condition: [nbs, total_steps]
     in_condition = pl3_history > (pl3_serving + prep_offset)
     in_condition[:, ~valid_mask] = False
+    
+    # Explicit out_condition to match simulator logic (matches equality as not-leaving)
+    out_condition = pl3_history < (pl3_serving + prep_offset)
+    out_condition[:, ~valid_mask] = False
     
     # Vectorized list_bs_prepared logic
     # We use a stateful simulation but optimized with NumPy where possible.
@@ -64,8 +68,8 @@ def calculate_8_metrics(
     
     reserved_bs_sectors = np.zeros((nbs, total_steps), dtype=bool)
     list_bs_prepared = np.zeros(nbs, dtype=bool)
-    timer_entering = np.zeros(nbs)
-    timer_leaving = np.zeros(nbs)
+    timer_entering = np.zeros(nbs, dtype=pl3_history.dtype)
+    timer_leaving = np.zeros(nbs, dtype=pl3_history.dtype)
     
     # Optimization: Use a smaller loop only where necessary
     # Or even better: pre-calculate the thresholds
@@ -77,11 +81,12 @@ def calculate_8_metrics(
             timer_entering[:] = 0
             timer_leaving[:] = 0
         else:
-            cond = in_condition[:, t]
-            timer_entering = (timer_entering + time_step) * cond
+            cond_in = in_condition[:, t]
+            timer_entering = (timer_entering + time_step) * cond_in
             list_bs_prepared |= (timer_entering > prep_time_thresh)
 
-            timer_leaving = (timer_leaving + time_step) * (~cond)
+            cond_out = out_condition[:, t]
+            timer_leaving = (timer_leaving + time_step) * cond_out
             list_bs_prepared &= ~(timer_leaving > prep_time_thresh)
 
             if np.sum(list_bs_prepared) > max_prep:

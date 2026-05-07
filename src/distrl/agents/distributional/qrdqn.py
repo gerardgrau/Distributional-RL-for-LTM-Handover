@@ -111,10 +111,10 @@ class QRDQNAgent(BaseAgent):
                                  self.kappa * (abs_diff - 0.5 * self.kappa))
         
         # Quantile weights: Using pre-calculated tau_hat
-        # diff.detach() < 0 has shape [batch_size, num_quantiles, num_quantiles]
+        # diff.detach() < 0 has shape [batch_size, num_quantiles (current), num_quantiles (target)]
         # weight should match that shape. 
-        # tau_hat is [1, num_quantiles], we unsqueeze it to [1, 1, num_quantiles]
-        weight = torch.abs(self.tau_hat.unsqueeze(1) - (diff.detach() < 0).float())
+        # tau_hat is [1, num_quantiles], we unsqueeze it to [1, num_quantiles, 1]
+        weight = torch.abs(self.tau_hat.unsqueeze(2) - (diff.detach() < 0).float())
         
         loss = (weight * huber_loss).mean()
 

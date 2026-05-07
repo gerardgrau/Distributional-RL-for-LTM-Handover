@@ -7,7 +7,7 @@
 - **Episodes:** 20
 - **UEs (Eval):** 10
 - **Baseline Wall Time:** 648.4s (Total), 621.6s (Training)
-- **Baseline Steps/s:** 965.2 steps/s
+- **Baseline Steps/s:** 96.5 steps/s
 - **Baseline Mean Reward (last 10 eps):** 5400.1 (Approx from tail)
 
 ## Profiling Results (Initial)
