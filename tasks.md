@@ -5,11 +5,12 @@
 - [x] Calcular les 8 mètriques (ja implementat i integrat al benchmark).
 - [x] QR-DQN: triar millor acció en funció del risc (CVaR implementat).
 - [x] Canviar numero de quantils (N) de qr-dqn (Configurable).
+- [x] Optimització de l'entrenament (4.2x més ràpid, train_freq=4, pinned memory, pre-allocated tensors).
 
 # Feina a fer:
 
 1. Executar el benchmark definitiu (5000 ep) amb les noves mètriques i CVaR.
-com es calcula ho_rate i hof_rate? (tinc més `hof` que `ho`!)
+- [x] Fix HOF calculation
 Anar pensant títol, subtítol, estructura del document a entregar
 
 

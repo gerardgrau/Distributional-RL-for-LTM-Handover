@@ -32,7 +32,7 @@ Leverage the "Distributional" aspect of the agents to implement risk-aware polic
 The LTM simulator has been heavily optimized for research-scale iterations:
 *   **Vectorized Radio Physics**: Replaced scalar loops with parallel NumPy matrix math.
 *   **Global Trajectory Caching**: In-RAM caching of 1,000 UE radio paths for zero-cost resets.
-*   **Speed**: Runs at **~5,200 steps/s**, providing a **23x speedup** over the original procedural code.
+*   **Speed**: Training loop optimized to **~400 steps/s** (a **4.2x speedup** over the baseline), with the environment running at **~5,200 steps/s** for random actions.
 
 ### 2. Formal Evaluation Protocol
 To ensure scientific rigor, the project enforces a formal evaluation cycle:

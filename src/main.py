@@ -70,9 +70,11 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     eps_end = agent_config.get('epsilon_end', 0.05)
     eps_mult = agent_config.get('epsilon_mult', 0.99)
     batch_size = agent_config.get('batch_size', 64)
+    train_freq = agent_config.get('train_freq', 1)
     
     start_time = time.time()
     rewards_history = []
+    global_step = 0
     
     for ep in range(num_episodes):
         state, _ = env.reset(seed=seed)
@@ -87,7 +89,9 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             buffer.push(state, action, reward, next_state, done)
             state = next_state
             episode_reward += reward
-            if len(buffer) > batch_size:
+            global_step += 1
+            
+            if len(buffer) > batch_size and global_step % train_freq == 0:
                 metrics = agent.train_step(buffer.sample(batch_size, device=device))
                 episode_loss.append(metrics['loss'])
             if done:

@@ -44,15 +44,22 @@ class QRDQNAgent(BaseAgent):
         self.tau = float(config.get("tau", 0.005))
         self.target_update_freq = int(config.get("target_update_freq", 1000))
         self.update_counter = 0
+        
+        # Pre-calculate quantile weights for Huber Loss
+        self.tau_hat = torch.arange(0.5 / self.num_quantiles, 1, 1 / self.num_quantiles, device=self.device).view(1, -1)
+        
+        # Optimization D: Pre-allocated state buffer for select_action
+        self.state_buffer_t = torch.zeros((1, input_dim), dtype=torch.float32, device=self.device)
 
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
         if np.random.rand() < epsilon:
             return int(self.action_space.sample())
         
-        state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        # Fast copy to pre-allocated buffer
+        self.state_buffer_t.copy_(torch.from_numpy(state))
         with torch.no_grad():
             # [1, action_dim, num_quantiles]
-            quantiles = self.q_net(state_t)
+            quantiles = self.q_net(self.state_buffer_t)
             
             if self.risk_type == "cvar":
                 k = max(1, int(self.num_quantiles * self.risk_fraction))
@@ -103,13 +110,16 @@ class QRDQNAgent(BaseAgent):
                                  0.5 * diff.pow(2), 
                                  self.kappa * (abs_diff - 0.5 * self.kappa))
         
-        # Quantile weights
-        tau = torch.arange(0.5 / self.num_quantiles, 1, 1 / self.num_quantiles, device=self.device)
-        weight = torch.abs(tau.unsqueeze(1) - (diff.detach() < 0).float())
+        # Quantile weights: Using pre-calculated tau_hat
+        # diff.detach() < 0 has shape [batch_size, num_quantiles, num_quantiles]
+        # weight should match that shape. 
+        # tau_hat is [1, num_quantiles], we unsqueeze it to [1, 1, num_quantiles]
+        weight = torch.abs(self.tau_hat.unsqueeze(1) - (diff.detach() < 0).float())
         
         loss = (weight * huber_loss).mean()
 
-        self.optimizer.zero_grad()
+        # set_to_none=True is slightly faster
+        self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         self.optimizer.step()
 
