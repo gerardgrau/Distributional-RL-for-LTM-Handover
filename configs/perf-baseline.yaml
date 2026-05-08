@@ -25,7 +25,6 @@ agent:
   epsilon_end: 0.05
   epsilon_mult: 0.995
   num_episodes: 100
-           # 20 episodes per agent per seed
 
 benchmark:
   num_seeds: 1

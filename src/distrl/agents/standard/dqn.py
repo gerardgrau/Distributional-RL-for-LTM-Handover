@@ -40,17 +40,13 @@ class DQNAgent(BaseAgent):
         self.target_update_freq = int(config.get("target_update_freq", 1000))
         self.update_counter = 0
 
-        # Optimization D: Pre-allocated state buffer for select_action
-        self.state_buffer_t = torch.zeros((1, input_dim), dtype=torch.float32, device=self.device)
-
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
         if np.random.rand() < epsilon:
             return int(self.action_space.sample())
         
-        # Fast copy to pre-allocated buffer
-        self.state_buffer_t.copy_(torch.from_numpy(state))
+        state_t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            q_values = self.q_net(self.state_buffer_t)
+            q_values = self.q_net(state_t)
             return int(q_values.argmax(dim=1).item())
 
     def train_step(self, batch: tuple[torch.Tensor, ...]) -> dict[str, float]:

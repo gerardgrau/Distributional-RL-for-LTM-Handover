@@ -47,19 +47,15 @@ class QRDQNAgent(BaseAgent):
         
         # Pre-calculate quantile weights for Huber Loss
         self.tau_hat = torch.arange(0.5 / self.num_quantiles, 1, 1 / self.num_quantiles, device=self.device).view(1, -1)
-        
-        # Optimization D: Pre-allocated state buffer for select_action
-        self.state_buffer_t = torch.zeros((1, input_dim), dtype=torch.float32, device=self.device)
 
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
         if np.random.rand() < epsilon:
             return int(self.action_space.sample())
         
-        # Fast copy to pre-allocated buffer
-        self.state_buffer_t.copy_(torch.from_numpy(state))
+        state_t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
             # [1, action_dim, num_quantiles]
-            quantiles = self.q_net(self.state_buffer_t)
+            quantiles = self.q_net(state_t)
             
             if self.risk_type == "cvar":
                 k = max(1, int(self.num_quantiles * self.risk_fraction))
