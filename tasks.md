@@ -6,11 +6,15 @@
 - [x] QR-DQN: triar millor acció en funció del risc (CVaR implementat).
 - [x] Canviar numero de quantils (N) de qr-dqn (Configurable).
 - [x] Optimització de l'entrenament (4.2x més ràpid, train_freq=4, pinned memory, pre-allocated tensors).
+- [x] Fix HOF calculation
 
 # Feina a fer:
+- Simplificar codi
+- Programar + Executar benchmark (LTM algorithm) baseline (copiar l'algoritme "hardcodejat" que hi ha a `ltm_env.py`)
 
-1. Executar el benchmark definitiu (5000 ep) amb les noves mètriques i CVaR.
-- [x] Fix HOF calculation
+- Executar el benchmark definitiu (??? ep) amb les noves mètriques
+- Benchmark amb cVAR CVaR.
+- Benchmark amb diferents #quantiles
 Anar pensant títol, subtítol, estructura del document a entregar
 
 
