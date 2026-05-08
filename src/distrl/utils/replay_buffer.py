@@ -10,16 +10,18 @@ class ReplayBuffer:
         self, 
         max_size: int,
         state_shape: int | tuple[int, ...], 
-        action_shape: int | tuple[int, ...] = (1,)
+        action_shape: int | tuple[int, ...] = (1,),
+        device: str = "cpu"
     ) -> None:
         """
-        Experience Replay Buffer for storing transitions on CPU for fast insertion.
-        Sampling moves batches to the target device (XPU/GPU).
+        Experience Replay Buffer for storing transitions. 
+        Default device is 'cpu' for fast insertion and host-side staging (pinned memory).
+        Sampling moves batches to the target execution device (XPU/GPU).
         """
         self.max_size = max_size
         self.ptr = 0
         self.size = 0
-        self.device = torch.device("cpu") # Always keep buffer storage on CPU
+        self.device = torch.device(device)
 
         if isinstance(state_shape, int):
             state_shape = (state_shape,)
