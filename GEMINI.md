@@ -46,7 +46,7 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
 ## 5. Workflow & Planning
 - **Agentic Task Planning**: ALL agentic task planning and track management must go through the **Conductor** extension. Refer to `conductor/GEMINI.md` for specific planning protocols and track management rules.
 - **Reproducibility**: `src/main.py` copies the active `config.yaml` into every benchmark folder.
-- **Definitive Benchmark**: A large-scale 5,000-episode benchmark is currently underway to definitively compare DQN vs. QR-DQN on all 1,000 trajectories.
+- **Definitive Benchmark**: A large-scale 5,000-episode benchmark is currently being analyzed, and a 4-point ablation study on quantile counts (N=[10, 50, 100, 200]) is currently in progress to evaluate performance vs. computational cost.
 
 ---
 
