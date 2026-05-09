@@ -81,6 +81,7 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     
     for ep in range(num_episodes):
         state, _ = env.reset(seed=seed)
+        agent.reset()
         episode_reward = 0
         episode_loss = []
         done = False

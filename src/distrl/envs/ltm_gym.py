@@ -26,6 +26,31 @@ class LTMEnv(gym.Env):
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__()
         self.config = config or {}
+        
+        # --- PHYSICS CONFIGURATION (Unified and Configurable) ---
+        self.sys_cfg = System.copy()
+        if 'system' in self.config:
+            self.sys_cfg["TxPower"] = self.config['system'].get('tx_power', self.sys_cfg["TxPower"])
+            self.sys_cfg["NoiseLevel"] = self.config['system'].get('noise_level', self.sys_cfg["NoiseLevel"])
+        
+        self.time_cfg = Time.copy()
+        if 'simulation' in self.config:
+            self.time_cfg["TotalSimTime"] = self.config['simulation'].get('total_sim_time', self.time_cfg["TotalSimTime"])
+            self.time_cfg["TimeStep"] = self.config['simulation'].get('time_step', self.time_cfg["TimeStep"])
+            
+        self.ho_cfg = HO.copy()
+        if 'ho_prep' in self.config:
+            mapping = {
+                'preparation_power_offset': 'PreparationPowerOffset',
+                'preparation_time': 'PreparationTime',
+                'exec_power_offset': 'ExecPowerOffset',
+                'max_number_prepared_bs': 'MaxNumberPreparedBS'
+            }
+            for k, v in mapping.items():
+                if k in self.config['ho_prep']:
+                    self.ho_cfg['Prep'][v] = self.config['ho_prep'][k]
+
+        self.receiver_sensitivity = self.config.get('system', {}).get('receiver_sensitivity', ReceiverSensitivity)
 
         # Observation Space: 88-dim Markovian vector (Paper Aligned)
         # [Speed(1), Tenure(1), OneHot(21), RSRP(21), MCS_All(21), SNIR_All(21), X(1), Y(1)]
@@ -70,20 +95,20 @@ class LTMEnv(gym.Env):
                     idx += 1
             
             # Pre-calculate MCS and SNIR for ALL sectors across the entire episode.
-            self.all_mcs_episode, self.all_snir_episode = vectorized_oracle(self.ch_bs2ue, System)
+            self.all_mcs_episode, self.all_snir_episode = vectorized_oracle(self.ch_bs2ue, self.sys_cfg)
             
             # --- PERFORMANCE OPTIMIZATION: Vectorized HOF ---
-            self.all_pe_episode = vectorized_hof(self.ch_bs2ue, System)
+            self.all_pe_episode = vectorized_hof(self.ch_bs2ue, self.sys_cfg)
             
             # Store real UE positions
             ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]
             self.ue_positions = np.stack([ue_pos_complex.real, ue_pos_complex.imag], axis=1)
             
             # Filters
-            M = int(np.ceil(HO["Prep"]["PeriodicityRSRPMeasurement"] / Time["TimeStep"]))
-            b = np.ones(HO["Prep"]["AverageRSRPMeasument_NL1"]) / HO["Prep"]["AverageRSRPMeasument_NL1"]
+            M = int(np.ceil(self.ho_cfg["Prep"]["PeriodicityRSRPMeasurement"] / self.time_cfg["TimeStep"]))
+            b = np.ones(self.ho_cfg["Prep"]["AverageRSRPMeasument_NL1"]) / self.ho_cfg["Prep"]["AverageRSRPMeasument_NL1"]
             L1 = lfilter(b, 1, self.ch_bs2ue[:, ::M], axis=1)
-            self.pl3 = np.repeat(lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :self.total_time]
+            self.pl3 = np.repeat(lfilter(self.ho_cfg["Prep"]["alphaIIRfilter"], [1, -1 + self.ho_cfg["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :self.total_time]
 
             # --- MEMORY OPTIMIZATION: Cache casting ---
             # limit cache to 1000 UEs to prevent OOM
@@ -226,7 +251,7 @@ class LTMEnv(gym.Env):
             best = np.argmax(self.ch_bs2ue[:, self.t])
             
             # If the strongest cell meets sensitivity, attempt connection
-            if pbest + System["TxPower"] > ReceiverSensitivity:
+            if pbest + self.sys_cfg["TxPower"] > self.receiver_sensitivity:
                 # Use pre-calculated MCS
                 if self.all_mcs_episode[best, self.t] > 0:
                     self.serving_sector = best
@@ -314,7 +339,7 @@ class LTMEnv(gym.Env):
                 return
             
             # Check for Ping-Pong (PP)
-            is_pp = (action == self.prev_prev_serving_sector) and (self.t - self.last_ho_time < 1.0 / Time["TimeStep"])
+            is_pp = (action == self.prev_prev_serving_sector) and (self.t - self.last_ho_time < 1.0 / self.time_cfg["TimeStep"])
             if is_pp:
                 self.PP_ind = 1.0
                 self.metrics_pp[self.t] = 1.0

@@ -33,6 +33,7 @@ def run_evaluation(
     
     for ep in tqdm(range(num_eval_episodes), desc=f"    Eval {agent_type}", leave=False):
         state, _ = eval_env.reset()
+        agent.reset()
         done = False
         last_info = {}
         episode_reward = 0

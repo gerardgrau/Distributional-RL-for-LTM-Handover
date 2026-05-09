@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 from typing import Any
 from src.distrl.agents.base import BaseAgent
 
@@ -15,21 +14,33 @@ class LTMBaselineAgent(BaseAgent):
         self.prep_offset = config.get("ho_prep", {}).get("preparation_power_offset", -3)
         self.exec_offset = config.get("ho_prep", {}).get("exec_power_offset", 3)
         self.prep_time_thresh = config.get("ho_prep", {}).get("preparation_time", 0.04)
+        self.max_prep = config.get("ho_prep", {}).get("max_number_prepared_bs", 5)
         self.rl_step_time = 0.1 # 10 samples of 10ms
         
         # Internal state for the algorithm
+        self.reset()
+        
+    def reset(self) -> None:
+        """
+        Resets preparation timers and prepared cell list.
+        """
         self.list_bs_prepared = np.zeros(self.nbs, dtype=bool)
         self.timer_entering = np.zeros(self.nbs)
         self.timer_leaving = np.zeros(self.nbs)
-        
+
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
         # 1. De-normalize state (RSRP)
-        # norm_rsrp is at indices 23 to 23+21-1 (43)
-        norm_rsrp = state[23:44]
-        rsrp = norm_rsrp * 45 - 75
+        # observation layout: [speed(1), tenure(1), serving(nbs), rsrp(nbs), ...]
+        serving_start = 2
+        rsrp_start = serving_start + self.nbs
         
-        # serving_one_hot is at indices 2 to 2+21-1 (22)
-        serving_one_hot = state[2:23]
+        serving_one_hot = state[serving_start:rsrp_start]
+        rsrp_norm = state[rsrp_start : rsrp_start + self.nbs]
+        
+        # De-normalize RSRP: Map [-1, 1] back to [-120, -30] (approx)
+        # From ltm_gym.py: norm_rsrp = (curr_rsrp + 75) / 45
+        rsrp = rsrp_norm * 45 - 75
+        
         serving_idx = np.argmax(serving_one_hot) if np.max(serving_one_hot) > 0 else -1
         
         if serving_idx == -1:
@@ -37,7 +48,6 @@ class LTMBaselineAgent(BaseAgent):
             return int(np.argmax(rsrp))
             
         # 2. Update Preparation Logic
-        # (This is a simplified version at 100ms resolution)
         in_condition = rsrp > (rsrp[serving_idx] + self.prep_offset)
         out_condition = rsrp < (rsrp[serving_idx] + self.prep_offset)
         
@@ -48,12 +58,12 @@ class LTMBaselineAgent(BaseAgent):
         self.timer_leaving = (self.timer_leaving + self.rl_step_time) * out_condition
         self.list_bs_prepared &= ~(self.timer_leaving >= self.prep_time_thresh)
         
-        # Limit prepared BS (MaxNumberPreparedBS = 5)
-        if np.sum(self.list_bs_prepared) > 5:
+        # Limit prepared BS
+        if np.sum(self.list_bs_prepared) > self.max_prep:
             # Use power-domain for sorting
             metric = (10 ** (rsrp / 10.0)) * self.list_bs_prepared
             i_sorted = np.argsort(metric)[::-1]
-            self.list_bs_prepared[i_sorted[5:]] = False
+            self.list_bs_prepared[i_sorted[self.max_prep:]] = False
 
         # 3. Execution Condition
         # HO if a prepared cell is stronger than serving + exec_offset
@@ -65,7 +75,6 @@ class LTMBaselineAgent(BaseAgent):
             target_idx = np.argmax(metric)
             
             # Reset local state upon HO
-            # Note: the environment will handle the actual switch
             self.list_bs_prepared[target_idx] = False
             return int(target_idx)
             

@@ -76,3 +76,9 @@ class BaseAgent(ABC):
         Loads the agent's model checkpoints and internal state from the specified path.
         """
         pass
+
+    def reset(self) -> None:
+        """
+        Resets the agent's internal state between episodes (if any).
+        """
+        pass

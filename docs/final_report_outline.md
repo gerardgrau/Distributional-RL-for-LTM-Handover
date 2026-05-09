@@ -28,7 +28,7 @@
 
 ### 4. Implementation and Performance Optimization
 *   Architecture: Modular PyTorch/Gymnasium framework.
-*   Optimization: Achieving 3,500+ steps/s through vectorization and efficient data pipelines.
+*   Optimization: Achieving ~400 training steps/s and 5,200+ env steps/s through vectorization and efficient data pipelines.
 *   Hardware Analysis: CPU vs XPU (Intel iGPU) performance.
 
 ### 5. Results and Discussion
