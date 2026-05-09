@@ -45,7 +45,8 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
 
 ## 5. Workflow & Planning
 - **Agentic Task Planning**: ALL agentic task planning and track management must go through the **Conductor** extension. Refer to `conductor/GEMINI.md` for specific planning protocols and track management rules.
-- **Reproducibility**: `src/main.py` (previously `experiment.py`) copies the active `config.yaml` into every benchmark folder.
+- **Reproducibility**: `src/main.py` copies the active `config.yaml` into every benchmark folder.
+- **Definitive Benchmark**: A large-scale 5,000-episode benchmark is currently underway to definitively compare DQN vs. QR-DQN on all 1,000 trajectories.
 
 ---
 
@@ -54,3 +55,4 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
 - **Python Path**: Always export the `src` directory to ensure correct package resolution:
   `export PYTHONPATH=$PYTHONPATH:$(pwd)/src`
 - **Maintenance Policy**: This file (`GEMINI.md`) is the ground truth context and must be updated with any change to the state space, reward formula, or architecture.
+- **Physics Engine**: All radio physics and ICIC math are consolidated in `src/distrl/envs/physics.py` to ensure consistency between the Gymnasium environment and post-processing metrics.

@@ -9,7 +9,8 @@
 - [x] Fix HOF calculation
 - [x] Programar baseline (algoritme hardcodejat legacy).
 - [x] Simplificació de codi (Consolidació de física, refactorització d'agents).
-- [x] Definitive Benchmark Comparison (RL vs Legacy).
+- [x] Definitive Benchmark Comparison (RL vs Legacy Baseline).
+- [x] Merge all optimizations and fixes to master.
 
 # Feina a fer:
 - Executar el benchmark definitiu (5000 ep) amb les noves mètriques i CVaR.

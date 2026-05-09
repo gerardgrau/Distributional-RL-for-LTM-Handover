@@ -1,30 +1,28 @@
-# Quantile Config Test
+# Ablation Study: Impact of Quantile Count (N)
 system:
   tx_power: 25
   noise_level: -174
   receiver_sensitivity: -95
 
 simulation:
-  total_sim_time: 1
-  time_step: 0.1
-  ue_number: 1
+  total_sim_time: 300
+  time_step: 0.01
+  ue_number: 1000
   bs_number: 7
 
 agent:
-  type: "qrdqn"               # Test QRDQN specifically
-  hidden_dims: [128, 128]
   lr: 1e-3
   gamma: 0.9
   tau: 0.01
   target_update_freq: 1000
-  buffer_size: 1000
-  batch_size: 32
-  num_quantiles: 10           # <--- Test this value
-  risk_type: "mean"
+  buffer_size: 100000
+  batch_size: 256
+  train_freq: 4
+  # num_quantiles: [10, 50, 100, 200] # To be overridden via CLI or multi-run
   epsilon_start: 1.0
   epsilon_end: 0.05
-  epsilon_mult: 0.99
-  num_episodes: 1
+  epsilon_mult: 0.999
+  num_episodes: 1          # 2000 is enough for ablation trends
 
 benchmark:
   num_seeds: 1
