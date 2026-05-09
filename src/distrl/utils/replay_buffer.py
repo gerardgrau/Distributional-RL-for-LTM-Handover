@@ -10,24 +10,30 @@ class ReplayBuffer:
         self, 
         max_size: int,
         state_shape: int | tuple[int, ...], 
-        action_shape: int | tuple[int, ...] = (1,), 
+        action_shape: int | tuple[int, ...] = (1,),
         device: str = "cpu"
     ) -> None:
+        """
+        Experience Replay Buffer for storing transitions on CPU.
+        Uses pinned memory for faster transfers to GPU/XPU during sampling.
+        """
         self.max_size = max_size
         self.ptr = 0
         self.size = 0
-        self.device = torch.device(device)
+        self.storage_device = torch.device("cpu")
+        self.target_device = torch.device(device)
 
         if isinstance(state_shape, int):
             state_shape = (state_shape,)
         if isinstance(action_shape, int):
             action_shape = (action_shape,)
             
-        self.state = torch.zeros((max_size, *state_shape), dtype=torch.float32, device=self.device)
-        self.action = torch.zeros((max_size, *action_shape), dtype=torch.long, device=self.device)
-        self.reward = torch.zeros((max_size, 1), dtype=torch.float32, device=self.device)
-        self.next_state = torch.zeros((max_size, *state_shape), dtype=torch.float32, device=self.device)
-        self.done = torch.zeros((max_size, 1), dtype=torch.float32, device=self.device)
+        # Allocate on CPU and pin
+        self.state = torch.zeros((max_size, *state_shape), dtype=torch.float32, device=self.storage_device).pin_memory()
+        self.action = torch.zeros((max_size, *action_shape), dtype=torch.long, device=self.storage_device).pin_memory()
+        self.reward = torch.zeros((max_size, 1), dtype=torch.float32, device=self.storage_device).pin_memory()
+        self.next_state = torch.zeros((max_size, *state_shape), dtype=torch.float32, device=self.storage_device).pin_memory()
+        self.done = torch.zeros((max_size, 1), dtype=torch.float32, device=self.storage_device).pin_memory()
 
     def push(
         self, 
@@ -38,13 +44,18 @@ class ReplayBuffer:
         done: bool | torch.Tensor
     ) -> None:
         """
-        Adds a transition to the buffer.
+        Adds a transition to the buffer. Inputs are moved to CPU if necessary.
         """
-        self.state[self.ptr] = torch.as_tensor(state, device=self.device, dtype=self.state.dtype)
-        self.action[self.ptr] = torch.as_tensor(action, device=self.device, dtype=self.action.dtype)
-        self.reward[self.ptr] = torch.as_tensor(reward, device=self.device, dtype=self.reward.dtype)
-        self.next_state[self.ptr] = torch.as_tensor(next_state, device=self.device, dtype=self.next_state.dtype)
-        self.done[self.ptr] = torch.as_tensor(float(done), device=self.device, dtype=self.done.dtype)
+        def to_cpu_tensor(x, dtype):
+            if isinstance(x, torch.Tensor):
+                return x.detach().to(self.storage_device, non_blocking=True).to(dtype)
+            return torch.as_tensor(x, dtype=dtype, device=self.storage_device)
+
+        self.state[self.ptr] = to_cpu_tensor(state, self.state.dtype)
+        self.action[self.ptr] = to_cpu_tensor(action, self.action.dtype)
+        self.reward[self.ptr] = to_cpu_tensor(reward, self.reward.dtype)
+        self.next_state[self.ptr] = to_cpu_tensor(next_state, self.next_state.dtype)
+        self.done[self.ptr] = to_cpu_tensor(float(done), self.done.dtype)
 
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
@@ -55,18 +66,21 @@ class ReplayBuffer:
 
     def sample(self, batch_size: int, device: str | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Samples a batch of transitions.
+        Samples a batch of transitions and moves them to the target device.
         """
         ind = np.random.randint(0, self.size, size=batch_size)
         
-        if device is not None and torch.device(device) != self.device:
-            target_device = torch.device(device)
+        # Use provided device or the one from __init__
+        out_device = torch.device(device) if device is not None else self.target_device
+        
+        if out_device.type != "cpu":
+            # Pinned memory + non_blocking=True is the fastest way to move to XPU/CUDA
             return (
-                self.state[ind].to(target_device),
-                self.action[ind].to(target_device),
-                self.reward[ind].to(target_device),
-                self.next_state[ind].to(target_device),
-                self.done[ind].to(target_device)
+                self.state[ind].to(out_device, non_blocking=True),
+                self.action[ind].to(out_device, non_blocking=True),
+                self.reward[ind].to(out_device, non_blocking=True),
+                self.next_state[ind].to(out_device, non_blocking=True),
+                self.done[ind].to(out_device, non_blocking=True)
             )
         
         return (

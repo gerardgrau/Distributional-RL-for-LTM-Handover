@@ -40,16 +40,14 @@ class QRDQNAgent(BaseAgent):
 
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=float(config.get("lr", 1e-4)))
         
-        self.gamma = float(config.get("gamma", 0.99))
-        self.tau = float(config.get("tau", 0.005))
-        self.target_update_freq = int(config.get("target_update_freq", 1000))
-        self.update_counter = 0
+        # Pre-calculate quantile weights for Huber Loss
+        self.tau_hat = torch.arange(0.5 / self.num_quantiles, 1, 1 / self.num_quantiles, device=self.device).view(1, -1)
 
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
         if np.random.rand() < epsilon:
             return int(self.action_space.sample())
         
-        state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        state_t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
             # [1, action_dim, num_quantiles]
             quantiles = self.q_net(state_t)
@@ -103,27 +101,23 @@ class QRDQNAgent(BaseAgent):
                                  0.5 * diff.pow(2), 
                                  self.kappa * (abs_diff - 0.5 * self.kappa))
         
-        # Quantile weights
-        tau = torch.arange(0.5 / self.num_quantiles, 1, 1 / self.num_quantiles, device=self.device)
-        weight = torch.abs(tau.unsqueeze(1) - (diff.detach() < 0).float())
+        # Quantile weights: Using pre-calculated tau_hat
+        # diff.detach() < 0 has shape [batch_size, num_quantiles (current), num_quantiles (target)]
+        # weight should match that shape. 
+        # tau_hat is [1, num_quantiles], we unsqueeze it to [1, num_quantiles, 1]
+        weight = torch.abs(self.tau_hat.unsqueeze(2) - (diff.detach() < 0).float())
         
         loss = (weight * huber_loss).mean()
 
-        self.optimizer.zero_grad()
+        # set_to_none=True is slightly faster
+        self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         self.optimizer.step()
 
         self.update_counter += 1
-        self._update_target()
+        self._update_target(self.q_net, self.target_net)
 
         return {"loss": float(loss.item())}
-
-    def _update_target(self) -> None:
-        if self.tau < 1.0:
-            for target_param, q_param in zip(self.target_net.parameters(), self.q_net.parameters()):
-                target_param.data.copy_(self.tau * q_param.data + (1.0 - self.tau) * target_param.data)
-        elif self.update_counter % self.target_update_freq == 0:
-            self.target_net.load_state_dict(self.q_net.state_dict())
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)

@@ -17,6 +17,7 @@ from src.distrl.utils.config import Config
 from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
+from src.distrl.agents.standard.ltm_baseline import LTMBaselineAgent
 from src.distrl.utils.replay_buffer import ReplayBuffer
 from src.distrl.utils.plot import plot_learning_curves, plot_efficiency, plot_quantiles
 from src.distrl.utils.metrics import calculate_8_metrics
@@ -52,6 +53,8 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         agent = DQNAgent(agent_config, env.observation_space, env.action_space, device=device)
     elif agent_type.lower() == "qrdqn":
         agent = QRDQNAgent(agent_config, env.observation_space, env.action_space, device=device)
+    elif agent_type.lower() == "ltm_baseline":
+        agent = LTMBaselineAgent(config, env.observation_space, env.action_space, device=device)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
     
@@ -70,12 +73,15 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     eps_end = agent_config.get('epsilon_end', 0.05)
     eps_mult = agent_config.get('epsilon_mult', 0.99)
     batch_size = agent_config.get('batch_size', 64)
+    train_freq = max(1, int(agent_config.get('train_freq', 1)))
     
     start_time = time.time()
     rewards_history = []
+    global_step = 0
     
     for ep in range(num_episodes):
         state, _ = env.reset(seed=seed)
+        agent.reset()
         episode_reward = 0
         episode_loss = []
         done = False
@@ -87,7 +93,9 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             buffer.push(state, action, reward, next_state, done)
             state = next_state
             episode_reward += reward
-            if len(buffer) > batch_size:
+            global_step += 1
+            
+            if len(buffer) > batch_size and global_step % train_freq == 0:
                 metrics = agent.train_step(buffer.sample(batch_size, device=device))
                 episode_loss.append(metrics['loss'])
             if done:
@@ -213,8 +221,11 @@ def run_benchmark():
             
             if not args.no_save:
                 # Save "Best" for this specific run in models/
-                best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
-                shutil.copy(best_seed_path, best_dst)
+                if best_seed_path and os.path.exists(best_seed_path):
+                    best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
+                    shutil.copy(best_seed_path, best_dst)
+                else:
+                    print(f"  -> No model file found for {agent_type} to mark as best.")
 
             # Generate Quantile Plot if it's QRDQN
             if agent_type.lower() == "qrdqn":

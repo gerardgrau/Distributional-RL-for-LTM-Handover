@@ -19,6 +19,25 @@ class BaseAgent(ABC):
         self.observation_space = observation_space
         self.action_space = action_space
         self.device = torch.device(device)
+        
+        # Common RL Parameters
+        self.gamma = float(config.get("gamma", 0.99))
+        self.tau = float(config.get("tau", 0.005))
+        self.target_update_freq = int(config.get("target_update_freq", 1000))
+        self.update_counter = 0
+
+    def _update_target(self, q_net: torch.nn.Module, target_net: torch.nn.Module) -> None:
+        """
+        Standard Target Network Update (Soft or Hard).
+        """
+        if self.tau < 1.0:
+            # Soft Update: theta_target = tau * theta + (1 - tau) * theta_target
+            with torch.no_grad():
+                for target_param, q_param in zip(target_net.parameters(), q_net.parameters()):
+                    target_param.copy_(self.tau * q_param + (1.0 - self.tau) * target_param)
+        elif self.update_counter % self.target_update_freq == 0:
+            # Hard Update
+            target_net.load_state_dict(q_net.state_dict())
 
     @abstractmethod
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
@@ -55,5 +74,11 @@ class BaseAgent(ABC):
     def load(self, path: str) -> None:
         """
         Loads the agent's model checkpoints and internal state from the specified path.
+        """
+        pass
+
+    def reset(self) -> None:
+        """
+        Resets the agent's internal state between episodes (if any).
         """
         pass
