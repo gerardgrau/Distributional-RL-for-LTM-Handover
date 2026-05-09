@@ -51,6 +51,7 @@ class LTMEnv(gym.Env):
                     self.ho_cfg['Prep'][v] = self.config['ho_prep'][k]
 
         self.receiver_sensitivity = self.config.get('system', {}).get('receiver_sensitivity', ReceiverSensitivity)
+        self.data_dir = self.config.get('paths', {}).get('channel_data_directory', ChannelDirectory)
 
         # Observation Space: 88-dim Markovian vector (Paper Aligned)
         # [Speed(1), Tenure(1), OneHot(21), RSRP(21), MCS_All(21), SNIR_All(21), X(1), Y(1)]
@@ -59,7 +60,7 @@ class LTMEnv(gym.Env):
 
         
         # Load all 1000 data paths (Refactored: No train/test split at Env level)
-        all_files = sorted(glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat")))
+        all_files = sorted(glob.glob(os.path.join(self.data_dir, "ChannelGainBSUE_User*.mat")))
         ue_count = self.config.get('simulation', {}).get('ue_number', len(all_files))
         self.files = all_files[:ue_count]
         self.current_ue_idx = 0

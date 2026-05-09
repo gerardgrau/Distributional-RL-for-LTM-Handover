@@ -1,4 +1,5 @@
 # Definitive Large-Scale Benchmark (5000 Episodes)
+# Recommended CLI: venv-RL/bin/python3 src/main.py --config configs/definitive-5000ep.yaml --agents dqn,qrdqn --device xpu
 system:
   tx_power: 25
   noise_level: -174
@@ -11,13 +12,11 @@ simulation:
   bs_number: 7
 
 agent:
-  type: "qrdqn"
-  hidden_dims: [128, 128]
   lr: 1e-3
   gamma: 0.9
   tau: 0.01
   target_update_freq: 1000
-  buffer_size: 1000000         # Larger buffer for longer runs
+  buffer_size: 100000          # Reduced to avoid OOM with pinned memory
   batch_size: 256
   train_freq: 4
   num_quantiles: 50
