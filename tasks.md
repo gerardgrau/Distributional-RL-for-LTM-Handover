@@ -1,7 +1,7 @@
 # Feina feta:
 - [x] Hardcore Benchmark (500 ep, multi-seed) amb estat de 88 dimensions.
 - [x] Refactorització a arquitectura modular (`src/distrl/`).
-- [x] Optimització de rendiment (23x més ràpid, pre-calculat i cache de trajectòries).
+- [x] Optimització de rendiment (23x més ràpid, pre-calculat .npz d'alta velocitat).
 - [x] Calcular les 8 mètriques (ja implementat i integrat al benchmark).
 - [x] QR-DQN: triar millor acció en funció del risc (CVaR implementat).
 - [x] Canviar numero de quantils (N) de qr-dqn (Configurable).

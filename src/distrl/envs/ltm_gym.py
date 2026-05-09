@@ -14,10 +14,7 @@ from src.distrl.envs.physics import (
 )
 
 ChannelDirectory = "data/ChannelGains"
-
-# Global Cache to store pre-calculated trajectory data (Performance Optimization)
-# Format: {ue_filename: {all_mcs: ..., all_snir: ..., pl3: ..., ue_positions: ..., total_time: ..., ch_bs2ue: ...}}
-_GLOBAL_UE_CACHE = {}
+PrecomputedDirectory = "data/Precomputed"
 
 class LTMEnv(gym.Env):
     """
@@ -72,18 +69,21 @@ class LTMEnv(gym.Env):
         filename = self.files[self.current_ue_idx % len(self.files)]
         self.current_ue_idx += 1
         
-        if filename in _GLOBAL_UE_CACHE:
-            # --- PERFORMANCE OPTIMIZATION: Cache Hit (Zero-Cost Reset) ---
-            cache_data = _GLOBAL_UE_CACHE[filename]
-            self.total_time = cache_data['total_time']
-            self.ch_bs2ue = cache_data['ch_bs2ue']
-            self.all_mcs_episode = cache_data['all_mcs_episode']
-            self.all_snir_episode = cache_data['all_snir_episode']
-            self.all_pe_episode = cache_data['all_pe_episode']
-            self.ue_positions = cache_data['ue_positions']
-            self.pl3 = cache_data['pl3']
+        user_id = os.path.basename(filename).split('_')[-1].split('.')[0]
+        npz_filename = os.path.join(PrecomputedDirectory, f"{user_id}_precomputed.npz")
+
+        if os.path.exists(npz_filename):
+            # --- PERFORMANCE OPTIMIZATION: Instant binary load (Low RAM) ---
+            with np.load(npz_filename) as data:
+                self.total_time = int(data['total_time'])
+                self.ch_bs2ue = data['ch_bs2ue']
+                self.all_mcs_episode = data['all_mcs_episode']
+                self.all_snir_episode = data['all_snir_episode']
+                self.all_pe_episode = data['all_pe_episode']
+                self.ue_positions = data['ue_positions']
+                self.pl3 = data['pl3']
         else:
-            # --- PERFORMANCE OPTIMIZATION: Cache Miss (Calculate and Store) ---
+            # --- FALLBACK: Calculate on the fly (Legacy/First run) ---
             mat_data = loadmat(filename)
             raw_channel = mat_data['ChannelBS2UE'] 
             
@@ -110,19 +110,6 @@ class LTMEnv(gym.Env):
             b = np.ones(self.ho_cfg["Prep"]["AverageRSRPMeasument_NL1"]) / self.ho_cfg["Prep"]["AverageRSRPMeasument_NL1"]
             L1 = lfilter(b, 1, self.ch_bs2ue[:, ::M], axis=1)
             self.pl3 = np.repeat(lfilter(self.ho_cfg["Prep"]["alphaIIRfilter"], [1, -1 + self.ho_cfg["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :self.total_time]
-
-            # --- MEMORY OPTIMIZATION: Cache casting ---
-            # limit cache to 1000 UEs to prevent OOM
-            if len(_GLOBAL_UE_CACHE) < 1000:
-                _GLOBAL_UE_CACHE[filename] = {
-                    'total_time': self.total_time,
-                    'ch_bs2ue': self.ch_bs2ue.astype(np.float32),
-                    'all_mcs_episode': self.all_mcs_episode.astype(np.float32),
-                    'all_snir_episode': self.all_snir_episode.astype(np.float32),
-                    'all_pe_episode': self.all_pe_episode.astype(np.float32),
-                    'ue_positions': self.ue_positions.astype(np.float32),
-                    'pl3': self.pl3.astype(np.float32)
-                }
 
         # Initial State
         self.t = 0
