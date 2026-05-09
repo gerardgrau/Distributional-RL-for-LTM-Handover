@@ -28,7 +28,7 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
 - **Architecture**: Modular structure in `src/distrl/` isolating `envs`, `agents`, `models`, and `utils`.
 - **Frameworks**: PyTorch 2.0+, Gymnasium, NumPy, SciPy.
 - **Performance**: Environment is highly optimized for **CPU-bound NumPy vectorization** (~5,250 steps/s, 23x speedup).
-  - **Global Caching**: 1,000-user in-RAM trajectory cache (~11GB footprint).
+  - **Dataset Pre-computation**: 1,000-user trajectory physics pre-calculated and stored as optimized `.npz` binaries (~0GB permanent RAM footprint).
   - **O(1) Complexity**: Observation moving averages use running sums.
 - **Hardware Selection**: Use **CPU** (default) or **XPU** (Intel iGPU). With the latest training optimizations (1/4 frequency, pinned memory), the **CPU (~310 steps/s) and XPU (~326 steps/s)** are highly comparable. CPU remains the recommended default for stability. Select via `--device cpu` or `--device xpu` CLI flags.
 - **Type Safety**: Fully modernized with Python 3.10+ type hints (`|` union, `dict[str, Any]`, etc.).

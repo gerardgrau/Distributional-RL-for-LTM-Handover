@@ -73,7 +73,7 @@ class LTMEnv(gym.Env):
         npz_filename = os.path.join(PrecomputedDirectory, f"{user_id}_precomputed.npz")
 
         if os.path.exists(npz_filename):
-            # --- PERFORMANCE OPTIMIZATION: Load precomputed binary (Low RAM) ---
+            # --- PERFORMANCE OPTIMIZATION: Instant binary load (Low RAM) ---
             with np.load(npz_filename) as data:
                 self.total_time = int(data['total_time'])
                 self.ch_bs2ue = data['ch_bs2ue']
