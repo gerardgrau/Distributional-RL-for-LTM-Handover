@@ -197,7 +197,14 @@ def run_benchmark():
         # Copy config file to experiment directory for provenance
         shutil.copy(args.config, os.path.join(experiment_dir, "config.yaml"))
         
-        print(f"=== Starting Independent Benchmark: {experiment_dir} ===")
+        print(f"=== Starting Independent Benchmark ===")
+        print(f"  Directory: {experiment_dir}")
+        print(f"  Agents:    {args.agents}")
+        print(f"  Device:    {args.device}")
+        print(f"  Episodes:  {num_episodes}")
+        print(f"  Seeds:     {bench_cfg['num_seeds']}")
+        print(f"  Config:    {args.config}")
+        print(f"======================================")
     else:
         print("=== Starting Profiling Run (No artifacts will be saved) ===")
     
