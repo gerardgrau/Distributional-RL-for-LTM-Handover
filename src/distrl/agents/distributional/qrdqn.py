@@ -40,11 +40,6 @@ class QRDQNAgent(BaseAgent):
 
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=float(config.get("lr", 1e-4)))
         
-        self.gamma = float(config.get("gamma", 0.99))
-        self.tau = float(config.get("tau", 0.005))
-        self.target_update_freq = int(config.get("target_update_freq", 1000))
-        self.update_counter = 0
-        
         # Pre-calculate quantile weights for Huber Loss
         self.tau_hat = torch.arange(0.5 / self.num_quantiles, 1, 1 / self.num_quantiles, device=self.device).view(1, -1)
 
@@ -120,16 +115,9 @@ class QRDQNAgent(BaseAgent):
         self.optimizer.step()
 
         self.update_counter += 1
-        self._update_target()
+        self._update_target(self.q_net, self.target_net)
 
         return {"loss": float(loss.item())}
-
-    def _update_target(self) -> None:
-        if self.tau < 1.0:
-            for target_param, q_param in zip(self.target_net.parameters(), self.q_net.parameters()):
-                target_param.data.copy_(self.tau * q_param.data + (1.0 - self.tau) * target_param.data)
-        elif self.update_counter % self.target_update_freq == 0:
-            self.target_net.load_state_dict(self.q_net.state_dict())
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)

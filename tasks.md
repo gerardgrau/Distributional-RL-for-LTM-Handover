@@ -7,13 +7,12 @@
 - [x] Canviar numero de quantils (N) de qr-dqn (Configurable).
 - [x] Optimització de l'entrenament (4.2x més ràpid, train_freq=4, pinned memory, pre-allocated tensors).
 - [x] Fix HOF calculation
+- [x] Programar baseline (algoritme hardcodejat legacy).
+- [x] Simplificació de codi (Consolidació de física, refactorització d'agents).
+- [x] Definitive Benchmark Comparison (RL vs Legacy).
 
 # Feina a fer:
-- Simplificar codi
-- Programar + Executar benchmark (LTM algorithm) baseline (copiar l'algoritme "hardcodejat" que hi ha a `ltm_env.py`)
-
-- Executar el benchmark definitiu (??? ep) amb les noves mètriques
-- Benchmark amb cVAR CVaR.
+- Executar el benchmark definitiu (5000 ep) amb les noves mètriques i CVaR.
 - Benchmark amb diferents #quantiles
 Anar pensant títol, subtítol, estructura del document a entregar
 

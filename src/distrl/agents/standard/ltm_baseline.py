@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from typing import Any
 from src.distrl.agents.base import BaseAgent
+from src.distrl.envs.physics import System, Time, HO, NBS
 
 class LTMBaselineAgent(BaseAgent):
     """
@@ -15,7 +16,6 @@ class LTMBaselineAgent(BaseAgent):
         self.prep_offset = config.get("ho_prep", {}).get("preparation_power_offset", -3)
         self.exec_offset = config.get("ho_prep", {}).get("exec_power_offset", 3)
         self.prep_time_thresh = config.get("ho_prep", {}).get("preparation_time", 0.04)
-        self.time_step = config.get("simulation", {}).get("time_step", 0.01)
         self.rl_step_time = 0.1 # 10 samples of 10ms
         
         # Internal state for the algorithm

@@ -3,8 +3,8 @@ import sys
 import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-from src.distrl.envs.ltm_env import (
-    System, BS, NBS, MCSEvaluation, VectorizedOracle, VectorizedHOF
+from src.distrl.envs.physics import (
+    System, NBS, vectorized_oracle, vectorized_hof
 )
 
 def get_hof_prob(serving_sector, channels, System):

@@ -8,10 +8,12 @@ from gymnasium import spaces
 from typing import Any
 import pandas as pd
 
-from src.distrl.envs.ltm_env import (
-    System, Time, HO, BS, NBS, ReceiverSensitivity, 
-    ChannelDirectory, VectorizedOracle, VectorizedHOF
+from src.distrl.envs.physics import (
+    System, Time, HO, NBS, ReceiverSensitivity, 
+    vectorized_oracle, vectorized_hof
 )
+
+ChannelDirectory = "data/ChannelGains"
 
 # Global Cache to store pre-calculated trajectory data (Performance Optimization)
 # Format: {ue_filename: {all_mcs: ..., all_snir: ..., pl3: ..., ue_positions: ..., total_time: ..., ch_bs2ue: ...}}
@@ -68,10 +70,10 @@ class LTMEnv(gym.Env):
                     idx += 1
             
             # Pre-calculate MCS and SNIR for ALL sectors across the entire episode.
-            self.all_mcs_episode, self.all_snir_episode = VectorizedOracle(self.ch_bs2ue, System)
+            self.all_mcs_episode, self.all_snir_episode = vectorized_oracle(self.ch_bs2ue, System)
             
             # --- PERFORMANCE OPTIMIZATION: Vectorized HOF ---
-            self.all_pe_episode = VectorizedHOF(self.ch_bs2ue, System)
+            self.all_pe_episode = vectorized_hof(self.ch_bs2ue, System)
             
             # Store real UE positions
             ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]
