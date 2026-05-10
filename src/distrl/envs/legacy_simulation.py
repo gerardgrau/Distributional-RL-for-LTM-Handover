@@ -436,7 +436,7 @@ def run_simulation():
 
                 if Pbest + System["TxPower"] > ReceiverSensitivity:
                     NextBSSector = Best
-                    MCS[t], RLF[t], Sync = MCSEvaluation(NextBSSector, ChBS2UE[:, t], System, Sync)
+                    MCS[t], RLF[t], Sync, _ = MCSEvaluation(NextBSSector, ChBS2UE[:, t], System, Sync)
                     if MCS[t] == 0:
                         NextBSSector = -1
                     else:
@@ -455,7 +455,7 @@ def run_simulation():
 
             # Métricas
             ReservedBSSectors[:, t] = ListBSPrepared
-            MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
+            MCS[t], RLF[t], Sync, _ = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
             if RLF[t]:
                 NextBSSector = -1
                 continue
