@@ -250,27 +250,46 @@ class LTMEnv(gym.Env):
         """
         if self.serving_sector == -1:
             # Baseline Recovery Strategy: Find strongest cell
-            pbest = np.max(self.ch_bs2ue[:, self.t])
-            best = np.argmax(self.ch_bs2ue[:, self.t])
-            
-            # If the strongest cell meets sensitivity, attempt connection
-            if pbest + self.sys_cfg["TxPower"] > self.receiver_sensitivity:
-                # Use pre-calculated MCS
-                if self.all_mcs_episode[best, self.t] > 0:
-                    self.serving_sector = best
-                    self.sync["out_sync_count"] = 0
-                    self.sync["in_sync_count"] = 0
-                    self.sync["t310_running"] = False
-                    self.sync["t310_counter"] = np.inf
-                    self.serving_tenure = 0
+            # We must still update sync state even when disconnected (Cell Search phase)
+            # as per legacy_simulation.py parity.
+            for _ in range(10): # 10 samples of 10ms
+                if self.t >= self.total_time - 1:
+                    break
+                
+                self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
+                
+                pbest = np.max(self.ch_bs2ue[:, self.t])
+                best = np.argmax(self.ch_bs2ue[:, self.t])
+                
+                s_best = self.all_snir_episode[best, self.t]
+                m_best = self.all_mcs_episode[best, self.t]
+                
+                # Check for RLF even during search
+                rlf = self._update_sync(s_best)
+                self.metrics_rlf[self.t] = float(rlf)
+                self.metrics_serving[self.t] = -1
+                self.metrics_mcs[self.t] = 0.0
+                
+                if pbest + self.sys_cfg["TxPower"] > self.receiver_sensitivity:
+                    if m_best > 0:
+                        self.serving_sector = best
+                        self.sync["out_sync_count"] = 0
+                        self.sync["in_sync_count"] = 0
+                        self.sync["t310_running"] = False
+                        self.sync["t310_counter"] = np.inf
+                        self.serving_tenure = 0
+                        self.t += 1
+                        break
+                self.t += 1
                     
             self.HO_ind = 0.0
             self.PP_ind = 0.0
             self.HOF_ind = 0.0
+            r_thr = 0.0
         else:
             self._handle_handover_logic(action)
+            r_thr, _ = self._simulate_radio_samples()
 
-        r_thr, _ = self._simulate_radio_samples()
         reward = self._calculate_ltm_ho_reward(r_thr)
         done = self.t >= self.total_time - 1
 

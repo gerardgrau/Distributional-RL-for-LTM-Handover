@@ -22,15 +22,17 @@ def preprocess():
     print(f"Found {len(all_files)} files to preprocess.")
     
     for filename in tqdm(all_files, desc="Preprocessing"):
-        user_id = os.path.basename(filename).split('_')[-1].split('.')[0] # e.g. User1
+        user_id = os.path.basename(filename).split('_')[-1].split('.')[0]
         out_filename = os.path.join(output_dir, f"{user_id}_precomputed.npz")
         
-        # Skip if already exists
-        if os.path.exists(out_filename):
-            continue
-            
         mat_data = loadmat(filename)
-        raw_channel = mat_data['ChannelBS2UE'] 
+        
+        # Paper Alignment: The .mat file contains three versions:
+        # 1. ChannelBS2UE: Clean environment (no blockage)
+        # 2. ChannelBS2UE_noRIS: Realistic environment with 20dB spatial blockage
+        # 3. ChannelBS2UE_RIS: Realistic environment with 20dB blockage + RIS assistance
+        # We use 'ChannelBS2UE_noRIS' to match the LTM baseline and standard RL training conditions.
+        raw_channel = mat_data['ChannelBS2UE_noRIS'] 
         
         total_time = raw_channel.shape[0]
         ch_bs2ue = np.zeros((NBS, total_time), dtype=np.float32)
@@ -40,13 +42,13 @@ def preprocess():
                 ch_bs2ue[idx, :] = raw_channel[:, b, s]
                 idx += 1
         
-        # Physics calculations
-        all_mcs, all_snir = vectorized_oracle(ch_bs2ue, System)
-        all_pe = vectorized_hof(ch_bs2ue, System)
-        
         # Positions
         ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]
         ue_positions = np.stack([ue_pos_complex.real, ue_pos_complex.imag], axis=1).astype(np.float32)
+        
+        # Physics calculations
+        all_mcs, all_snir = vectorized_oracle(ch_bs2ue, System)
+        all_pe = vectorized_hof(ch_bs2ue, System)
         
         # Filtering (L1 and L3 RSRP)
         M = int(np.ceil(HO["Prep"]["PeriodicityRSRPMeasurement"] / Time["TimeStep"]))
