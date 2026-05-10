@@ -23,7 +23,10 @@ Anar pensant títol, subtítol, estructura del document a entregar
 - Intentar buscar alguna mètrica absoluta a maximitzar (e.g. HOF x PP) - COMPLICAT
 
 
-# Preguntes:
+# Preguntes resoltes:
 Train / test split per les 8 mètriques finals? Quins usuaris?
 - Entrenar amb tots els 1000 (i evaluar amb tots els 1000 quan acabi, congelar model i eps=0)
 
+# Preguntes:
+Quina posició (x, y) tenen les Base Stations?
+Quina orientació segueixen?
