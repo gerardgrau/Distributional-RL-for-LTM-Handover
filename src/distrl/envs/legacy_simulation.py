@@ -419,7 +419,7 @@ def run_simulation():
                 # cell search
                 # ! 
 
-                MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
+                MCS[t], RLF[t], Sync, _ = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
                     NextBSSector = -1
 
@@ -436,7 +436,7 @@ def run_simulation():
 
                 if Pbest + System["TxPower"] > ReceiverSensitivity:
                     NextBSSector = Best
-                    MCS[t], RLF[t], Sync = MCSEvaluation(NextBSSector, ChBS2UE[:, t], System, Sync)
+                    MCS[t], RLF[t], Sync, _ = MCSEvaluation(NextBSSector, ChBS2UE[:, t], System, Sync)
                     if MCS[t] == 0:
                         NextBSSector = -1
                     else:
@@ -455,7 +455,7 @@ def run_simulation():
 
             # Métricas
             ReservedBSSectors[:, t] = ListBSPrepared
-            MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
+            MCS[t], RLF[t], Sync, _ = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
             if RLF[t]:
                 NextBSSector = -1
                 continue
@@ -470,7 +470,7 @@ def run_simulation():
             Tf = min(t + int(np.ceil(Time_MeasReportL3_1 / Time["TimeStep"])), Max_iter-1)
             while t < Tf:
                 ReservedBSSectors[:, t] = ListBSPrepared
-                MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
+                MCS[t], RLF[t], Sync, _ = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
                     break
                 t += 1
@@ -484,7 +484,7 @@ def run_simulation():
             Tf = min(t + int(np.ceil((Time_RRCTransfer2 + Time_RRCConf3) / Time["TimeStep"])), Max_iter-1)
             while t < Tf:
                 ReservedBSSectors[:, t] = ListBSPrepared
-                MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
+                MCS[t], RLF[t], Sync, _ = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
                     break
                 t += 1
@@ -516,7 +516,7 @@ def run_simulation():
             Tf = min(t + int(np.ceil(Time_RRCReconf4_5 / Time["TimeStep"])), Max_iter-1)
             while t < Tf:
                 ReservedBSSectors[:, t] = ListBSPrepared
-                MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
+                MCS[t], RLF[t], Sync, _ = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
                     break
                 t += 1
@@ -541,7 +541,7 @@ def run_simulation():
 
             Tf = min(t + int(np.ceil((Time_MeasReportL1_67 + Time_HOdecision_8) / Time["TimeStep"])), Max_iter-1)
             while t < Tf:
-                MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
+                MCS[t], RLF[t], Sync, _ = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 ReservedBSSectors[:, t] = ListBSPrepared
                 if RLF[t]:
                     break
@@ -566,7 +566,7 @@ def run_simulation():
                 Tf = min(t + int(np.ceil(Time_LLHOCommand_9 / Time["TimeStep"])), Max_iter-1)
                 while t < Tf:
                     ReservedBSSectors[:, t] = ListBSPrepared
-                    MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
+                    MCS[t], RLF[t], Sync, _ = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                     if RLF[t]:
                         break
                     t += 1
