@@ -167,6 +167,10 @@ class LTMEnv(gym.Env):
         self.metrics_pp = np.zeros(self.total_time)
         self.metrics_serving = np.full(self.total_time, -1, dtype=int)
 
+        self.HO_ind = 0.0
+        self.PP_ind = 0.0
+        self.HOF_ind = 0.0
+
         while self.serving_sector == -1 and self.t < self.total_time:
             pbest = np.max(self.ch_bs2ue[:, self.t])
             best = np.argmax(self.ch_bs2ue[:, self.t])
@@ -244,9 +248,11 @@ class LTMEnv(gym.Env):
         return obs.astype(np.float32)
 
 
-    def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+    def step(self, action: int, high_res_callback: Any = None) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         """
         Perform 1 RL step (100ms of simulation).
+        If high_res_callback is provided, 'action' is ignored for connected state,
+        and high_res_callback is used every 10ms.
         """
         if self.serving_sector == -1:
             # Baseline Recovery Strategy: Find strongest cell
@@ -258,6 +264,12 @@ class LTMEnv(gym.Env):
                 
                 self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
                 
+                # If high-res is on, we might still want to prepare cells while disconnected?
+                # Per legacy: if disconnected, it just tries to recover the strongest one.
+                if high_res_callback is not None:
+                    info = {"rsrp_l1": self.pl1[:, self.t], "rsrp_l3": self.pl3[:, self.t]}
+                    _ = high_res_callback(None, info) # Update agent's internal preparation state
+
                 pbest = np.max(self.ch_bs2ue[:, self.t])
                 best = np.argmax(self.ch_bs2ue[:, self.t])
                 
@@ -265,7 +277,8 @@ class LTMEnv(gym.Env):
                 m_best = self.all_mcs_episode[best, self.t]
                 
                 # Check for RLF even during search
-                rlf = self._update_sync(s_best)
+                s_noisy = s_best + np.random.normal(0, 4.0)
+                rlf = self._update_sync(s_noisy)
                 self.metrics_rlf[self.t] = float(rlf)
                 self.metrics_serving[self.t] = -1
                 self.metrics_mcs[self.t] = 0.0
@@ -287,8 +300,12 @@ class LTMEnv(gym.Env):
             self.HOF_ind = 0.0
             r_thr = 0.0
         else:
-            self._handle_handover_logic(action)
-            r_thr, _ = self._simulate_radio_samples()
+            if high_res_callback is None:
+                self._handle_handover_logic(action)
+                r_thr, _ = self._simulate_radio_samples()
+            else:
+                # Connected state with high-res decision making
+                r_thr, _ = self._simulate_radio_samples(action_callback=high_res_callback)
 
         reward = self._calculate_ltm_ho_reward(r_thr)
         done = self.t >= self.total_time - 1
@@ -386,10 +403,11 @@ class LTMEnv(gym.Env):
         else:
             self.serving_tenure += 1
 
-    def _simulate_radio_samples(self, step_duration: int = 10) -> tuple[float, bool]:
+    def _simulate_radio_samples(self, step_duration: int = 10, action_callback: Any = None) -> tuple[float, bool]:
         """
         Simulates background radio samples using pre-calculated matrices.
         Accounts for HO delays and interruption.
+        If action_callback is provided, it is called every 10ms for high-res decisions.
         """
         mcs_sum = 0.0
         rlf_happened = False
@@ -399,6 +417,19 @@ class LTMEnv(gym.Env):
             if self.t >= self.total_time - 1:
                 break
             
+            # 0. High-resolution decision (10ms)
+            if action_callback is not None and not self.ho_in_progress:
+                # Provide L1/L3 and current serving to callback
+                info = {
+                    "rsrp_l1": self.pl1[:, self.t], 
+                    "rsrp_l3": self.pl3[:, self.t],
+                    "serving_sector": self.serving_sector
+                }
+                # The callback should return the desired sector
+                new_action = action_callback(None, info) # state is not easily available here
+                if new_action != self.serving_sector:
+                    self._handle_handover_logic(new_action)
+
             # 1. Update Oracle History (Zero cost - array slice)
             self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
             
@@ -420,7 +451,13 @@ class LTMEnv(gym.Env):
             if active_sector != -1:
                 m = self.all_mcs_episode[active_sector, self.t]
                 s = self.all_snir_episode[active_sector, self.t]
-                rlf = self._update_sync(s)
+                
+                # --- PARITY: FAST FADING NOISE ---
+                # Add temporal variance to SNIR to simulate Rayleigh-Jakes fading.
+                # Paper uses 4dB shadowing std. 
+                s_noisy = s + np.random.normal(0, 4.0) 
+                
+                rlf = self._update_sync(s_noisy)
                 mcs_sum += float(m)
                 
                 # Tracking
