@@ -2,16 +2,14 @@
 
 system:
   tx_power: 25                # Aligned with CMAB paper
-  noise_level: -174           # dBm/Hz
-  bandwidth: 200e6            # 200 MHz (Mandatory for correct SNR)
+  noise_level: -174           # dBm
   receiver_sensitivity: -95   # dBm
 
 simulation:
-  total_sim_time: 300         # seconds
-  time_step: 0.01             # 10 ms
-  ue_number: 1000             # full dataset
-  ue_speed: 15                # km/h (Avg of 10-18 range)
-  bs_number: 7
+  total_sim_time: 300         # seconds (Aligned with CMAP paper)
+  time_step: 0.01             # 10 ms (10e-3)
+  ue_number: 1000             # Increased to full dataset for 500-ep run
+  bs_number: 7                # Set to 7 for hexagonal cells
 
 agent:
   type: "dqn"                 # "dqn" or "qrdqn"

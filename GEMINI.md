@@ -15,7 +15,7 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
 - **Simulation Duration**: 300s episodes (sampled at 10ms resolution). RL steps at 100ms.
 - **HO Parity**: 50ms total delay from decision to new cell (20ms on old cell + 30ms interruption).
 - **Deployment**: 7 Base Stations (BS), 21 Sectors (NBS=21).
-- **Tx Power**: 25 dBm. **Bandwidth**: 200 MHz.
+- **Tx Power**: 45 dBm (Aligned with active legacy_simulation code).
 - **State Space (88 Dims)**: 
   - [Speed(1), Tenure(1), One-Hot Serving(21), RSRP(21), Moving-Average MCS(21), Moving-Average SNIR(21), X(1), Y(1)].
 - **Reward Formula**: Multiplicative Ainna-Reward.
@@ -23,7 +23,7 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
   - Alphas: $\alpha_{HOF}=0.1, \alpha_{HO}=0.8, \alpha_{PP}=0.9$.
   - Reliability Factor: Soft reverse-sigmoid based on Out-Of-Sync counter ($N_{OOS}$).
 - **Research Protocol**: **Full Dataset Protocol**. Agents are trained on all 1,000 trajectories and definitively evaluated on the same 1,000 trajectories with frozen weights and $\epsilon=0$.
-- **Simulation Parity**: Environment calibrated to match paper metrics (Capacity ~3.3-3.7, Prep Rate ~780, HO Rate ~11). Reliability (~98.6%) is higher than paper (~95%) due to lack of explicit blockage models in current channel files.
+- **Simulation Parity**: Environment incorporates 20dB spatial blockages via `ChannelBS2UE_noRIS` and forces 10ms high-resolution decisions on the Baseline agent for 40ms prep parity.
 
 ---
 

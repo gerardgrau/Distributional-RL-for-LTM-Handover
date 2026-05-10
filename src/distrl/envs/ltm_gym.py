@@ -29,7 +29,6 @@ class LTMEnv(gym.Env):
         if 'system' in self.config:
             self.sys_cfg["TxPower"] = self.config['system'].get('tx_power', self.sys_cfg["TxPower"])
             self.sys_cfg["NoiseLevel"] = self.config['system'].get('noise_level', self.sys_cfg["NoiseLevel"])
-            self.sys_cfg["Bandwidth"] = self.config['system'].get('bandwidth', 200e6)
         
         self.time_cfg = Time.copy()
         if 'simulation' in self.config:
@@ -93,7 +92,8 @@ class LTMEnv(gym.Env):
         else:
             # --- FALLBACK: Calculate on the fly (Legacy/First run) ---
             mat_data = loadmat(filename)
-            raw_channel = mat_data['ChannelBS2UE'] 
+            # Use 'noRIS' version to include 20dB blockage parity
+            raw_channel = mat_data['ChannelBS2UE_noRIS'] 
             
             self.total_time = raw_channel.shape[0]
             self.ch_bs2ue = np.zeros((NBS, self.total_time))
@@ -277,8 +277,7 @@ class LTMEnv(gym.Env):
                 m_best = self.all_mcs_episode[best, self.t]
                 
                 # Check for RLF even during search
-                s_noisy = s_best + np.random.normal(0, 4.0)
-                rlf = self._update_sync(s_noisy)
+                rlf = self._update_sync(s_best)
                 self.metrics_rlf[self.t] = float(rlf)
                 self.metrics_serving[self.t] = -1
                 self.metrics_mcs[self.t] = 0.0
@@ -452,12 +451,7 @@ class LTMEnv(gym.Env):
                 m = self.all_mcs_episode[active_sector, self.t]
                 s = self.all_snir_episode[active_sector, self.t]
                 
-                # --- PARITY: FAST FADING NOISE ---
-                # Add temporal variance to SNIR to simulate Rayleigh-Jakes fading.
-                # Paper uses 4dB shadowing std. 
-                s_noisy = s + np.random.normal(0, 4.0) 
-                
-                rlf = self._update_sync(s_noisy)
+                rlf = self._update_sync(s)
                 mcs_sum += float(m)
                 
                 # Tracking
