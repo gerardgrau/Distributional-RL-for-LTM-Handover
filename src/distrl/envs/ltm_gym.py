@@ -29,6 +29,7 @@ class LTMEnv(gym.Env):
         if 'system' in self.config:
             self.sys_cfg["TxPower"] = self.config['system'].get('tx_power', self.sys_cfg["TxPower"])
             self.sys_cfg["NoiseLevel"] = self.config['system'].get('noise_level', self.sys_cfg["NoiseLevel"])
+            self.sys_cfg["Bandwidth"] = self.config['system'].get('bandwidth', 200e6)
         
         self.time_cfg = Time.copy()
         if 'simulation' in self.config:
@@ -82,6 +83,13 @@ class LTMEnv(gym.Env):
                 self.all_pe_episode = data['all_pe_episode']
                 self.ue_positions = data['ue_positions']
                 self.pl3 = data['pl3']
+                # Try to load PL1 if available, otherwise reconstruct
+                if 'pl1' in data:
+                    self.pl1 = data['pl1']
+                else:
+                    M = int(np.ceil(self.ho_cfg["Prep"]["PeriodicityRSRPMeasurement"] / self.time_cfg["TimeStep"]))
+                    b = np.ones(self.ho_cfg["Prep"]["AverageRSRPMeasument_NL1"]) / self.ho_cfg["Prep"]["AverageRSRPMeasument_NL1"]
+                    self.pl1 = np.repeat(lfilter(b, 1, self.ch_bs2ue[:, ::M], axis=1), M, axis=1)[:, :self.total_time]
         else:
             # --- FALLBACK: Calculate on the fly (Legacy/First run) ---
             mat_data = loadmat(filename)
@@ -109,6 +117,7 @@ class LTMEnv(gym.Env):
             M = int(np.ceil(self.ho_cfg["Prep"]["PeriodicityRSRPMeasurement"] / self.time_cfg["TimeStep"]))
             b = np.ones(self.ho_cfg["Prep"]["AverageRSRPMeasument_NL1"]) / self.ho_cfg["Prep"]["AverageRSRPMeasument_NL1"]
             L1 = lfilter(b, 1, self.ch_bs2ue[:, ::M], axis=1)
+            self.pl1 = np.repeat(L1, M, axis=1)[:, :self.total_time]
             self.pl3 = np.repeat(lfilter(self.ho_cfg["Prep"]["alphaIIRfilter"], [1, -1 + self.ho_cfg["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :self.total_time]
 
         # Initial State
@@ -144,6 +153,12 @@ class LTMEnv(gym.Env):
         
         self.sync = {"N310": 4, "N311": 2, "T310": 50, "out_sync_count": 0, "in_sync_count": 0, "t310_running": False, "t310_counter": np.inf}
         
+        # --- HO DELAY STATE ---
+        self.ho_in_progress = False
+        self.ho_substep = 0
+        self.target_sector = -1
+        self.prev_serving_sector = -1
+
         # Performance Tracking (8 Metrics)
         self.metrics_mcs = np.zeros(self.total_time)
         self.metrics_rlf = np.zeros(self.total_time)
@@ -235,27 +250,46 @@ class LTMEnv(gym.Env):
         """
         if self.serving_sector == -1:
             # Baseline Recovery Strategy: Find strongest cell
-            pbest = np.max(self.ch_bs2ue[:, self.t])
-            best = np.argmax(self.ch_bs2ue[:, self.t])
-            
-            # If the strongest cell meets sensitivity, attempt connection
-            if pbest + self.sys_cfg["TxPower"] > self.receiver_sensitivity:
-                # Use pre-calculated MCS
-                if self.all_mcs_episode[best, self.t] > 0:
-                    self.serving_sector = best
-                    self.sync["out_sync_count"] = 0
-                    self.sync["in_sync_count"] = 0
-                    self.sync["t310_running"] = False
-                    self.sync["t310_counter"] = np.inf
-                    self.serving_tenure = 0
+            # We must still update sync state even when disconnected (Cell Search phase)
+            # as per legacy_simulation.py parity.
+            for _ in range(10): # 10 samples of 10ms
+                if self.t >= self.total_time - 1:
+                    break
+                
+                self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
+                
+                pbest = np.max(self.ch_bs2ue[:, self.t])
+                best = np.argmax(self.ch_bs2ue[:, self.t])
+                
+                s_best = self.all_snir_episode[best, self.t]
+                m_best = self.all_mcs_episode[best, self.t]
+                
+                # Check for RLF even during search
+                rlf = self._update_sync(s_best)
+                self.metrics_rlf[self.t] = float(rlf)
+                self.metrics_serving[self.t] = -1
+                self.metrics_mcs[self.t] = 0.0
+                
+                if pbest + self.sys_cfg["TxPower"] > self.receiver_sensitivity:
+                    if m_best > 0:
+                        self.serving_sector = best
+                        self.sync["out_sync_count"] = 0
+                        self.sync["in_sync_count"] = 0
+                        self.sync["t310_running"] = False
+                        self.sync["t310_counter"] = np.inf
+                        self.serving_tenure = 0
+                        self.t += 1
+                        break
+                self.t += 1
                     
             self.HO_ind = 0.0
             self.PP_ind = 0.0
             self.HOF_ind = 0.0
+            r_thr = 0.0
         else:
             self._handle_handover_logic(action)
+            r_thr, _ = self._simulate_radio_samples()
 
-        r_thr, _ = self._simulate_radio_samples()
         reward = self._calculate_ltm_ho_reward(r_thr)
         done = self.t >= self.total_time - 1
 
@@ -270,6 +304,11 @@ class LTMEnv(gym.Env):
                 "serving": self.metrics_serving,
                 "pl3": self.pl3
             }
+        
+        # Add current L1/L3 for the agent (not in observation to keep it 88-dim)
+        t_curr = min(self.t, self.total_time - 1)
+        info["rsrp_l1"] = self.pl1[:, t_curr]
+        info["rsrp_l3"] = self.pl3[:, t_curr]
 
         return self._get_obs(), float(reward), done, False, info
 
@@ -334,7 +373,15 @@ class LTMEnv(gym.Env):
             
             self.prev_prev_serving_sector = prev_serving
             self.last_ho_time = self.t
-            self.serving_sector = action
+            
+            # --- START HO DELAY PROCEDURE ---
+            # 5G/LTM HO is not instant. 
+            # Per legacy_simulation.py: 20ms Command (on old cell) + 30ms Interruption.
+            self.ho_in_progress = True
+            self.ho_substep = 0
+            self.prev_serving_sector = prev_serving
+            self.target_sector = action
+            
             self.serving_tenure = 0
         else:
             self.serving_tenure += 1
@@ -342,39 +389,59 @@ class LTMEnv(gym.Env):
     def _simulate_radio_samples(self, step_duration: int = 10) -> tuple[float, bool]:
         """
         Simulates background radio samples using pre-calculated matrices.
+        Accounts for HO delays and interruption.
         """
         mcs_sum = 0.0
         rlf_happened = False
         samples_count = 0
-        for _ in range(step_duration):
+        
+        for i in range(step_duration):
             if self.t >= self.total_time - 1:
                 break
             
             # 1. Update Oracle History (Zero cost - array slice)
             self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
             
-            # 2. Evaluate Serving Cell
-            if self.serving_sector != -1:
-                m = self.all_mcs_episode[self.serving_sector, self.t]
-                s = self.all_snir_episode[self.serving_sector, self.t]
+            # 2. Determine currently active sector for this 10ms sample
+            active_sector = self.serving_sector
+            if self.ho_in_progress:
+                if self.ho_substep < 2: # First 20ms: Still on OLD cell
+                    active_sector = self.prev_serving_sector
+                elif self.ho_substep < 5: # Next 30ms: Interruption (Outage)
+                    active_sector = -1
+                else: # 50ms+ : On NEW cell
+                    active_sector = self.target_sector
+                    if self.ho_substep == 5:
+                        self.serving_sector = self.target_sector # Official switch
+                
+                self.ho_substep += 1
+            
+            # 3. Evaluate Active Sector
+            if active_sector != -1:
+                m = self.all_mcs_episode[active_sector, self.t]
+                s = self.all_snir_episode[active_sector, self.t]
                 rlf = self._update_sync(s)
                 mcs_sum += float(m)
                 
                 # Tracking
                 self.metrics_mcs[self.t] = m
                 self.metrics_rlf[self.t] = float(rlf)
-                self.metrics_serving[self.t] = self.serving_sector
+                self.metrics_serving[self.t] = active_sector
 
                 if rlf:
                     self.serving_sector = -1
+                    self.ho_in_progress = False
                     rlf_happened = True
+                    active_sector = -1 # Disconnect
             else:
                 mcs_sum += 0.0
                 self.metrics_serving[self.t] = -1
+                # Sync logic is suspended during interruption (matches legacy)
             
             self.t += 1
             samples_count += 1
             
+        self.ho_in_progress = False # Reset for next RL step
         avg_mcs = mcs_sum / samples_count if samples_count > 0 else 0.0
         return avg_mcs, rlf_happened
 

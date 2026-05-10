@@ -28,28 +28,33 @@ class LTMBaselineAgent(BaseAgent):
         self.timer_entering = np.zeros(self.nbs)
         self.timer_leaving = np.zeros(self.nbs)
 
-    def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
+    def select_action(self, state: np.ndarray, info: dict[str, Any] | None = None, epsilon: float = 0.0) -> int:
         # 1. De-normalize state (RSRP)
         # observation layout: [speed(1), tenure(1), serving(nbs), rsrp(nbs), ...]
         serving_start = 2
         rsrp_start = serving_start + self.nbs
         
         serving_one_hot = state[serving_start:rsrp_start]
-        rsrp_norm = state[rsrp_start : rsrp_start + self.nbs]
         
-        # De-normalize RSRP: Map [-1, 1] back to [-120, -30] (approx)
-        # From ltm_gym.py: norm_rsrp = (curr_rsrp + 75) / 45
-        rsrp = rsrp_norm * 45 - 75
+        # Prefer info rsrp if available
+        if info is not None and "rsrp_l3" in info:
+            rsrp_l3 = info["rsrp_l3"]
+            rsrp_l1 = info.get("rsrp_l1", rsrp_l3)
+        else:
+            rsrp_norm = state[rsrp_start : rsrp_start + self.nbs]
+            # De-normalize RSRP: Map [-1, 1] back to [-120, -30] (approx)
+            rsrp_l3 = rsrp_norm * 45 - 75
+            rsrp_l1 = rsrp_l3
         
         serving_idx = np.argmax(serving_one_hot) if np.max(serving_one_hot) > 0 else -1
         
         if serving_idx == -1:
             # Recovery: pick strongest
-            return int(np.argmax(rsrp))
+            return int(np.argmax(rsrp_l3))
             
-        # 2. Update Preparation Logic
-        in_condition = rsrp > (rsrp[serving_idx] + self.prep_offset)
-        out_condition = rsrp < (rsrp[serving_idx] + self.prep_offset)
+        # 2. Update Preparation Logic (L3 based)
+        in_condition = rsrp_l3 > (rsrp_l3[serving_idx] + self.prep_offset)
+        out_condition = rsrp_l3 < (rsrp_l3[serving_idx] + self.prep_offset)
         
         # Since RL step is 100ms and prep_time is 40ms, if condition is met now, it counts as prepared
         self.timer_entering = (self.timer_entering + self.rl_step_time) * in_condition
@@ -61,17 +66,17 @@ class LTMBaselineAgent(BaseAgent):
         # Limit prepared BS
         if np.sum(self.list_bs_prepared) > self.max_prep:
             # Use power-domain for sorting
-            metric = (10 ** (rsrp / 10.0)) * self.list_bs_prepared
-            i_sorted = np.argsort(metric)[::-1]
-            self.list_bs_prepared[i_sorted[self.max_prep:]] = False
+            metric = (10 ** (rsrp_l3 / 10.0)) * self.list_bs_prepared
+            I_sorted = np.argsort(metric)[::-1]
+            self.list_bs_prepared[I_sorted[self.max_prep:]] = False
 
-        # 3. Execution Condition
+        # 3. Execution Condition (L1 based per 3GPP LTM)
         # HO if a prepared cell is stronger than serving + exec_offset
-        ho_condition = self.list_bs_prepared & (rsrp > (rsrp[serving_idx] + self.exec_offset))
+        ho_condition = self.list_bs_prepared & (rsrp_l1 > (rsrp_l1[serving_idx] + self.exec_offset))
         
         if np.any(ho_condition):
             # Pick best candidate
-            metric = (10 ** (rsrp / 10.0)) * ho_condition
+            metric = (10 ** (rsrp_l1 / 10.0)) * ho_condition
             target_idx = np.argmax(metric)
             
             # Reset local state upon HO

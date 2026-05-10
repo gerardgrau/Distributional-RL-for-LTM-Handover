@@ -31,3 +31,4 @@ Train / test split per les 8 mètriques finals? Quins usuaris?
 Quina posició (x, y) tenen les Base Stations?
 Quina orientació segueixen?
 Que està passant amb el baseline (per exemple, tinc molts pocs RLF)
+- **Assumpció RLF/Bloqueig**: Hem detectat que el paper aplica una atenuació de 20dB per "obstrucció" en zones de 40x40m (coordenades relatives [-40, -40] i [+40, +40] de cada BS). Actualment la nostra simulació és "neta" (sense aquests 20dB de caiguda), el que explica per què tenim 0.0 RLFs i 98.6% de reliability vs el 0.068 RLF i 95% del paper. **Pregunta**: Hem d'implementar aquestes zones de bloqueig de 20dB per tenir paritat exacta d'entorn amb el paper?
