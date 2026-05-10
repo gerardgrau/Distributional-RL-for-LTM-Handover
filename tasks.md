@@ -30,3 +30,4 @@ Train / test split per les 8 mètriques finals? Quins usuaris?
 # Preguntes:
 Quina posició (x, y) tenen les Base Stations?
 Quina orientació segueixen?
+Que està passant amb el baseline (per exemple, tinc molts pocs RLF)
