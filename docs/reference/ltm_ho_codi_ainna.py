@@ -3,17 +3,16 @@ from scipy.io import loadmat
 from scipy.signal import lfilter
 import os
 import glob
-from typing import Any
 
-ChannelDirectory = "data/ChannelGains"
+ChannelDirectory = r"D:\Python_GitHub\MEC\MEC-1\Channels"
 
 # Buscar todos los archivos
-files = glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat"))
+files = glob.glob(os.path.join(ChannelDirectory, "Channel_User_veh*.npy"))
 
-UE_Number = len(files)
-# UE_Number = 5  # To test, limitar a 5 UEs
+# UE_Number = len(files)
+UE_Number = 246  # To test, limitar a 5 UEs
 
-print(f"Detected {len(files)} UE channel files. Simulating {UE_Number} UEs.")
+print(f"Detected {UE_Number} UE channel files.")
 
 # ============================================================
 # CONFIGURACIÓN POR DEFECTO
@@ -24,26 +23,24 @@ ReceiverSensitivity = -95
 # Parámetros del sistema
 System = {
     "TxPower": 45,  # dBm
-    # Al paper està a 25
     "NoiseLevel": -174,  # dBm
     # "SINRThreshold": np.array([
-    #     -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
-    #     22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
+    # -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
+    # 22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
     # ]),
     # "SpectralEff": np.array([
-    #     0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
-    #     2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
-    #     5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
+    # 0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
+    # 2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
+    # 5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
     # ])
     "SINRThreshold": np.array([
-        -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
-        12.5, 14.5, 16.5, 19.0, 21.5, 24.0
+    -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
+    12.5, 14.5, 16.5, 19.0, 21.5, 24.0
     ]),
     "SpectralEff": np.array([
-        0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
-        2.73, 3.32, 3.90, 4.52, 5.12, 5.55
+    0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
+    2.73, 3.32, 3.90, 4.52, 5.12, 5.55
     ])
-    # ! Aquests últims són els bons
 }
 
 # Parámetros temporales
@@ -53,31 +50,31 @@ Time = {
 }
 
 # Parámetros de BS
-BS = {"Number": 7}  # 20 BS (CANVIAR A 7 SI ES FA SERVIR LES CEL·LES HEXAGONALS)
+BS = {"Number": 20}  # 20 BS (CANVIAR A 7 SI ES FA SERVIR LES CEL·LES HEXAGONALS)
 NBS = BS["Number"] * 3  # 3 sectores por BS
 HO = {}
 
-HO["Prep"] = {
-    "PeriodicityRSRPMeasurement": 20e-3,     # 20 ms
-    "AverageRSRPMeasument_NL1": 10,          # FIR filter length
-    "kL3": 8,                                 # L3 IIR constant
-    "alphaIIRfilter": 2 ** (-8 / 4),          # 2^(-kL3/4)
-    "PreparationPowerOffset": -3,             # dB
-    "PreparationTime": 40e-3,                 # 40 ms
-    "ExecPowerOffset": 3,                     # dB
-    "MaxNumberPreparedBS": 5                  # Max prepared cells
-}
-
 # HO["Prep"] = {
-#     "PeriodicityRSRPMeasurement": 20e-3,      # 20 ms
-#     "AverageRSRPMeasument_NL1": 10,           # FIR filter length
+#     "PeriodicityRSRPMeasurement": 20e-3,     # 20 ms
+#     "AverageRSRPMeasument_NL1": 10,          # FIR filter length
 #     "kL3": 8,                                 # L3 IIR constant
+#     "alphaIIRfilter": 2 ** (-8 / 4),          # 2^(-kL3/4)
 #     "PreparationPowerOffset": -3,             # dB
 #     "PreparationTime": 40e-3,                 # 40 ms
-#     "ExecPowerOffset": 5,                     # dB
+#     "ExecPowerOffset": 3,                     # dB
 #     "MaxNumberPreparedBS": 5                  # Max prepared cells
 # }
-# HO["Prep"]["alphaIIRfilter"] = 2 ** (-HO["Prep"]["kL3"] / 4)      # 2^(-kL3/4)
+
+HO["Prep"] = {
+    "PeriodicityRSRPMeasurement": 20e-3,      # 20 ms
+    "AverageRSRPMeasument_NL1": 10,           # FIR filter length
+    "kL3": 8,                                 # L3 IIR constant
+    "PreparationPowerOffset": -3,             # dB
+    "PreparationTime": 40e-3,                 # 40 ms
+    "ExecPowerOffset": 5,                     # dB
+    "MaxNumberPreparedBS": 5                  # Max prepared cells
+}
+HO["Prep"]["alphaIIRfilter"] = 2 ** (-HO["Prep"]["kL3"] / 4)      # 2^(-kL3/4)
 
 # Time variables
 Time_PingPong = 1 # Ping-pong event: HO is successful, but UE HO to previous cell within 1 second
@@ -188,6 +185,7 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
 
     return MCS, RLF, Sync
 
+
 def CheckHO_Failure(serving_sector, channels, System):
     BLER = np.array([
         1, 0.2617, 0.2370, 0.2103, 0.1828, 0.1558, 0.1302, 0.1067, 0.0859,
@@ -225,7 +223,6 @@ def CheckHO_Failure(serving_sector, channels, System):
     # # Temporary debug line
     # # Inter_Noise = 10**(System["NoiseLevel"]/10)
     Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
-    # print(f"Serving channel (dB): {serving_channel:.2f}, Interference+Noise (dB): {10*np.log10(Inter_Noise):.2f}, ICIC active: {icic_on}")
     SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)    
     idx = np.where(SNR_level <= SNIR)[0]
     Pe = BLER[idx[-1]]
@@ -259,10 +256,9 @@ def run_simulation():
     Metrics = []
 
     for indUE in range(0, UE_Number):
-        print(f"Simulando UE {indUE+1}/{UE_Number}...")
-        filename = os.path.join(ChannelDirectory, f"ChannelGainBSUE_User{indUE+1}.mat")
-        mat_data = loadmat(filename)
-        Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)
+        print(f"Simulando UE {indUE}/{UE_Number}...")
+        filename = f"{ChannelDirectory}/Channel_User_veh{indUE}.npy"
+        Channel = np.load(filename) # shape = (T, BS, sectores)
 
         NBS = BS["Number"] * 3
         ChBS2UE = np.zeros((NBS, Channel.shape[0]))
@@ -285,8 +281,8 @@ def run_simulation():
         L1 = lfilter(b, 1, ChBS2UE[:, ::M], axis=1)
         L3 = lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1)
 
-        PL1 = np.repeat(L1, M, axis=1)[:, :ChBS2UE.shape[1]] # PL1 = RSRP filtrat
-        PL3 = np.repeat(L3, M, axis=1)[:, :ChBS2UE.shape[1]] # PL3 = PL1 filtrat
+        PL1 = np.repeat(L1, M, axis=1)[:, :ChBS2UE.shape[1]]
+        PL3 = np.repeat(L3, M, axis=1)[:, :ChBS2UE.shape[1]]
 
         # Inicialización de métricas
         # ServingBSSector = np.zeros(Max_iter, dtype=int)
@@ -321,9 +317,6 @@ def run_simulation():
         while t < (Max_iter - 10):
             # print(f"sample={t}, ServingBSSector={ServingBSSector[t]}")
             if ServingBSSector[t] > 0 and not RLF[t]:
-                # cell search
-                # ! 
-
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
                     NextBSSector = -1
@@ -331,11 +324,6 @@ def run_simulation():
             t += 1
 
             while NextBSSector == -1:
-
-                # GREEDY SELECTION: Pick the strongest Base Station.
-                # Note: In the RL simulation (ltm_gym.py), this hardcoded greedy 
-                # logic is bypassed to allow the agent to make the decision.
-
                 Pbest = np.max(ChBS2UE[:, t])
                 Best = np.argmax(ChBS2UE[:, t])
 
@@ -439,10 +427,9 @@ def run_simulation():
             PL1_report = PL1[:, t]
 
             HO_condition = np.logical_and(
-                ListBSPrepared, # ! TODO: no passa res per no filtrar per prepared
+                ListBSPrepared,
                 PL1_report > (PL1_report[ServingBSSector[t]] + HO["Prep"]["ExecPowerOffset"])
             )
-            # !
 
             Tf = min(t + int(np.ceil((Time_MeasReportL1_67 + Time_HOdecision_8) / Time["TimeStep"])), Max_iter-1)
             while t < Tf:
@@ -462,8 +449,7 @@ def run_simulation():
                 t0 = t
                 HO_event[t0] = 1
 
-                # GREEDY SELECTION: Choose the best candidate cell based on signal strength.
-
+                # Elegir mejor célula candidata
                 metric = (10 ** (PL1_report / 10)) * HO_condition
                 I = np.argmax(metric)
 
@@ -555,48 +541,20 @@ if __name__ == "__main__":
     import pandas as pd
     Performance_all, Metrics = run_simulation()
     print("Simulación completada.")
+    net_file = r"C:\Users\Usuari\Sumo\2026-03-05-12-24-49\osm.net.xml"
+    G, pos, bounds, off_x, off_y = network_loader(net_file)
+    bs_df = pd.read_csv(r"D:\Python_GitHub\MEC\MEC-1\sumo_5g_base_stations.csv")
+    traj_file = r"D:\Python_GitHub\MEC\MEC-1\SUMO_Network\fcd.pkl"
     
-    # Minimal check for optional SUMO files
-    net_file = "data/SUMO_Network/osm.net.xml"
-    if os.path.exists(net_file):
-        G, pos, bounds, off_x, off_y = network_loader(net_file)
-    
-    bs_file = "data/sumo_5g_base_stations.csv"
-    if os.path.exists(bs_file):
-        bs_df = pd.read_csv(bs_file)
-        
-    traj_file = "data/SUMO_Network/fcd.pkl"
-    if os.path.exists(traj_file):
-        df = pd.read_pickle(traj_file)
-        veh_list = df["vehicle"].unique()
-        
+    df = pd.read_pickle(traj_file)
+    veh_list = df["vehicle"].unique()
     # Print summaries
-    print("\n===== GLOBAL METRICS SUMMARY =====")
-    global_capacity = np.mean([np.mean(p["Capacity"]) for p in Performance_all])
-    global_rlf = np.mean([p["RL_problems"] for p in Performance_all])
-    global_ho = np.mean([p["Number_HO"] for p in Performance_all])
-    global_pp = np.mean([p["Number_ping_pongs"] for p in Performance_all])
-    global_reliability = np.mean([p["Reliability"] for p in Performance_all])
-    global_prep = np.mean([p["Number_cell_preparations"] for p in Performance_all])
-    global_res = np.mean([p["Resource_reservation"] for p in Performance_all])
-    global_hof = np.mean([p["HOF"] for p in Performance_all])
-
-    print(f"  Capacity (avg):         {global_capacity:.4f}")
-    print(f"  RLF Rate (/min):        {global_rlf:.4f}")
-    print(f"  HO Rate (/min):         {global_ho:.4f}")
-    print(f"  PP Rate (/min):         {global_pp:.4f}")
-    print(f"  Reliability (%):        {global_reliability:.4f}")
-    print(f"  Cell Preparations (/m): {global_prep:.4f}")
-    print(f"  Res. Reservation (%):   {global_res:.4f}")
-    print(f"  HOF Rate (/min):        {global_hof:.4f}")
-
-    print("\n===== INDIVIDUAL PERFORMANCE SUMMARY =====")
+    print("\n===== PERFORMANCE SUMMARY =====")
     for ue_id, perf in enumerate(Performance_all):
-        print(f"\nUE {ue_id+1} ({len(perf['Capacity']) * Time['TimeStep'] / 60:.3f} minutes):")
+        print(f"\nUE {ue_id} ({len(perf['Capacity']) * Time["TimeStep"] / 60:.3f} minutes):")
         print(f"  Capacity (avg MCS): {np.mean(perf['Capacity']):.2f}")
 
         for key, value in perf.items():
-            if key == "Capacity": continue
             if isinstance(value, float):
                 print(f"  {key}: {value:.4f}")
             else:
@@ -628,7 +586,7 @@ if __name__ == "__main__":
 
     import pickle
 
-    save_dir = "results/simulations"
+    save_dir = "ltm_decision"
     os.makedirs(save_dir, exist_ok=True)
     # Save Performance_all 
     with open(os.path.join(save_dir, "Performance_all.pkl"), "wb") as f: pickle.dump(Performance_all, f)
