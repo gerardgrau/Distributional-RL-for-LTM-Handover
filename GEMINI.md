@@ -38,15 +38,18 @@ The goal of this project is to optimize **5G Lower Layer Triggered Mobility (LTM
 ## 4. Evaluation & Reporting
 - **8 Metrics Suite**: Automated calculation of Capacity, RLF, HO Rate, Ping-Pong, Reliability, Cell Preparation, Resource Reservation, and HOF Rate.
 - **Dual Reporting**: Every evaluation generates a **CSV Summary** (Metric, Mean, Std) and a **Raw CSV** (per-episode data).
-- **Branch Strategy**: Use feature branches (e.g., `feature/codebase-refactor`) and Pull Requests for all modifications.
+- **Master Comparisons**: Final benchmarks are consolidated in `results/final_metrics/` using `src/tools/generate_final_plots.py`, comparing ours vs. paper results (LTM, LMMSE, CMAB).
+- **Visualization (MP4)**: Agent behavior dashboard generates MP4 videos (preferred over GIF for playback control) located in `results/benchmarks/bmk_.../animations/`.
+  - **Standard**: 7-color hexagonal layout, segmented RSRP opacity (100% when active), and 'x' sector change markers.
 - **Benchmark Naming**: Follow the convention `bmk_YYYY-MM-DD_num_description`.
 
 ---
 
 ## 5. Workflow & Planning
-- **Agentic Task Planning**: ALL agentic task planning and track management must go through the **Conductor** extension. Refer to `conductor/GEMINI.md` for specific planning protocols and track management rules.
+- **Agentic Task Planning**: ALL agentic task planning and track management must go through the **Conductor** extension.
 - **Reproducibility**: `src/main.py` copies the active `config.yaml` into every benchmark folder.
-- **Definitive Benchmark**: A large-scale 5,000-episode benchmark is currently being analyzed, and a 4-point ablation study on quantile counts (N=[10, 50, 100, 200]) is currently in progress to evaluate performance vs. computational cost.
+- **Definitive Benchmark**: A large-scale 12-hour benchmark (2,000 episodes) for DQN and QR-DQN has been completed.
+- **Ablation Study**: A 4-point ablation study on quantile counts (N=[10, 50, 100, 200]) is currently on standby.
 
 ---
 
