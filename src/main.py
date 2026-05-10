@@ -58,7 +58,9 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
     
-    buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
+    buffer = None
+    if agent_type.lower() in ["dqn", "qrdqn"]:
+        buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
     
     # Save CSV logs in experiment_dir/train/
     if save_results:
@@ -90,12 +92,13 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         while not done:
             action = agent.select_action(state, epsilon)
             next_state, reward, done, _, info = env.step(action)
-            buffer.push(state, action, reward, next_state, done)
+            if buffer is not None:
+                buffer.push(state, action, reward, next_state, done)
             state = next_state
             episode_reward += reward
             global_step += 1
             
-            if len(buffer) > batch_size and global_step % train_freq == 0:
+            if buffer is not None and len(buffer) > batch_size and global_step % train_freq == 0:
                 metrics = agent.train_step(buffer.sample(batch_size, device=device))
                 episode_loss.append(metrics['loss'])
             if done:
@@ -196,6 +199,8 @@ def run_benchmark():
         
         # Copy config file to experiment directory for provenance
         shutil.copy(args.config, os.path.join(experiment_dir, "config.yaml"))
+        
+        num_episodes = config['agent'].get('num_episodes', 1)
         
         print(f"=== Starting Independent Benchmark ===")
         print(f"  Directory: {experiment_dir}")

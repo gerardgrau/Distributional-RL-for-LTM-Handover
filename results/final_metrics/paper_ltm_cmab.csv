@@ -1,0 +1,9 @@
+metric,mean,std
+ho_rate,8.0,0.0
+hof_rate,0.97,0.0
+pp_rate,1.30,0.0
+capacity_avg,3.68,0.0
+rlf_rate,0.101,0.0
+reliability_pct,94.0,0.0
+prep_rate,20.0,0.0
+res_reservation_pct,6.5,0.0
