@@ -101,7 +101,9 @@ def calculate_8_metrics(
         reserved_bs_sectors[:, t] = list_bs_prepared
 
     num_preps = np.sum((reserved_bs_sectors[:, 1:] > reserved_bs_sectors[:, :-1]))
-    prep_rate = num_preps / minutes if minutes > 0 else 0.0
+    # Paper Alignment: prep_rate is the average number of prepared sectors summed over 100ms cycles
+    # 780 per minute means ~1.3 prepared sectors on average per 100ms.
+    prep_rate = (np.sum(reserved_bs_sectors) / 10.0) / minutes if minutes > 0 else 0.0
     resource_reservation = (np.sum(reserved_bs_sectors) / (nbs * total_steps)) * 100.0
     
     # 8. HOF Rate

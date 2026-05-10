@@ -48,10 +48,11 @@ def preprocess():
         ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]
         ue_positions = np.stack([ue_pos_complex.real, ue_pos_complex.imag], axis=1).astype(np.float32)
         
-        # Filtering (L3 RSRP)
+        # Filtering (L1 and L3 RSRP)
         M = int(np.ceil(HO["Prep"]["PeriodicityRSRPMeasurement"] / Time["TimeStep"]))
         b_filt = np.ones(HO["Prep"]["AverageRSRPMeasument_NL1"]) / HO["Prep"]["AverageRSRPMeasument_NL1"]
         L1 = lfilter(b_filt, 1, ch_bs2ue[:, ::M], axis=1)
+        pl1 = np.repeat(L1, M, axis=1)[:, :total_time].astype(np.float32)
         pl3 = np.repeat(lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1), M, axis=1)[:, :total_time].astype(np.float32)
         
         # Save as compressed NumPy binary
@@ -63,6 +64,7 @@ def preprocess():
             all_snir_episode=all_snir.astype(np.float32),
             all_pe_episode=all_pe.astype(np.float32),
             ue_positions=ue_positions,
+            pl1=pl1,
             pl3=pl3
         )
 

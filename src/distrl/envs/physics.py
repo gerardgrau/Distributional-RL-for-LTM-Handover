@@ -21,7 +21,8 @@ SPECTRAL_EFF = np.array([
 # Default Physics Configuration (Legacy fallback)
 System = {
     "TxPower": 25,  # dBm (Aligned with paper)
-    "NoiseLevel": -174,  # dBm
+    "NoiseLevel": -174,  # dBm/Hz
+    "Bandwidth": 200e6,  # 200 MHz
     "SINRThreshold": SINR_THRESHOLD,
     "SpectralEff": SPECTRAL_EFF
 }
@@ -58,6 +59,7 @@ def calculate_snir_matrix(channels_2d: np.ndarray, system_params: dict[str, Any]
     nbs, total_t = channels_2d.shape
     tx_power = system_params.get("TxPower", 25)
     noise_level = system_params.get("NoiseLevel", -174)
+    bandwidth = float(system_params.get("Bandwidth", 200e6))
     
     # 1. Powers and Interference (Reuse-3)
     ps_linear = 10 ** ((channels_2d + tx_power) / 10.0)
@@ -85,13 +87,16 @@ def calculate_snir_matrix(channels_2d: np.ndarray, system_params: dict[str, Any]
     ho_margin_db = channels_2d - target_pwrs
     icic_active = ho_margin_db < 7.0
     
-    noise_floor = 10**(noise_level / 10.0)
+    # Noise Floor = density (dBm/Hz) * bandwidth (Hz)
+    noise_floor_hz = 10**(noise_level / 10.0)
+    noise_floor = noise_floor_hz * bandwidth
+    
     reduction_factor = 0.1
     inter_noise = np.where(icic_active, 
                            (all_inter_linear * reduction_factor) + noise_floor, 
                            all_inter_linear + noise_floor)
                            
-    return 10 * np.log10(ps_linear + 1e-15) - 10 * np.log10(inter_noise + 1e-15)
+    return 10 * np.log10(ps_linear + 1e-25) - 10 * np.log10(inter_noise + 1e-25)
 
 def vectorized_oracle(channels: np.ndarray, system_params: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
     """
