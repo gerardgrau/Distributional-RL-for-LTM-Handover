@@ -11,7 +11,7 @@ from src.distrl.utils.config import Config
 from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
 from src.distrl.agents.standard.dqn import DQNAgent
-from src.distrl.utils.dashboard import MobilityDashboard, get_mock_bs_positions
+from src.distrl.utils.dashboard import MobilityDashboard, get_bs_positions
 
 def run_agent_dashboard(agent_type="dqn", ue_idx=0, model_path=None, output_path=None):
     print(f"=== Generating Dashboard for Trained {agent_type.upper()} Agent (UE {ue_idx}) ===")
@@ -42,24 +42,29 @@ def run_agent_dashboard(agent_type="dqn", ue_idx=0, model_path=None, output_path
     history = {'ue_pos': [], 'serving_bs': [], 'rsrp': []}
     
     print("Running episode...")
-    # Track the real UE positions from the environment
     while not done:
         t_idx = min(env.t, env.total_time - 1)
         history['ue_pos'].append(env.ue_positions[t_idx].tolist())
         history['serving_bs'].append(env.serving_sector)
-        rsrp_vals = state[23:44]
-        history['rsrp'].append(rsrp_vals.tolist())
+        
+        raw_rsrp = env.pl3[:, t_idx]
+        history['rsrp'].append(raw_rsrp.tolist())
         
         action = agent.select_action(state, epsilon=0)
         state, reward, done, _, _ = env.step(action)
         
     print(f"Episode finished at t={env.t}. Generating animation...")
     
-    bs_pos = get_mock_bs_positions()
+    bs_pos = get_bs_positions()
     dash = MobilityDashboard(bs_pos)
     
     if not output_path:
-        output_path = f"results/animations/{agent_type}_ue{ue_idx}_mobility.gif"
+        # DEFAULT TO .MP4
+        if model_path and "results/benchmarks" in model_path:
+            bmk_dir = os.path.dirname(os.path.dirname(model_path))
+            output_path = os.path.join(bmk_dir, "animations", f"{agent_type}_ue{ue_idx}_final.mp4")
+        else:
+            output_path = f"results/animations/{agent_type}_ue{ue_idx}_final.mp4"
         
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     dash.render_episode(history, save_path=output_path)

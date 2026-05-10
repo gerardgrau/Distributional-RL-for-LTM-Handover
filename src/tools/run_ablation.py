@@ -1,18 +1,20 @@
 import subprocess
 import os
 import sys
+import time
 
 def run_ablation():
-    quantiles = [10, 50]
+    quantiles = [10, 50, 100, 200]
     config_path = "configs/test-quantiles.yaml"
     device = "xpu" if "--cpu" not in sys.argv else "cpu"
     
     print(f"=== Starting Ablation Study on Quantiles: {quantiles} ===")
+    print(f"Device: {device}")
+    
+    results_summary = []
     
     for n in quantiles:
         print(f"\n>>> Running QRDQN with N={n}...")
-        # We use a temporary config or CLI override if supported.
-        # Since main.py doesn't have a --num_quantiles flag, we'll create a temp config.
         temp_config = f"configs/temp_ablation_N{n}.yaml"
         
         with open(config_path, 'r') as f:
@@ -33,10 +35,24 @@ def run_ablation():
             "--agents", "qrdqn"
         ]
         
+        start_time = time.time()
         subprocess.run(cmd)
+        end_time = time.time()
+        
+        duration = end_time - start_time
+        results_summary.append((n, duration))
+        print(f"--- N={n} completed in {duration:.2f} seconds ---")
+        
         os.remove(temp_config)
         
-    print("\n=== Ablation Study Completed ===")
+    print("\n" + "="*40)
+    print("      ABLATION STUDY SUMMARY")
+    print("="*40)
+    print(f"{'Quantiles (N)':<15} | {'Duration (s)':<15}")
+    print("-" * 35)
+    for n, dur in results_summary:
+        print(f"{n:<15} | {dur:<15.2f}")
+    print("="*40)
 
 if __name__ == "__main__":
     run_ablation()

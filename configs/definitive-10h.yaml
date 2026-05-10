@@ -1,4 +1,5 @@
-# Ablation Study: Impact of Quantile Count (N)
+# Definitive 10-Hour Benchmark Calibration
+# This config is used to measure time-per-episode for DQN and QR-DQN
 system:
   tx_power: 25
   noise_level: -174
@@ -21,9 +22,8 @@ agent:
   num_quantiles: 50
   epsilon_start: 1.0
   epsilon_end: 0.05
-  epsilon_mult: 0.99
-  num_episodes: 200
-  risk_type: "mean"
+  epsilon_mult: 0.998        # Adjusted for 2000 episodes
+  num_episodes: 2000
 
 benchmark:
   num_seeds: 1
