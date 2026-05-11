@@ -23,6 +23,7 @@ def generate_plots():
         "paper_lmmse": "LMMSE",
         "paper_ltm_cmab": "LTM-CMAB",
         "paper_lmmse_cmab": "LMMSE-CMAB",
+        "legacy_baseline_summary": "Baseline (Legacy)",
         "baseline_summary": "Baseline (Ours)",
         "dqn_summary": "DQN (Ours)",
         "qrdqn_summary": "QR-DQN (Ours)"
@@ -30,7 +31,7 @@ def generate_plots():
     
     desired_order = [
         "LTM", "LMMSE", "LTM-CMAB", "LMMSE-CMAB", 
-        "Baseline (Ours)", "DQN (Ours)", "QR-DQN (Ours)"
+        "Baseline (Legacy)", "Baseline (Ours)", "DQN (Ours)", "QR-DQN (Ours)"
     ]
     
     all_data = {}
@@ -38,6 +39,12 @@ def generate_plots():
     
     for f in csv_files:
         file_key = os.path.basename(f).replace(".csv", "")
+        # Handle specific naming like dqn_2k-ep_summary
+        if "qrdqn_2k-ep" in file_key:
+            file_key = "qrdqn_summary"
+        elif "dqn_2k-ep" in file_key:
+            file_key = "dqn_summary"
+            
         if file_key in mapping:
             name = mapping[file_key]
             series = load_summary(f)

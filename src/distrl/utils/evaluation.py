@@ -82,11 +82,26 @@ def run_evaluation(
             raw_csv = os.path.join(eval_dir, f"{agent_type}_raw_seed{seed}.csv")
         
         # 1. Save Summary CSV (Metric, Mean, Std)
+        metric_order = [
+            "ho_rate", "hof_rate", "pp_rate", "capacity_avg", "rlf_rate",
+            "reliability_pct", "prep_rate", "res_reservation_pct",
+            "reward", "total_steps", "total_minutes"
+        ]
+        
         summary_df = pd.DataFrame({
             "metric": summary["mean"].keys(),
             "mean": summary["mean"].values(),
             "std": summary["std"].values()
         })
+        
+        # Sort according to standard order, keeping any extra metrics at the end
+        summary_df['metric'] = pd.Categorical(
+            summary_df['metric'], 
+            categories=metric_order + [m for m in summary_df['metric'] if m not in metric_order], 
+            ordered=True
+        )
+        summary_df = summary_df.sort_values('metric')
+        
         summary_df.to_csv(summary_csv, index=False)
             
         # 2. Save Raw CSV (Per-episode metrics)

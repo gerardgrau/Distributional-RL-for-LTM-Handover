@@ -111,14 +111,14 @@ def calculate_8_metrics(
     hof_rate = hof_total / minutes if minutes > 0 else 0.0
     
     return {
+        "ho_rate": float(ho_rate),
+        "hof_rate": float(hof_rate),
+        "pp_rate": float(pp_rate),
         "capacity_avg": float(avg_capacity),
         "rlf_rate": float(rlf_rate),
-        "ho_rate": float(ho_rate),
-        "pp_rate": float(pp_rate),
         "reliability_pct": float(reliability),
         "prep_rate": float(prep_rate),
         "res_reservation_pct": float(resource_reservation),
-        "hof_rate": float(hof_rate),
         "total_steps": int(total_steps),
         "total_minutes": float(minutes)
     }
