@@ -259,7 +259,7 @@ def run_simulation():
     Metrics = []
 
     for indUE in range(0, UE_Number):
-        print(f"Simulando UE {indUE+1}/{UE_Number}...")
+        print(f"Simulando UE {indUE+1}/{UE_Number}...", flush=True)
         filename = os.path.join(ChannelDirectory, f"ChannelGainBSUE_User{indUE+1}.mat")
         mat_data = loadmat(filename)
         Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)
