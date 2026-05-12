@@ -68,30 +68,18 @@ def calculate_snir_matrix(channels_2d: np.ndarray, system_params: dict[str, Any]
     all_sectors = np.arange(nbs)
     all_inter_linear = group_sums[all_sectors % 3, :] - ps_linear
 
-    # 2. ICIC (Neighbor detection and power reduction)
-    # Target powers for margin calculation: use the strongest overall signal at each t
-    # excluding the current sector.
-    sorted_indices = np.argsort(channels_2d, axis=0)
-    best_overall_idx = sorted_indices[-1, :]
-    second_best_overall_idx = sorted_indices[-2, :]
-    
-    best_pwrs = channels_2d[best_overall_idx, np.arange(total_t)]
-    second_best_pwrs = channels_2d[second_best_overall_idx, np.arange(total_t)]
-    
-    target_pwrs = np.tile(best_pwrs, (nbs, 1))
-    target_pwrs[best_overall_idx, np.arange(total_t)] = second_best_pwrs
-    
-    # Parity: The legacy simulation calculates the margin by dividing the negative dB values
-    # e.g., 10 * log10(-80 / -90) which yields values around [-1, +1], always < 7.0.
-    # This means ICIC is effectively always ON in the legacy baseline. We replicate this exact math.
-    ho_margin_db = 10 * np.log10(channels_2d / (target_pwrs - 1e-15))
-    icic_active = ho_margin_db < 7.0
-    
+    # 2. Stochastic Interference (M=3 parity)
+    # The master student updated legacy_simulation.py to use M=3 and a 1/M chance of High Interference.
+    # Otherwise, Low Interference (attenuated by 15 dB).
+    M = 3
     noise_floor = 10**(noise_level / 10.0)
-    reduction_factor = 0.1
-    inter_noise = np.where(icic_active, 
-                           (all_inter_linear * reduction_factor) + noise_floor, 
-                           all_inter_linear + noise_floor)
+    
+    rand_mask = np.random.rand(nbs, total_t) < (1.0 / M)
+    
+    high_inter_noise = (M * all_inter_linear) + noise_floor
+    low_inter_noise = (M * all_inter_linear * (10**(-1.5))) + noise_floor
+    
+    inter_noise = np.where(rand_mask, high_inter_noise, low_inter_noise)
                            
     return 10 * np.log10(ps_linear + 1e-15) - 10 * np.log10(inter_noise + 1e-15)
 

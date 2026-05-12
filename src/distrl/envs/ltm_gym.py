@@ -423,11 +423,6 @@ class LTMEnv(gym.Env):
             if self.t >= self.total_time - 1:
                 break
             
-            # 0. Legacy Parity: 'if ServingBSSector[t] > 0' bug at the start of the loop.
-            # If the cycle just restarted (legacy_cycle == 0), legacy evaluates MCS ONLY if sector > 0.
-            # Otherwise (sector 0 or -1), it skips evaluation and leaves MCS=0 for that tick.
-            skip_evaluation = (self.legacy_cycle == 0) and (self.serving_sector <= 0)
-            
             # 0. High-resolution decision (10ms)
             if action_callback is not None and not self.ho_in_progress:
                 info_cb = {
@@ -492,7 +487,7 @@ class LTMEnv(gym.Env):
                 self.ho_substep += 1
             
             # 3. Evaluate Active Sector
-            if active_sector != -1 and not skip_evaluation:
+            if active_sector != -1:
                 m = self.all_mcs_episode[active_sector, self.t]
                 s = self.all_snir_episode[active_sector, self.t]
                 rlf = self._update_sync(s)
