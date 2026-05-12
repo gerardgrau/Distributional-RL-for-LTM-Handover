@@ -12,10 +12,9 @@
 - [x] Definitive Benchmark Comparison (RL vs Legacy Baseline).
 - [x] Merge all optimizations and fixes to master.
 
-# Feina a fer:
+# Feina a fer abans:
 - Executar el benchmark definitiu (5000 ep) amb les noves mètriques i CVaR.
 - Benchmark amb diferents #quantiles
-Anar pensant títol, subtítol, estructura del document a entregar
 
 
 # Possible feina a fer:
@@ -30,6 +29,21 @@ Train / test split per les 8 mètriques finals? Quins usuaris?
 # Preguntes:
 Quina posició (x, y) tenen les Base Stations?
 Quina orientació segueixen?
+
+===
+
+# Més feina a fer:
+Anar pensant títol, subtítol, estructura del document a entregar !!!
+- 
+
+evaluar els model de risc (k: 0.05% ...) per veure si les mètriques canvien (potser baixar el # HO)
+Plots animacó: Afegir plot de MCS al costat del RSRP
+
+- millorar plots de quantils pels model de risc
+- Comparar tot amb els Channels "_noRIS"
+
+===
+
 
 - **Assumpció Taules SINR i Reliability (CONCLOSA)**: Hem provat la taula comentada (`SINRThreshold` a partir de -3dB per l'Outage). Això ha baixat la Reliability de 98.6% a **97.8%**, apropant-nos molt al 95% del paper. El gap restant són segurament els RLFs que no estem disparant. **Decisió**: Usarem la taula de -3dB per a la calibració final.
 - **Assumpció ExecPowerOffset i HO Rate (CONCLOSA)**: Hem trobat que amb un offset de **3.4 dB** (en lloc dels 3.0 del paper/taula) clavem la HO Rate a **~11.5** (Paper: 11.0). El valor de 5.0 comentat al codi era massa agressiu (baixava a 7). **Decisió**: Usarem 3.4 dB per a la calibració final.
