@@ -23,6 +23,9 @@ class LTMBaselineAgent(BaseAgent):
         self.cached_rsrp_l1 = None
         self.cached_rsrp_l3 = None
         
+        # Legacy Parity: Internal 10-step procedural counter
+        self.pending_ho_target = -1
+        
         self.reset()
         
     def reset(self) -> None:
@@ -35,15 +38,14 @@ class LTMBaselineAgent(BaseAgent):
         self.last_measurement_time = -1.0
         self.cached_rsrp_l1 = None
         self.cached_rsrp_l3 = None
+        self.pending_ho_target = -1
 
     def select_action(self, state: np.ndarray | None, info: dict[str, Any] | None = None, epsilon: float = 0.0) -> int:
         # 1. De-normalize state (RSRP)
-        # Prefer info rsrp if available
         if info is not None and "rsrp_l3" in info:
             curr_rsrp_l3 = info["rsrp_l3"]
             curr_rsrp_l1 = info.get("rsrp_l1", curr_rsrp_l3)
         elif state is not None:
-            # observation layout: [speed(1), tenure(1), serving(nbs), rsrp(nbs), ...]
             rsrp_start = 2 + self.nbs
             rsrp_norm = state[rsrp_start : rsrp_start + self.nbs]
             curr_rsrp_l3 = rsrp_norm * 45 - 75
@@ -51,7 +53,6 @@ class LTMBaselineAgent(BaseAgent):
         else:
             raise ValueError("Baseline agent needs either state or info with rsrp_l3")
 
-        # Determine serving_idx
         if info is not None and "serving_sector" in info:
             serving_idx = info["serving_sector"]
         elif state is not None:
@@ -65,43 +66,49 @@ class LTMBaselineAgent(BaseAgent):
         rsrp_l1 = curr_rsrp_l1
         
         if serving_idx == -1:
+            self.pending_ho_target = -1
             return int(np.argmax(rsrp_l3))
             
-        # 2. Update Preparation Logic (L3 based)
-        # Paper uses PL3_report > PL3_report[serving] + offset
-        in_condition = rsrp_l3 > (rsrp_l3[serving_idx] + self.prep_offset)
-        out_condition = rsrp_l3 < (rsrp_l3[serving_idx] + self.prep_offset)
+        # 2. Legacy Parity Procedural Logic
+        cycle = info.get("legacy_cycle", 0) if info is not None else 0
         
-        # Legacy code uses (Timer > 40ms), so it triggers at 50ms (tick 5).
-        self.timer_entering = (self.timer_entering + self.rl_step_time) * in_condition
-        self.list_bs_prepared |= (self.timer_entering > self.prep_time_thresh)
-        
-        self.timer_leaving = (self.timer_leaving + self.rl_step_time) * out_condition
-        self.list_bs_prepared &= ~(self.timer_leaving > self.prep_time_thresh)
-        
-        # Limit prepared BS
-        if np.sum(self.list_bs_prepared) > self.max_prep:
-            metric = (10 ** (rsrp_l3 / 10.0)) * self.list_bs_prepared
-            I_sorted = np.argsort(metric)[::-1]
-            self.list_bs_prepared[I_sorted[self.max_prep:]] = False
+        # Preparation check happens at cycle == 5
+        if cycle == 5:
+            in_condition = rsrp_l3 > (rsrp_l3[serving_idx] + self.prep_offset)
+            out_condition = rsrp_l3 < (rsrp_l3[serving_idx] + self.prep_offset)
+            
+            # Increment by exactly 10ms
+            self.timer_entering = (self.timer_entering + 0.01) * in_condition
+            self.list_bs_prepared |= (self.timer_entering > self.prep_time_thresh)
+            
+            self.timer_leaving = (self.timer_leaving + 0.01) * out_condition
+            self.list_bs_prepared &= ~(self.timer_leaving > self.prep_time_thresh)
+            
+            if np.sum(self.list_bs_prepared) > self.max_prep:
+                metric = (10 ** (rsrp_l3 / 10.0)) * self.list_bs_prepared
+                I_sorted = np.argsort(metric)[::-1]
+                self.list_bs_prepared[I_sorted[self.max_prep:]] = False
 
-        # 3. Execution Condition (L3 based for stability)
-        ho_condition = self.list_bs_prepared & (rsrp_l3 > (rsrp_l3[serving_idx] + self.exec_offset))
-        
-        if np.any(ho_condition):
-            metric = (10 ** (rsrp_l1 / 10.0)) * ho_condition
-            target_idx = np.argmax(metric)
-            self.list_bs_prepared[target_idx] = False
-            return int(target_idx)
+        # Decision check happens at cycle == 7
+        if cycle == 7:
+            ho_condition = self.list_bs_prepared & (rsrp_l1 > (rsrp_l1[serving_idx] + self.exec_offset))
+            if np.any(ho_condition):
+                metric = (10 ** (rsrp_l1 / 10.0)) * ho_condition
+                self.pending_ho_target = int(np.argmax(metric))
+            else:
+                self.pending_ho_target = -1
+
+        # Execution trigger happens at cycle == 9
+        if cycle == 9:
+            if self.pending_ho_target != -1:
+                target = self.pending_ho_target
+                self.pending_ho_target = -1
+                # Note: target state clearing is handled by env in the best version
+                return target
             
         return int(serving_idx)
 
     def train_step(self, batch: Any) -> dict[str, float]:
-        # Baseline agent does not train
         return {"loss": 0.0}
-
-    def save(self, path: str) -> None:
-        pass
-
-    def load(self, path: str) -> None:
-        pass
+    def save(self, path: str) -> None: pass
+    def load(self, path: str) -> None: pass

@@ -82,11 +82,13 @@ def calculate_8_metrics(
             timer_leaving[:] = 0
         else:
             cond_in = in_condition[:, t]
-            timer_entering = (timer_entering + time_step) * cond_in
+            # Legacy Parity: The original script increments by `TimeStep` (0.01) only once per 10-tick cycle.
+            # This makes the effective increment rate 0.001 per tick. 
+            timer_entering = (timer_entering + (time_step / 10.0)) * cond_in
             list_bs_prepared |= (timer_entering > prep_time_thresh)
 
             cond_out = out_condition[:, t]
-            timer_leaving = (timer_leaving + time_step) * cond_out
+            timer_leaving = (timer_leaving + (time_step / 10.0)) * cond_out
             list_bs_prepared &= ~(timer_leaving > prep_time_thresh)
 
             if np.sum(list_bs_prepared) > max_prep:
@@ -99,6 +101,10 @@ def calculate_8_metrics(
             list_bs_prepared[s] = False
             
         reserved_bs_sectors[:, t] = list_bs_prepared
+
+    # If the environment passed us the perfect tracked array, overwrite our retroactive calculation
+    if config and config.get("override_reserved_array") is not None:
+        reserved_bs_sectors = config["override_reserved_array"]
 
     num_preps = np.sum((reserved_bs_sectors[:, 1:] > reserved_bs_sectors[:, :-1]))
     # Paper Alignment: prep_rate is the average number of prepared sectors summed over 100ms cycles

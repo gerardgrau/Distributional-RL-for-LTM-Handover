@@ -158,6 +158,8 @@ class LTMEnv(gym.Env):
         self.ho_substep = 0
         self.target_sector = -1
         self.prev_serving_sector = -1
+        
+        self.legacy_cycle = 0 # Tracks the 10-step legacy loop
 
         # Performance Tracking (8 Metrics)
         self.metrics_mcs = np.zeros(self.total_time)
@@ -166,15 +168,19 @@ class LTMEnv(gym.Env):
         self.metrics_hof = np.zeros(self.total_time)
         self.metrics_pp = np.zeros(self.total_time)
         self.metrics_serving = np.full(self.total_time, -1, dtype=int)
+        self.metrics_reserved = np.zeros((NBS, self.total_time), dtype=bool)
 
         self.HO_ind = 0.0
         self.PP_ind = 0.0
         self.HOF_ind = 0.0
 
         while self.serving_sector == -1 and self.t < self.total_time:
+            self.t += 1 # Match Legacy t += 1 before search loop
+            if self.t >= self.total_time:
+                break
             pbest = np.max(self.ch_bs2ue[:, self.t])
             best = np.argmax(self.ch_bs2ue[:, self.t])
-            if pbest + System["TxPower"] > ReceiverSensitivity:
+            if pbest + self.sys_cfg["TxPower"] > self.receiver_sensitivity:
                 # Check if MCS > 0 in the pre-calculated matrix
                 if self.all_mcs_episode[best, self.t] > 0:
                     self.serving_sector = best
@@ -182,7 +188,8 @@ class LTMEnv(gym.Env):
                     self.metrics_serving[self.t] = best
                     # Initial state metrics for ALL sectors (Maintain running sum)
                     self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
-            self.t += 1
+                    self.t += 1 # Match Legacy t += 1 before exiting search loop
+                    break # Stop at the recovery step
             
         return self._get_obs(), {}
 
@@ -255,20 +262,16 @@ class LTMEnv(gym.Env):
         and high_res_callback is used every 10ms.
         """
         if self.serving_sector == -1:
-            # Baseline Recovery Strategy: Find strongest cell
-            # We must still update sync state even when disconnected (Cell Search phase)
-            # as per legacy_simulation.py parity.
-            for _ in range(10): # 10 samples of 10ms
+            ticks_spent = 0
+            for _ in range(10):
                 if self.t >= self.total_time - 1:
                     break
                 
                 self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
                 
-                # If high-res is on, we might still want to prepare cells while disconnected?
-                # Per legacy: if disconnected, it just tries to recover the strongest one.
                 if high_res_callback is not None:
-                    info = {"rsrp_l1": self.pl1[:, self.t], "rsrp_l3": self.pl3[:, self.t]}
-                    _ = high_res_callback(None, info) # Update agent's internal preparation state
+                    info_cb = {"rsrp_l1": self.pl1[:, self.t], "rsrp_l3": self.pl3[:, self.t], "legacy_cycle": self.legacy_cycle}
+                    _ = high_res_callback(None, info_cb)
 
                 pbest = np.max(self.ch_bs2ue[:, self.t])
                 best = np.argmax(self.ch_bs2ue[:, self.t])
@@ -276,12 +279,12 @@ class LTMEnv(gym.Env):
                 s_best = self.all_snir_episode[best, self.t]
                 m_best = self.all_mcs_episode[best, self.t]
                 
-                # Check for RLF even during search
                 rlf = self._update_sync(s_best)
                 self.metrics_rlf[self.t] = float(rlf)
                 self.metrics_serving[self.t] = -1
                 self.metrics_mcs[self.t] = 0.0
                 
+                ticks_spent += 1
                 if pbest + self.sys_cfg["TxPower"] > self.receiver_sensitivity:
                     if m_best > 0:
                         self.serving_sector = best
@@ -297,7 +300,15 @@ class LTMEnv(gym.Env):
             self.HO_ind = 0.0
             self.PP_ind = 0.0
             self.HOF_ind = 0.0
-            r_thr = 0.0
+            
+            remaining_ticks = 10 - ticks_spent
+            if self.serving_sector != -1 and remaining_ticks > 0:
+                if high_res_callback is None:
+                    r_thr, _ = self._simulate_radio_samples(step_duration=remaining_ticks)
+                else:
+                    r_thr, _ = self._simulate_radio_samples(step_duration=remaining_ticks, action_callback=high_res_callback)
+            else:
+                r_thr = 0.0
         else:
             if high_res_callback is None:
                 self._handle_handover_logic(action)
@@ -320,11 +331,13 @@ class LTMEnv(gym.Env):
                 "serving": self.metrics_serving,
                 "pl3": self.pl3
             }
+            info["metrics"]["reserved"] = self.metrics_reserved
         
         # Add current L1/L3 for the agent (not in observation to keep it 88-dim)
         t_curr = min(self.t, self.total_time - 1)
         info["rsrp_l1"] = self.pl1[:, t_curr]
         info["rsrp_l3"] = self.pl3[:, t_curr]
+        info["legacy_cycle"] = self.legacy_cycle
 
         return self._get_obs(), float(reward), done, False, info
 
@@ -373,14 +386,6 @@ class LTMEnv(gym.Env):
             self.metrics_ho[self.t] = 1.0
             self.HO_ind = 1.0
             
-            # Check for Handover Failure (HOF) using pre-calculated Pe matrix
-            pe = self.all_pe_episode[action, self.t]
-            if np.random.rand() < pe:
-                self.HOF_ind = 1.0
-                self.metrics_hof[self.t] = 1.0
-                self.serving_sector = -1 # Disconnected
-                return
-            
             # Check for Ping-Pong (PP)
             is_pp = (action == self.prev_prev_serving_sector) and (self.t - self.last_ho_time < 1.0 / self.time_cfg["TimeStep"])
             if is_pp:
@@ -416,63 +421,90 @@ class LTMEnv(gym.Env):
             if self.t >= self.total_time - 1:
                 break
             
+            # 0. Legacy Parity: 'if ServingBSSector[t] > 0' bug at the start of the loop.
+            # If the cycle just restarted (legacy_cycle == 0), legacy evaluates MCS ONLY if sector > 0.
+            # Otherwise (sector 0 or -1), it skips evaluation and leaves MCS=0 for that tick.
+            skip_evaluation = (self.legacy_cycle == 0) and (self.serving_sector <= 0)
+            
             # 0. High-resolution decision (10ms)
             if action_callback is not None and not self.ho_in_progress:
-                # Provide L1/L3 and current serving to callback
-                info = {
+                info_cb = {
                     "rsrp_l1": self.pl1[:, self.t], 
                     "rsrp_l3": self.pl3[:, self.t],
-                    "serving_sector": self.serving_sector
+                    "serving_sector": self.serving_sector,
+                    "legacy_cycle": self.legacy_cycle
                 }
-                # The callback should return the desired sector
-                new_action = action_callback(None, info) # state is not easily available here
+                new_action = action_callback(None, info_cb)
                 if new_action != self.serving_sector:
                     self._handle_handover_logic(new_action)
+
+                # Expose reserved state from agent if available
+                if hasattr(action_callback.__self__, 'list_bs_prepared'):
+                    self.metrics_reserved[:, self.t] = action_callback.__self__.list_bs_prepared
+            elif self.t > 0:
+                self.metrics_reserved[:, self.t] = self.metrics_reserved[:, self.t-1]
 
             # 1. Update Oracle History (Zero cost - array slice)
             self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
             
-            # 2. Determine currently active sector for this 10ms sample
+            # 2. Determine active sector
             active_sector = self.serving_sector
             if self.ho_in_progress:
-                if self.ho_substep < 2: # First 20ms: Still on OLD cell
+                if self.ho_substep < 2: 
+                    # First 20ms (t0, t0+1): Still on OLD cell
                     active_sector = self.prev_serving_sector
-                elif self.ho_substep < 5: # Next 30ms: Interruption (Outage)
+                elif self.ho_substep < 6: 
+                    # Next 40ms (t0+2, t0+3, t0+4, t0+5): Interruption (Outage)
                     active_sector = -1
-                else: # 50ms+ : On NEW cell
-                    active_sector = self.target_sector
-                    if self.ho_substep == 5:
-                        self.serving_sector = self.target_sector # Official switch
-                
+                    if self.ho_substep == 3: # Legacy evaluates HOF at t0+3
+                        pe = self.all_pe_episode[self.target_sector, self.t]
+                        if np.random.rand() < pe:
+                            self.HOF_ind = 1.0
+                            self.metrics_hof[self.t] = 1.0
+                            self.serving_sector = -1
+                            self.ho_in_progress = False
+                    
+                    if self.ho_in_progress and self.ho_substep == 5:
+                        self.serving_sector = self.target_sector
+                        self.ho_in_progress = False
+                        
+                        # Legacy Parity: Clear the prepared state of the target cell AFTER the HO delay finishes
+                        if action_callback is not None and hasattr(action_callback.__self__, 'list_bs_prepared'):
+                            action_callback.__self__.list_bs_prepared[self.target_sector] = False
+                        
+                        # When HO finishes, Legacy loop restarts.
+                        self.legacy_cycle = -1 # The end of this tick will increment it to 0
                 self.ho_substep += 1
             
             # 3. Evaluate Active Sector
-            if active_sector != -1:
+            if active_sector != -1 and not skip_evaluation:
                 m = self.all_mcs_episode[active_sector, self.t]
                 s = self.all_snir_episode[active_sector, self.t]
-                
                 rlf = self._update_sync(s)
                 mcs_sum += float(m)
-                
-                # Tracking
                 self.metrics_mcs[self.t] = m
                 self.metrics_rlf[self.t] = float(rlf)
                 self.metrics_serving[self.t] = active_sector
-
                 if rlf:
                     self.serving_sector = -1
                     self.ho_in_progress = False
                     rlf_happened = True
-                    active_sector = -1 # Disconnect
             else:
                 mcs_sum += 0.0
-                self.metrics_serving[self.t] = -1
-                # Sync logic is suspended during interruption (matches legacy)
+                self.metrics_serving[self.t] = -1 if active_sector == -1 else active_sector
             
+            if self.serving_sector != -1 and not self.ho_in_progress:
+                self.legacy_cycle = (self.legacy_cycle + 1) % 10
+            elif self.serving_sector == -1:
+                self.legacy_cycle = 0 # Reset while disconnected
+                
             self.t += 1
             samples_count += 1
             
-        self.ho_in_progress = False # Reset for next RL step
+            # Break early if disconnected so search loop can take over in the next step()
+            if self.serving_sector == -1:
+                break
+            
         avg_mcs = mcs_sum / samples_count if samples_count > 0 else 0.0
         return avg_mcs, rlf_happened
 

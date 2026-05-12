@@ -10,8 +10,8 @@ ChannelDirectory = "data/ChannelGains"
 # Buscar todos los archivos
 files = glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat"))
 
-UE_Number = len(files)
-# UE_Number = 5  # To test, limitar a 5 UEs
+# UE_Number = len(files)
+UE_Number = 5  # To test, limitar a 5 UEs
 
 print(f"Detected {len(files)} UE channel files. Simulating {UE_Number} UEs.")
 
@@ -259,7 +259,7 @@ def run_simulation():
     Metrics = []
 
     for indUE in range(0, UE_Number):
-        print(f"Simulando UE {indUE+1}/{UE_Number}...", flush=True)
+        print(f"Simulando UE {indUE+1}/{UE_Number}...")
         filename = os.path.join(ChannelDirectory, f"ChannelGainBSUE_User{indUE+1}.mat")
         mat_data = loadmat(filename)
         Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)
@@ -571,26 +571,7 @@ if __name__ == "__main__":
         veh_list = df["vehicle"].unique()
         
     # Print summaries
-    print("\n===== GLOBAL METRICS SUMMARY =====")
-    global_capacity = np.mean([np.mean(p["Capacity"]) for p in Performance_all])
-    global_rlf = np.mean([p["RL_problems"] for p in Performance_all])
-    global_ho = np.mean([p["Number_HO"] for p in Performance_all])
-    global_pp = np.mean([p["Number_ping_pongs"] for p in Performance_all])
-    global_reliability = np.mean([p["Reliability"] for p in Performance_all])
-    global_prep = np.mean([p["Number_cell_preparations"] for p in Performance_all])
-    global_res = np.mean([p["Resource_reservation"] for p in Performance_all])
-    global_hof = np.mean([p["HOF"] for p in Performance_all])
-
-    print(f"  Capacity (avg):         {global_capacity:.4f}")
-    print(f"  RLF Rate (/min):        {global_rlf:.4f}")
-    print(f"  HO Rate (/min):         {global_ho:.4f}")
-    print(f"  PP Rate (/min):         {global_pp:.4f}")
-    print(f"  Reliability (%):        {global_reliability:.4f}")
-    print(f"  Cell Preparations (/m): {global_prep:.4f}")
-    print(f"  Res. Reservation (%):   {global_res:.4f}")
-    print(f"  HOF Rate (/min):        {global_hof:.4f}")
-
-    print("\n===== INDIVIDUAL PERFORMANCE SUMMARY =====")
+    print("\n===== PERFORMANCE SUMMARY =====")
     for ue_id, perf in enumerate(Performance_all):
         print(f"\nUE {ue_id+1} ({len(perf['Capacity']) * Time['TimeStep'] / 60:.3f} minutes):")
         print(f"  Capacity (avg MCS): {np.mean(perf['Capacity']):.2f}")
