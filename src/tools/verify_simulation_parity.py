@@ -18,6 +18,7 @@ def verify_parity(ue_count: int, high_res: bool = False):
     config = Config.get()
     
     config['simulation']['ue_number'] = ue_count
+    config['system']['tx_power'] = 25  # Force parity with legacy_simulation.py
     
     env = LTMEnv(config=config)
     agent = LTMBaselineAgent(config, env.observation_space, env.action_space)

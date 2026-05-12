@@ -23,7 +23,7 @@ ReceiverSensitivity = -95
 
 # Parámetros del sistema
 System = {
-    "TxPower": 45,  # dBm
+    "TxPower": 25,  # dBm
     # Al paper està a 25
     "NoiseLevel": -174,  # dBm
     # "SINRThreshold": np.array([

@@ -31,8 +31,8 @@ def preprocess():
         # 1. ChannelBS2UE: Clean environment (no blockage)
         # 2. ChannelBS2UE_noRIS: Realistic environment with 20dB spatial blockage
         # 3. ChannelBS2UE_RIS: Realistic environment with 20dB blockage + RIS assistance
-        # We use 'ChannelBS2UE_noRIS' to match the LTM baseline and standard RL training conditions.
-        raw_channel = mat_data['ChannelBS2UE_noRIS'] 
+        # We use 'ChannelBS2UE' to match the legacy simulation's default matrix.
+        raw_channel = mat_data['ChannelBS2UE'] 
         
         total_time = raw_channel.shape[0]
         ch_bs2ue = np.zeros((NBS, total_time), dtype=np.float32)
