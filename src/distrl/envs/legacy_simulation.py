@@ -102,6 +102,7 @@ def get_realistic_interference(ch_vector, serving_idx, all_inter_linear, system_
     serving_idx: Current BS
     all_inter_linear: Raw total interference
     """
+    raise NotImplementedError()
     noise_floor = 10**(system_params["NoiseLevel"] / 10.0)
     
     if serving_idx == -1:
@@ -148,18 +149,19 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
     # Sum of interference in linear scale (10^(P/10))
     AllInter = np.sum(10**Inter) - Ps
     # AllInter = AllInter * 0.1  # Attenuation factor to simulate better conditions during HO
-    # M = 3
-    # noise_linear = 10**(System["NoiseLevel"] / 10.0)
+    M = 3
+    noise_linear = 10**(System["NoiseLevel"] / 10.0)
 
-    # if np.random.rand() < (1 / M):
-    #     # Case: High interference scenario
-    #     Inter_Noise = M * AllInter + noise_linear
-    # else:
-    #     # Case: Low interference scenario (attenuated by 15 dB)
-    #     Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
-    # # Temporary debug line
-    # # Inter_Noise = 10**(System["NoiseLevel"]/10)
-    Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
+    if np.random.rand() < (1 / M):
+        # Case: High interference scenario
+        Inter_Noise = M * AllInter + noise_linear
+    else:
+        # Case: Low interference scenario (attenuated by 15 dB)
+        Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
+    # Temporary debug line
+    # Inter_Noise = 10**(System["NoiseLevel"]/10)
+    
+    # Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
     # print(f"Serving channel (dB): {serving_channel:.2f}, Interference+Noise (dB): {10*np.log10(Inter_Noise):.2f}, ICIC active: {icic_on}")
     SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise) 
     idx = np.where(System["SINRThreshold"] <= SNIR)[0]
@@ -213,18 +215,20 @@ def CheckHO_Failure(serving_sector, channels, System):
     Inter = (relevant_channels + System["TxPower"]) / 10.0
     AllInter = np.sum(10**Inter) - Ps
     # AllInter = AllInter * 0.1  # Attenuation factor to simulate better conditions during HO
-    # M = 3
-    # noise_linear = 10**(System["NoiseLevel"] / 10.0)
+    M = 3
+    noise_linear = 10**(System["NoiseLevel"] / 10.0)
 
-    # if np.random.rand() < (1 / M):
-    #     # Case: High interference scenario
-    #     Inter_Noise = M * AllInter + noise_linear
-    # else:
-    #     # Case: Low interference scenario (attenuated by 15 dB)
-    #     Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
-    # # Temporary debug line
-    # # Inter_Noise = 10**(System["NoiseLevel"]/10)
-    Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
+    if np.random.rand() < (1 / M):
+        # Case: High interference scenario
+        Inter_Noise = M * AllInter + noise_linear
+    else:
+        # Case: Low interference scenario (attenuated by 15 dB)
+        Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
+    # Temporary debug line
+    # Inter_Noise = 10**(System["NoiseLevel"]/10)
+    
+    # Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
+    
     # print(f"Serving channel (dB): {serving_channel:.2f}, Interference+Noise (dB): {10*np.log10(Inter_Noise):.2f}, ICIC active: {icic_on}")
     SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)    
     idx = np.where(SNR_level <= SNIR)[0]
@@ -262,7 +266,8 @@ def run_simulation():
         print(f"Simulando UE {indUE+1}/{UE_Number}...")
         filename = os.path.join(ChannelDirectory, f"ChannelGainBSUE_User{indUE+1}.mat")
         mat_data = loadmat(filename)
-        Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)
+        # Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)
+        Channel = mat_data['ChannelBS2UE_noRIS'] # shape = (T, BS, sectores) # ! Fan servir aquest pels gràfics
 
         NBS = BS["Number"] * 3
         ChBS2UE = np.zeros((NBS, Channel.shape[0]))
@@ -320,7 +325,7 @@ def run_simulation():
 
         while t < (Max_iter - 10):
             # print(f"sample={t}, ServingBSSector={ServingBSSector[t]}")
-            if ServingBSSector[t] > 0 and not RLF[t]:
+            if ServingBSSector[t] >= 0 and not RLF[t]:
                 # cell search
                 # ! 
 
