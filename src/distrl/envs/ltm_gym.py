@@ -439,8 +439,9 @@ class LTMEnv(gym.Env):
                     self._handle_handover_logic(new_action)
 
                 # Expose reserved state from agent if available
-                if hasattr(action_callback.__self__, 'list_bs_prepared'):
-                    self.metrics_reserved[:, self.t] = action_callback.__self__.list_bs_prepared
+                agent_obj = getattr(action_callback, '__self__', None)
+                if agent_obj is not None and hasattr(agent_obj, 'list_bs_prepared'):
+                    self.metrics_reserved[:, self.t] = agent_obj.list_bs_prepared
             elif self.t > 0:
                 self.metrics_reserved[:, self.t] = self.metrics_reserved[:, self.t-1]
 
@@ -464,14 +465,15 @@ class LTMEnv(gym.Env):
                             self.serving_sector = -1
                             self.ho_in_progress = False
                     
-                    if self.ho_in_progress and self.ho_substep == 5:
+                    if self.ho_substep == 5:
                         self.serving_sector = self.target_sector
                         self.ho_in_progress = False
-                        
+
                         # Legacy Parity: Clear the prepared state of the target cell AFTER the HO delay finishes
-                        if action_callback is not None and hasattr(action_callback.__self__, 'list_bs_prepared'):
-                            action_callback.__self__.list_bs_prepared[self.target_sector] = False
-                        
+                        agent_obj = getattr(action_callback, '__self__', None)
+                        if agent_obj is not None and hasattr(agent_obj, 'list_bs_prepared'):
+                            agent_obj.list_bs_prepared[self.target_sector] = False
+
                         # When HO finishes, Legacy loop restarts.
                         self.legacy_cycle = -1 # The end of this tick will increment it to 0
                 self.ho_substep += 1
