@@ -324,6 +324,9 @@ def run_simulation():
         former_HO_time = -np.inf
 
         while t < (Max_iter - 10):
+            # FIX: Save preparation state BEFORE time increments to avoid the missing prep hole bug
+            ReservedBSSectors[:, t] = ListBSPrepared
+            
             # print(f"sample={t}, ServingBSSector={ServingBSSector[t]}")
             if ServingBSSector[t] >= 0 and not RLF[t]:
                 # cell search

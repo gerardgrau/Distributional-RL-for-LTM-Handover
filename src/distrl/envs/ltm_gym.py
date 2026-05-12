@@ -438,11 +438,7 @@ class LTMEnv(gym.Env):
                 # Expose reserved state from agent if available
                 agent_obj = getattr(action_callback, '__self__', None)
                 if agent_obj is not None and hasattr(agent_obj, 'list_bs_prepared'):
-                    # Legacy Parity: 't += 1' at loop start causes the first tick to have ReservedBSSectors=0
-                    if self.legacy_cycle == 0 and not self.ho_in_progress:
-                        self.metrics_reserved[:, self.t] = False
-                    else:
-                        self.metrics_reserved[:, self.t] = agent_obj.list_bs_prepared
+                    self.metrics_reserved[:, self.t] = agent_obj.list_bs_prepared
             elif self.ho_in_progress and self.t > 0:
                 self.metrics_reserved[:, self.t] = self.metrics_reserved[:, self.t-1]
 
