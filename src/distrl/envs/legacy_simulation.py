@@ -10,8 +10,8 @@ ChannelDirectory = "data/ChannelGains"
 # Buscar todos los archivos
 files = glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat"))
 
-# UE_Number = len(files)
-UE_Number = 5  # To test, limitar a 5 UEs
+UE_Number = len(files)
+# UE_Number = 5  # To test, limitar a 5 UEs
 
 print(f"Detected {len(files)} UE channel files. Simulating {UE_Number} UEs.")
 
