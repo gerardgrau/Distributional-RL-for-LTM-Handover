@@ -189,6 +189,7 @@ class LTMEnv(gym.Env):
                     # Initial state metrics for ALL sectors (Maintain running sum)
                     self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
                     self.t += 1 # Match Legacy t += 1 before exiting search loop
+                    self.legacy_cycle = 1 # Legacy's first cycle is effectively 9 ticks long
                     break # Stop at the recovery step
             
         return self._get_obs(), {}
@@ -294,6 +295,7 @@ class LTMEnv(gym.Env):
                         self.sync["t310_counter"] = np.inf
                         self.serving_tenure = 0
                         self.t += 1
+                        self.legacy_cycle = 1
                         break
                 self.t += 1
                     
@@ -441,12 +443,17 @@ class LTMEnv(gym.Env):
                 # Expose reserved state from agent if available
                 agent_obj = getattr(action_callback, '__self__', None)
                 if agent_obj is not None and hasattr(agent_obj, 'list_bs_prepared'):
-                    self.metrics_reserved[:, self.t] = agent_obj.list_bs_prepared
-            elif self.t > 0:
+                    # Legacy Parity: 't += 1' at loop start causes the first tick to have ReservedBSSectors=0
+                    if self.legacy_cycle == 0 and not self.ho_in_progress:
+                        self.metrics_reserved[:, self.t] = False
+                    else:
+                        self.metrics_reserved[:, self.t] = agent_obj.list_bs_prepared
+            elif self.ho_in_progress and self.t > 0:
                 self.metrics_reserved[:, self.t] = self.metrics_reserved[:, self.t-1]
 
             # 1. Update Oracle History (Zero cost - array slice)
             self._update_oracle_history(self.all_mcs_episode[:, self.t], self.all_snir_episode[:, self.t])
+            is_ho_step_2 = False
             
             # 2. Determine active sector
             active_sector = self.serving_sector
@@ -454,8 +461,13 @@ class LTMEnv(gym.Env):
                 if self.ho_substep < 2: 
                     # First 20ms (t0, t0+1): Still on OLD cell
                     active_sector = self.prev_serving_sector
-                elif self.ho_substep < 6: 
-                    # Next 40ms (t0+2, t0+3, t0+4, t0+5): Interruption (Outage)
+                elif self.ho_substep == 2:
+                    # t0+2: Legacy retains ServingBSSector=old, but no evaluation (outage)
+                    active_sector = -1
+                    self.metrics_serving[self.t] = self.prev_serving_sector
+                    is_ho_step_2 = True
+                elif self.ho_substep < 5: 
+                    # t0+3, t0+4: Interruption (Outage)
                     active_sector = -1
                     if self.ho_substep == 3: # Legacy evaluates HOF at t0+3
                         pe = self.all_pe_episode[self.target_sector, self.t]
@@ -464,18 +476,19 @@ class LTMEnv(gym.Env):
                             self.metrics_hof[self.t] = 1.0
                             self.serving_sector = -1
                             self.ho_in_progress = False
-                    
-                    if self.ho_substep == 5:
-                        self.serving_sector = self.target_sector
-                        self.ho_in_progress = False
+                elif self.ho_substep == 5:
+                    # t0+5: Legacy restarts outer loop, skips eval because Serving==-1
+                    active_sector = -1
+                    self.serving_sector = self.target_sector
+                    self.ho_in_progress = False
 
-                        # Legacy Parity: Clear the prepared state of the target cell AFTER the HO delay finishes
-                        agent_obj = getattr(action_callback, '__self__', None)
-                        if agent_obj is not None and hasattr(agent_obj, 'list_bs_prepared'):
-                            agent_obj.list_bs_prepared[self.target_sector] = False
+                    # Legacy Parity: Clear the prepared state of the target cell AFTER the HO delay finishes
+                    agent_obj = getattr(action_callback, '__self__', None)
+                    if agent_obj is not None and hasattr(agent_obj, 'list_bs_prepared'):
+                        agent_obj.list_bs_prepared[self.target_sector] = False
 
-                        # When HO finishes, Legacy loop restarts.
-                        self.legacy_cycle = -1 # The end of this tick will increment it to 0
+                    # When HO finishes, Legacy loop restarts.
+                    self.legacy_cycle = 0 
                 self.ho_substep += 1
             
             # 3. Evaluate Active Sector
@@ -493,7 +506,8 @@ class LTMEnv(gym.Env):
                     rlf_happened = True
             else:
                 mcs_sum += 0.0
-                self.metrics_serving[self.t] = -1 if active_sector == -1 else active_sector
+                if not is_ho_step_2:
+                    self.metrics_serving[self.t] = -1 if active_sector == -1 else active_sector
             
             if self.serving_sector != -1 and not self.ho_in_progress:
                 self.legacy_cycle = (self.legacy_cycle + 1) % 10

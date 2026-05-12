@@ -72,10 +72,22 @@ class LTMBaselineAgent(BaseAgent):
         # 2. Legacy Parity Procedural Logic
         cycle = info.get("legacy_cycle", 0) if info is not None else 0
         
-        # Preparation check happens at cycle == 5
-        if cycle == 5:
-            in_condition = rsrp_l3 > (rsrp_l3[serving_idx] + self.prep_offset)
-            out_condition = rsrp_l3 < (rsrp_l3[serving_idx] + self.prep_offset)
+        # Execution trigger happens at cycle == 0 (from previous cycle == 8 decision)
+        if cycle == 0:
+            if getattr(self, 'pending_ho_target', -1) != -1:
+                target = self.pending_ho_target
+                self.pending_ho_target = -1
+                return target
+
+        # Legacy caches PL3 at cycle == 1
+        if cycle == 1 or self.cached_rsrp_l3 is None:
+            self.cached_rsrp_l3 = rsrp_l3.copy()
+            
+        # Preparation check happens at cycle == 6
+        if cycle == 6:
+            # Use cached PL3 to match legacy exact evaluation
+            in_condition = self.cached_rsrp_l3 > (self.cached_rsrp_l3[serving_idx] + self.prep_offset)
+            out_condition = self.cached_rsrp_l3 < (self.cached_rsrp_l3[serving_idx] + self.prep_offset)
             
             # Increment by exactly 10ms
             self.timer_entering = (self.timer_entering + 0.01) * in_condition
@@ -85,12 +97,12 @@ class LTMBaselineAgent(BaseAgent):
             self.list_bs_prepared &= ~(self.timer_leaving > self.prep_time_thresh)
             
             if np.sum(self.list_bs_prepared) > self.max_prep:
-                metric = (10 ** (rsrp_l3 / 10.0)) * self.list_bs_prepared
+                metric = (10 ** (self.cached_rsrp_l3 / 10.0)) * self.list_bs_prepared
                 I_sorted = np.argsort(metric)[::-1]
                 self.list_bs_prepared[I_sorted[self.max_prep:]] = False
 
-        # Decision check happens at cycle == 7
-        if cycle == 7:
+        # Decision check happens at cycle == 8
+        if cycle == 8:
             ho_condition = self.list_bs_prepared & (rsrp_l1 > (rsrp_l1[serving_idx] + self.exec_offset))
             if np.any(ho_condition):
                 metric = (10 ** (rsrp_l1 / 10.0)) * ho_condition
@@ -98,14 +110,6 @@ class LTMBaselineAgent(BaseAgent):
             else:
                 self.pending_ho_target = -1
 
-        # Execution trigger happens at cycle == 9
-        if cycle == 9:
-            if self.pending_ho_target != -1:
-                target = self.pending_ho_target
-                self.pending_ho_target = -1
-                # Note: target state clearing is handled by env in the best version
-                return target
-            
         return int(serving_idx)
 
     def train_step(self, batch: Any) -> dict[str, float]:
