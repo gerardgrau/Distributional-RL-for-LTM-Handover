@@ -64,10 +64,31 @@ def verify_parity(ue_count: int, high_res: bool = False):
             summary[k].append(v)
             
     print(f"\n--- AGGREGATED METRICS ({mode_str} BASELINE) ---")
-    for k, v in summary.items():
-        if k in ["total_steps", "total_minutes"]: continue
-        print(f"{k:20}: {np.mean(v):10.4f} (std: {np.std(v):.4f})")
-        
+    
+    import pandas as pd
+    metric_order = [
+        "ho_rate", "hof_rate", "pp_rate", "capacity_avg", "rlf_rate",
+        "reliability_pct", "prep_rate", "res_reservation_pct", "total_steps", "total_minutes"
+    ]
+    
+    out_data = []
+    for k in metric_order:
+        if k in summary:
+            v = summary[k]
+            mean_val = np.mean(v)
+            std_val = np.std(v)
+            print(f"{k:20}: {mean_val:10.4f} (std: {std_val:.4f})")
+            out_data.append({"metric": k, "mean": mean_val, "std": std_val})
+
+    df = pd.DataFrame(out_data)
+    # Add dummy reward to match old format
+    df.loc[len(df.index)] = ['reward', 0.0, 0.0] 
+    
+    out_path = "results/final_metrics/baseline_summary.csv"
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    df.to_csv(out_path, index=False)
+    print(f"\nSaved updated gym baseline metrics to {out_path}")
+    
     print(f"\nExecution Time: {total_duration:.2f}s ({total_duration/ue_count:.3f} s/UE)")
     print("\n--- PAPER LTM REFERENCE ---")
     print("capacity_avg       : 3.75")
