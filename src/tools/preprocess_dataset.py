@@ -31,8 +31,8 @@ def preprocess():
         # 1. ChannelBS2UE: Clean environment (no blockage)
         # 2. ChannelBS2UE_noRIS: Realistic environment with 20dB spatial blockage
         # 3. ChannelBS2UE_RIS: Realistic environment with 20dB blockage + RIS assistance
-        # We use 'ChannelBS2UE' to match the legacy simulation's default matrix.
-        raw_channel = mat_data['ChannelBS2UE'] 
+        # We use 'ChannelBS2UE_noRIS' to match the student's update and paper graphs.
+        raw_channel = mat_data['ChannelBS2UE_noRIS'] 
         
         total_time = raw_channel.shape[0]
         ch_bs2ue = np.zeros((NBS, total_time), dtype=np.float32)
@@ -41,6 +41,11 @@ def preprocess():
             for s in range(raw_channel.shape[2]):
                 ch_bs2ue[idx, :] = raw_channel[:, b, s]
                 idx += 1
+        
+        # Reproducible Stochasticity for Parity Audit
+        import re
+        numeric_id = int(re.search(r'\d+', user_id).group())
+        np.random.seed(42 + numeric_id)
         
         # Positions
         ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]

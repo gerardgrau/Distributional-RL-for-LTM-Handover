@@ -18,6 +18,12 @@ def trace_and_compare():
     config['simulation']['ue_number'] = 1
     config['system']['tx_power'] = 25 # Standard
     
+    # Same setup as compare_ue1.py
+    Config.set_config_path("configs/config.yaml")
+    config = Config.get()
+    config['simulation']['ue_number'] = 1
+    config['system']['tx_power'] = 25
+    
     env = LTMEnv(config=config)
     agent = LTMBaselineAgent(config, env.observation_space, env.action_space)
     
@@ -27,9 +33,6 @@ def trace_and_compare():
     
     while not done:
         obs, reward, done, truncated, info = env.step(0, high_res_callback=agent.select_action)
-        if env.t == 1179:
-            print(f"DEBUG t=1179 agent: prep={agent.list_bs_prepared} entering={agent.timer_entering[8]} rsrp_l3={agent.cached_rsrp_l3} rsrp_l1={agent.cached_rsrp_l1}")
-        
     gym_serving = env.metrics_serving
     gym_mcs = env.metrics_mcs
     gym_ho = env.metrics_ho

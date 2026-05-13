@@ -31,12 +31,19 @@ We discovered three bugs in the legacy simulation that massively impacted the fi
 
 *   **The "Zero-Eval" Sector 0 Bug (Fixes 0.24% Capacity Diff):**
     The legacy simulation evaluates `if ServingBSSector[t] > 0`. Because of this `>` strictly greater-than check, if a user is connected to Sector 0, the simulation completely skips the MCS evaluation and sync updates for the first tick of every 10-tick cycle.
+    FIXED
+
 *   **The "Missing Prep" Array Hole Bug (Fixes 11.6% Prep Rate Diff):**
     At the start of the outer loop, the legacy simulation does `t += 1` *before* saving the `ListBSPrepared` into the `ReservedBSSectors` array. This creates a "hole" where the first tick of every cycle tracks 0 preparations. We explicitly force `metrics_reserved` to False at `legacy_cycle == 0` to match this array corruption.
+    IS THIS REALLY AN ISSUE? HOW SHOULD WE FIX THIS BUG?
+
 *   **The ICIC Margin Division Bug:**
     The legacy calculation `ho_margin_db = 10 * log10(ServingPwr / TargetPwr)` uses raw negative dB values (e.g., `-80 / -90`) instead of linear scale. This results in a margin around `[-1, +1]`, which is *always* `< 7.0`. Consequently, Inter-Cell Interference Coordination (ICIC) is permanently active in the legacy baseline. We locked our `physics.py` to use this exact division.
+    REMOVED THE FUNCTION WHERE ICIC WAS USED
+
 *   **Early Termination Masking:**
     The legacy script stops executing with `while t < (Max_iter - 10)`. We masked the last 10 samples of the Gym episode to match.
+    THE MASTER'S STUDENT SAID THAT THIS WAS NECESSARY TO HAVE IN THE CODE. SHE SAID IT WAS ALREADY FINE, SHOULD WE KEEP IT LIKE THIS?
 
 ---
 

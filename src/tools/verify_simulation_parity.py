@@ -27,8 +27,14 @@ def verify_parity(ue_count: int, high_res: bool = False):
     mode_str = "10ms High-Res" if high_res else "100ms RL-Step"
     print(f"Running {mode_str} parity verification on {ue_count} UEs...")
     
+    import re
     start_time = time.time()
     for i in range(ue_count):
+        # Enforce exactly the same numpy seed per UE as the legacy script
+        filename = env.files[env.current_ue_idx % len(env.files)]
+        numeric_id = int(re.search(r'\d+', os.path.basename(filename)).group())
+        np.random.seed(42 + numeric_id)
+        
         obs, info = env.reset()
         agent.reset()
         done = False
@@ -49,7 +55,8 @@ def verify_parity(ue_count: int, high_res: bool = False):
                 info["metrics"]["pp"],
                 info["metrics"]["serving"],
                 info["metrics"]["pl3"],
-                config
+                config,
+                reserved_history=info["metrics"].get("reserved")
             )
             all_metrics.append(m)
             if (i+1) % 10 == 0:
