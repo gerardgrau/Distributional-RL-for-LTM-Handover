@@ -266,8 +266,8 @@ def run_simulation():
         print(f"Simulando UE {indUE+1}/{UE_Number}...")
         filename = os.path.join(ChannelDirectory, f"ChannelGainBSUE_User{indUE+1}.mat")
         mat_data = loadmat(filename)
-        # Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)
-        Channel = mat_data['ChannelBS2UE_noRIS'] # shape = (T, BS, sectores) # ! Fan servir aquest pels gràfics
+        # Channel = mat_data['ChannelBS2UE_noRIS'] # shape = (T, BS, sectores) # ! Fan servir aquest pels gràfics
+        Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)
 
         NBS = BS["Number"] * 3
         ChBS2UE = np.zeros((NBS, Channel.shape[0]))

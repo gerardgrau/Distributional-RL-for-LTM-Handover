@@ -35,7 +35,7 @@ HO = {
         "PreparationPowerOffset": -3,
         "PreparationTime": 40e-3,
         "ExecPowerOffset": 3,
-        "MaxNumberPreparedBS": 5
+        "MaxNumberPreparedBS": 4
     }
 }
 
@@ -47,10 +47,10 @@ Time_RRCTransfer2 = 0.01
 Time_RRCConf3 = 0.022
 Time_RRCReconf4_5 = 0.02
 Time_MeasReportL1_67 = 0.01
-Time_HOdecision_8 = 0.01
-Time_LLHOCommand_9 = 0.02
-Time_RA_10 = 10e-3
-Time_ContextRelease_11 = 20e-3
+Time_HOdecision_8 = 0.00
+Time_LLHOCommand_9 = 0.00
+Time_RA_10 = 5e-3
+Time_ContextRelease_11 = 0.00
 
 # ============================================================
 # PHYSICS FUNCTIONS
