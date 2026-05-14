@@ -28,8 +28,9 @@ def verify_parity(ue_count: int, high_res: bool = False):
     print(f"Running {mode_str} parity verification on {ue_count} UEs...")
     
     import re
+    from tqdm import tqdm
     start_time = time.time()
-    for i in range(ue_count):
+    for i in tqdm(range(ue_count), desc="Simulating UEs"):
         # Enforce exactly the same numpy seed per UE as the legacy script
         filename = env.files[env.current_ue_idx % len(env.files)]
         numeric_id = int(re.search(r'\d+', os.path.basename(filename)).group())
@@ -59,8 +60,6 @@ def verify_parity(ue_count: int, high_res: bool = False):
                 reserved_history=info["metrics"].get("reserved")
             )
             all_metrics.append(m)
-            if (i+1) % 10 == 0:
-                print(f"UE {i+1}/{ue_count} done. Mean Rel: {np.mean([x['reliability_pct'] for x in all_metrics]):.2f}%")
 
     total_duration = time.time() - start_time
     # Aggregate

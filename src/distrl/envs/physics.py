@@ -148,3 +148,78 @@ def PerformanceEvaluation(MCS, ServingCell_channel, ping_pong, ReservedBSSectors
         "HOF": np.sum(HOF) / Minutes
     }
     return Performance
+
+def calculate_snir_matrix(channels_2d: np.ndarray, system_params: dict) -> np.ndarray:
+    nbs, total_t = channels_2d.shape
+    tx_power = system_params.get("TxPower", 25)
+    noise_level = system_params.get("NoiseLevel", -174)
+    
+    ps_linear = 10 ** ((channels_2d + tx_power) / 10.0)
+    group_sums = np.zeros((3, total_t))
+    for g in range(3):
+        group_sums[g, :] = np.sum(ps_linear[g::3, :], axis=0)
+        
+    all_sectors = np.arange(nbs)
+    all_inter_linear = group_sums[all_sectors % 3, :] - ps_linear
+
+    M = 3
+    noise_floor = 10**(noise_level / 10.0)
+    
+    rand_mask = np.random.rand(nbs, total_t) < (1.0 / M)
+    high_inter_noise = (M * all_inter_linear) + noise_floor
+    low_inter_noise = (M * all_inter_linear * (10**(-1.5))) + noise_floor
+    
+    inter_noise = np.where(rand_mask, high_inter_noise, low_inter_noise)
+                           
+    return 10 * np.log10(ps_linear + 1e-15) - 10 * np.log10(inter_noise + 1e-15)
+
+def vectorized_oracle(channels: np.ndarray, system_params: dict) -> tuple:
+    input_ndim = channels.ndim
+    if input_ndim == 1:
+        channels_2d = channels.reshape(-1, 1)
+    else:
+        channels_2d = channels
+
+    snir = calculate_snir_matrix(channels_2d, system_params)
+    
+    idx = np.searchsorted(system_params.get("SINRThreshold"), snir, side='right') - 1
+    idx = np.clip(idx, 0, len(system_params.get("SpectralEff")) - 1)
+    mcs = system_params.get("SpectralEff")[idx]
+    
+    if input_ndim == 1:
+        return mcs.flatten(), snir.flatten()
+    return mcs, snir
+
+def vectorized_hof(channels: np.ndarray, system_params: dict) -> np.ndarray:
+    input_ndim = channels.ndim
+    if input_ndim == 1:
+        channels_2d = channels.reshape(-1, 1)
+    else:
+        channels_2d = channels
+
+    bler = np.array([
+        1, 0.2617, 0.2370, 0.2103, 0.1828, 0.1558, 0.1302, 0.1067, 0.0859,
+        0.0678, 0.0526, 0.0401, 0.0301, 0.0221, 0.0160, 0.0114, 0.0080,
+        0.0056, 0.0038, 0.0025, 0.0017, 0.0011, 0.0007, 0.0004, 0.0003,
+        0.0002, 0.0001
+    ])
+
+    snr_level = np.array([
+        -np.inf, -1.7609, -1.6609, -1.5609, -1.4609, -1.3609, -1.2609,
+        -1.1609, -1.0609, -0.9609, -0.8609, -0.7609, -0.6609, -0.5609,
+        -0.4609, -0.3609, -0.2609, -0.1609, -0.0609, 0.0391, 0.1391,
+        0.2391, 0.3391, 0.4391, 0.5391, 0.6391, 0.7391
+    ])
+
+    snir = calculate_snir_matrix(channels_2d, system_params)
+    
+    idx = np.searchsorted(snr_level, snir, side='right') - 1
+    idx = np.clip(idx, 0, len(bler) - 1)
+    pe = bler[idx]
+    
+    rand_vals = np.random.rand(channels_2d.shape[0], channels_2d.shape[1])
+    hof = (rand_vals < pe).astype(np.int8)
+    
+    if input_ndim == 1:
+        return hof.flatten()
+    return hof
