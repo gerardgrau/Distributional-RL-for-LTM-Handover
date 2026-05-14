@@ -45,8 +45,8 @@ ho_prep:
   kl3: 8                                # L3 IIR constant
   preparation_power_offset: -3          # dB
   preparation_time: 0.04                # 40 ms
-  exec_power_offset: 3                  # dB
-  max_number_prepared_bs: 5             # Max prepared cells
+  exec_power_offset: 3.4                  # dB
+  max_number_prepared_bs: 4             # Max prepared cells
 
 paths:
   channel_data_directory: "data/ChannelGains"

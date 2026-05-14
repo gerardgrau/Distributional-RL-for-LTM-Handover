@@ -90,7 +90,7 @@ class LTMEnv(gym.Env):
         self.current_ue_idx += 1
         
         mat_data = loadmat(filename)
-        Channel = mat_data['ChannelBS2UE']
+        Channel = mat_data['ChannelBS2UE_noRIS']
         self.Max_iter = Channel.shape[0]
         
         self.ChBS2UE = np.zeros((self.NBS, self.Max_iter))

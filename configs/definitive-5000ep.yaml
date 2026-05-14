@@ -24,6 +24,8 @@ agent:
   epsilon_end: 0.05
   epsilon_mult: 0.9995        # Slower decay for 5000 episodes
   num_episodes: 5000
+  risk_type: "cvar"
+  risk_fraction: 0.1
 
 benchmark:
   num_seeds: 1
@@ -44,8 +46,8 @@ ho_prep:
   kl3: 8
   preparation_power_offset: -3
   preparation_time: 0.04
-  exec_power_offset: 3
-  max_number_prepared_bs: 5
+  exec_power_offset: 3.4
+  max_number_prepared_bs: 4
 
 paths:
   channel_data_directory: "data/ChannelGains"
