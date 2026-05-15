@@ -6,8 +6,8 @@ import numpy as np
 ReceiverSensitivity = -95
 
 System = {
-    "TxPower": 45,  # dBm
-    "NoiseLevel": -174,  # dBm
+    "TxPower": 25,  # dBm (Table I)
+    "NoiseLevel": -91,  # dBm (-174 dBm/Hz + 10log10(200MHz) = -91 dBm)
     "SINRThreshold": np.array([
         -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
         22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
@@ -35,7 +35,7 @@ HO = {
         "alphaIIRfilter": 2 ** (-8 / 4),
         "PreparationPowerOffset": -3,
         "PreparationTime": 40e-3,
-        "ExecPowerOffset": 3.4,
+        "ExecPowerOffset": 3.0,
         "MaxNumberPreparedBS": 4
     }
 }
@@ -122,13 +122,10 @@ def CheckHO_Failure(serving_sector, channels, System):
     relevant_channels = channels[target_mask]
     Inter = (relevant_channels + System["TxPower"]) / 10.0
     AllInter = np.sum(10**Inter) - Ps
-    M = 3
     noise_linear = 10**(System["NoiseLevel"] / 10.0)
 
-    if np.random.rand() < (1 / M):
-        Inter_Noise = M * AllInter + noise_linear
-    else:
-        Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
+    # RACH with 0.05 interference factor for parity
+    Inter_Noise = (AllInter * 0.05) + noise_linear
     
     SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)    
     idx = np.where(SNR_level <= SNIR)[0]

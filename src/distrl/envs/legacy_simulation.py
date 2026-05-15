@@ -3,12 +3,18 @@ from scipy.io import loadmat
 from scipy.signal import lfilter
 import os
 import glob
+import re
 from typing import Any
+
+def natural_sort_key(s):
+    import re
+    return [int(text) if text.isdigit() else text.lower()
+            for text in re.split('([0-9]+)', s)]
 
 ChannelDirectory = "data/ChannelGains"
 
 # Buscar todos los archivos
-files = glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat"))
+files = sorted(glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat")), key=natural_sort_key)
 
 UE_Number = 10
 # UE_Number = 5  # To test, limitar a 5 UEs
@@ -23,9 +29,8 @@ ReceiverSensitivity = -95
 
 # Parámetros del sistema
 System = {
-    "TxPower": 45,  # dBm
-    # Al paper està a 25
-    "NoiseLevel": -174,  # dBm
+    "TxPower": 25,  # dBm (Table I)
+    "NoiseLevel": -91,  # dBm (-174 dBm/Hz + 10log10(200MHz) = -91 dBm)
     "SINRThreshold": np.array([
         -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
         22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
@@ -55,8 +60,8 @@ HO["Prep"] = {
     "alphaIIRfilter": 2 ** (-8 / 4),          # 2^(-kL3/4)
     "PreparationPowerOffset": -3,             # dB
     "PreparationTime": 40e-3,                 # 40 ms
-    "ExecPowerOffset": 3,                     # dB
-    "MaxNumberPreparedBS": 4                  # Max prepared cells
+    "ExecPowerOffset": 3.0,                     # dB (Table II)
+    "MaxNumberPreparedBS": 4                  # Max prepared cells (Table II)
 }
 
 # HO["Prep"] = {
@@ -370,7 +375,8 @@ def run_simulation():
                 ReservedBSSectors[:, t] = ListBSPrepared
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
-                    break
+                    # print(f"DEBUG LEGACY: RLF at t={t}")
+                    NextBSSector = -1
                 t += 1
                 ServingBSSector[t] = ServingBSSector[t - 1]
 
@@ -384,7 +390,8 @@ def run_simulation():
                 ReservedBSSectors[:, t] = ListBSPrepared
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
-                    break
+                    # print(f"DEBUG LEGACY: RLF at t={t}")
+                    NextBSSector = -1
                 t += 1
                 ServingBSSector[t] = ServingBSSector[t - 1]
 
@@ -416,7 +423,8 @@ def run_simulation():
                 ReservedBSSectors[:, t] = ListBSPrepared
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
-                    break
+                    # print(f"DEBUG LEGACY: RLF at t={t}")
+                    NextBSSector = -1
                 t += 1
                 ServingBSSector[t] = ServingBSSector[t - 1]
 
@@ -442,7 +450,8 @@ def run_simulation():
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 ReservedBSSectors[:, t] = ListBSPrepared
                 if RLF[t]:
-                    break
+                    # print(f"DEBUG LEGACY: RLF at t={t}")
+                    NextBSSector = -1
                 t += 1
                 ServingBSSector[t] = ServingBSSector[t - 1]
 
@@ -482,6 +491,12 @@ def run_simulation():
                     # 11. UE context release and path switch
                     NextBSSector = I
                     t = min(t + int(np.ceil(Time_ContextRelease_11 / Time["TimeStep"])), Max_iter-1)
+
+                    # Resetear contadores de sincronización al cambiar de célula
+                    Sync["out_sync_count"] = 0
+                    Sync["in_sync_count"] = 0
+                    Sync["t310_running"] = False
+                    Sync["t310_counter"] = np.inf
 
                     # Recursos reservados durante el HO
                     ReservedBSSectors[:, t0:t + 1] = np.tile(ListBSPrepared.reshape(-1, 1), (1, t - t0 + 1))

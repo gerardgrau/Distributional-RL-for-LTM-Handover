@@ -7,14 +7,22 @@ from src.distrl.envs.physics import *
 import glob
 import os
 import pandas as pd
+import re
+
+def natural_sort_key(s):
+    return [int(text) if text.isdigit() else text.lower()
+            for text in re.split('([0-9]+)', s)]
 
 class LTMEnv(gym.Env):
     def __init__(self, config=None):
         super(LTMEnv, self).__init__()
         self.config = config or {}
         
-        self.data_dir = self.config.get('paths', {}).get('channel_data_directory', "data/ChannelGains")
-        all_files = sorted(glob.glob(os.path.join(self.data_dir, "ChannelGainBSUE_User*.mat")))
+        self.output_base = self.config.get('paths', {}).get('precomputed_data_directory', "data/Precomputed")
+        self.subdir = self.config.get('paths', {}).get('dataset_subdir', "no_ris")
+        self.data_dir = os.path.join(self.output_base, self.subdir)
+        
+        all_files = sorted(glob.glob(os.path.join(self.data_dir, "User*_precomputed.npz")), key=natural_sort_key)
         ue_count = self.config.get('simulation', {}).get('ue_number', len(all_files))
         if ue_count == 0:
             ue_count = 1000 # Fallback
@@ -61,7 +69,8 @@ class LTMEnv(gym.Env):
             avg_mcs = np.zeros(self.NBS)
             avg_snir = np.full(self.NBS, -100.0)
 
-        norm_mcs = avg_mcs / 9.0
+        # Normalization (Ainna-specific)
+        norm_mcs = avg_mcs / 9.3 # Normalized by max capacity
         norm_snir = (avg_snir - 15) / 25.0
 
         serving_one_hot = np.zeros(self.NBS)
@@ -89,49 +98,19 @@ class LTMEnv(gym.Env):
         filename = self.files[self.current_ue_idx % len(self.files)]
         self.current_ue_idx += 1
         
-        mat_data = loadmat(filename)
-        Channel = mat_data['ChannelBS2UE_noRIS']
-        self.Max_iter = Channel.shape[0]
+        # Fast loading from .npz
+        data = np.load(filename)
+        self.ChBS2UE = data['ch_bs2ue']
+        self.Max_iter = self.ChBS2UE.shape[1]
+        self.all_mcs_episode = data['all_mcs_episode']
+        self.all_snir_episode = data['all_snir_episode']
+        self.all_pe_episode = data['all_pe_episode']
+        self.ue_positions = data['ue_positions']
+        self.PL1 = data['pl1']
+        self.PL3 = data['pl3']
         
-        self.ChBS2UE = np.zeros((self.NBS, self.Max_iter))
-        idx = 0
-        for b in range(Channel.shape[1]):
-            for s in range(Channel.shape[2]):
-                self.ChBS2UE[idx, :] = Channel[:, b, s]
-                idx += 1
-                
-        M = int(np.ceil(HO["Prep"]["PeriodicityRSRPMeasurement"] / Time["TimeStep"]))
-        b_filt = np.ones(HO["Prep"]["AverageRSRPMeasument_NL1"]) / HO["Prep"]["AverageRSRPMeasument_NL1"]
-
-        L1 = lfilter(b_filt, 1, self.ChBS2UE[:, ::M], axis=1)
-        L3 = lfilter(HO["Prep"]["alphaIIRfilter"], [1, -1 + HO["Prep"]["alphaIIRfilter"]], L1, axis=1)
-
-        self.PL1 = np.repeat(L1, M, axis=1)[:, :self.ChBS2UE.shape[1]]
-        self.PL3 = np.repeat(L3, M, axis=1)[:, :self.ChBS2UE.shape[1]]
-        
-        # Load UE positions
-        ue_pos_complex = mat_data['UE'][0, 0]['Position'][0]
-        self.ue_positions = np.stack([ue_pos_complex.real, ue_pos_complex.imag], axis=1)
         self.ue_speeds = np.full(self.Max_iter, 10.0) 
         
-        # Calculate episode matrices for fast RL observations
-        self.all_mcs_episode = np.zeros((self.NBS, self.Max_iter))
-        self.all_snir_episode = np.zeros((self.NBS, self.Max_iter))
-        # Simplified pre-computation for the moving averages
-        for s in range(self.NBS):
-            Ps = 10 ** ((self.ChBS2UE[s, :] + System["TxPower"]) / 10)
-            target_mask = (np.arange(self.NBS) % 3) == (s % 3)
-            Inter = (self.ChBS2UE[target_mask, :] + System["TxPower"]) / 10.0
-            AllInter = np.sum(10**Inter, axis=0) - Ps
-            M_factor = 3
-            noise_linear = 10**(System["NoiseLevel"] / 10.0)
-            Inter_Noise = M_factor * AllInter * 10**(-1.5) + noise_linear
-            SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)
-            self.all_snir_episode[s, :] = SNIR
-            mcs_idx = np.digitize(SNIR, System["SINRThreshold"]) - 1
-            mcs_idx = np.clip(mcs_idx, 0, len(System["SpectralEff"]) - 1)
-            self.all_mcs_episode[s, :] = System["SpectralEff"][mcs_idx]
-
         # Initialize trackers
         self.ServingBSSector = np.full(self.Max_iter, -1, dtype=int)
         self.MCS = np.zeros(self.Max_iter)
@@ -151,32 +130,19 @@ class LTMEnv(gym.Env):
         self.TimerEntering = np.zeros(self.NBS)
         self.TimerLeaving = np.zeros(self.NBS)
         
-        self.serving_tenure = 0
         self.t = 0
-
+        self.serving_tenure = 0
         self._sim_gen = self._simulation_generator()
         self._last_obs_dict = next(self._sim_gen)
         
-        return self._get_rl_obs(), {}
-
-    def _build_metrics_dict(self):
-        return {
-            "mcs": self.MCS,
-            "rlf": self.RLF,
-            "ho": self.HO_event,
-            "hof": self.HOF,
-            "pp": self.ping_pong,
-            "serving": self.ServingBSSector,
-            "pl3": self.PL3,
-            "reserved": self.ReservedBSSectors
-        }
+        return self._get_rl_obs(), {"metrics": self._get_obs_dict(0)}
 
     def step(self, action, high_res_callback=None):
+        reward = 0.0
         terminated = False
         truncated = False
-        reward = 0.0
         
-        if high_res_callback is not None:
+        if high_res_callback:
             # High-res mode for baseline parity (100ms block = 10 ticks, callback each tick)
             for _ in range(10):
                 try:
@@ -256,27 +222,32 @@ class LTMEnv(gym.Env):
             self.t = t
             self.ReservedBSSectors[:, t] = self.ListBSPrepared
             
-            if self.ServingBSSector[t] >= 0 and not self.RLF[t]:
-                self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(
-                    self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
+            # Legacy Line 308: if ServingBSSector[t] >= 0 and not RLF[t]:
+            # Use NextBSSector as it's the connection state
+            if NextBSSector >= 0 and not self.RLF[t]:
+                self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(NextBSSector, self.ChBS2UE[:, t], System, self.Sync)
                 if self.RLF[t]:
                     NextBSSector = -1
-            t += 1
 
+            t += 1
+            self.t = t
+
+            # Legacy Line 317: while NextBSSector == -1:
             while NextBSSector == -1:
                 action = yield self._get_obs_dict(t, 'FIND_CELL')
                 if action != -1:
                     NextBSSector = action
-                    self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(
-                        NextBSSector, self.ChBS2UE[:, t], System, self.Sync)
+                    self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(NextBSSector, self.ChBS2UE[:, t], System, self.Sync)
                     if self.MCS[t] == 0:
                         NextBSSector = -1
                     else:
+                        # Reset
                         self.Sync.update({"out_sync_count": 0, "in_sync_count": 0, "t310_running": False, "t310_counter": np.inf})
                         self.serving_tenure = 0
                 t += 1
                 self.t = t
 
+            # 5G HO logic
             self.ServingBSSector[t] = NextBSSector
             self.serving_tenure += 1
             self.ReservedBSSectors[:, t] = self.ListBSPrepared
@@ -286,29 +257,32 @@ class LTMEnv(gym.Env):
                 NextBSSector = -1
                 continue
 
+            # 1. L3 Measurement report
             PL3_report = self.PL3[:, t]
             Tf = min(t + int(np.ceil(Time_MeasReportL3_1 / Time["TimeStep"])), self.Max_iter-1)
             while t < Tf:
-                self.t = t
-                self.serving_tenure += 1
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 if self.RLF[t]: break
                 t += 1
+                self.t = t
+                self.serving_tenure += 1
                 self.ServingBSSector[t] = self.ServingBSSector[t - 1]
             if self.RLF[t]: NextBSSector = -1; continue
 
+            # 2 & 3. Preparation
             Tf = min(t + int(np.ceil((Time_RRCTransfer2 + Time_RRCConf3) / Time["TimeStep"])), self.Max_iter-1)
             while t < Tf:
-                self.t = t
-                self.serving_tenure += 1
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 if self.RLF[t]: break
                 t += 1
+                self.t = t
+                self.serving_tenure += 1
                 self.ServingBSSector[t] = self.ServingBSSector[t - 1]
             if self.RLF[t]: NextBSSector = -1; continue
 
+            # Conditions
             In_condition = PL3_report > (PL3_report[self.ServingBSSector[t]] + HO["Prep"]["PreparationPowerOffset"])
             self.TimerEntering = (self.TimerEntering + Time["TimeStep"]) * In_condition
             self.ListBSPrepared = np.logical_or(self.ListBSPrepared, (self.TimerEntering > HO["Prep"]["PreparationTime"]))
@@ -322,31 +296,30 @@ class LTMEnv(gym.Env):
                 I_sorted = np.argsort(metric)[::-1]
                 self.ListBSPrepared[I_sorted[HO["Prep"]["MaxNumberPreparedBS"]:]] = 0
 
+            # 4 & 5. RRC config
             Tf = min(t + int(np.ceil(Time_RRCReconf4_5 / Time["TimeStep"])), self.Max_iter-1)
             while t < Tf:
-                self.t = t
-                self.serving_tenure += 1
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 if self.RLF[t]: break
                 t += 1
+                self.t = t
+                self.serving_tenure += 1
                 self.ServingBSSector[t] = self.ServingBSSector[t - 1]
             if self.RLF[t]: NextBSSector = -1; continue
 
+            # EXECUTION
             PL1_report = self.PL1[:, t]
-            HO_condition = np.logical_and(
-                self.ListBSPrepared, 
-                PL1_report > (PL1_report[self.ServingBSSector[t]] + HO["Prep"]["ExecPowerOffset"])
-            )
+            HO_condition = np.logical_and(self.ListBSPrepared, PL1_report > (PL1_report[self.ServingBSSector[t]] + HO["Prep"]["ExecPowerOffset"]))
 
             Tf = min(t + int(np.ceil((Time_MeasReportL1_67 + Time_HOdecision_8) / Time["TimeStep"])), self.Max_iter-1)
             while t < Tf:
-                self.t = t
-                self.serving_tenure += 1
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 if self.RLF[t]: break
                 t += 1
+                self.t = t
+                self.serving_tenure += 1
                 self.ServingBSSector[t] = self.ServingBSSector[t - 1]
             if self.RLF[t]: NextBSSector = -1; continue
 
@@ -359,12 +332,12 @@ class LTMEnv(gym.Env):
                     
                     Tf = min(t + int(np.ceil(Time_LLHOCommand_9 / Time["TimeStep"])), self.Max_iter-1)
                     while t < Tf:
-                        self.t = t
-                        self.serving_tenure += 1
                         self.ReservedBSSectors[:, t] = self.ListBSPrepared
                         self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                         if self.RLF[t]: break
                         t += 1
+                        self.t = t
+                        self.serving_tenure += 1
                         self.ServingBSSector[t] = self.ServingBSSector[t - 1]
                     if self.RLF[t]: NextBSSector = -1; continue
 
@@ -378,6 +351,10 @@ class LTMEnv(gym.Env):
                         t = min(t + int(np.ceil(Time_ContextRelease_11 / Time["TimeStep"])), self.Max_iter-1)
                         self.t = t
                         self.serving_tenure += 1
+                        
+                        # SYNC RESET ON HO
+                        self.Sync.update({"out_sync_count": 0, "in_sync_count": 0, "t310_running": False, "t310_counter": np.inf})
+
                         self.ReservedBSSectors[:, t0:t + 1] = np.tile(self.ListBSPrepared.reshape(-1, 1), (1, t - t0 + 1))
                         self.ListBSPrepared[NextBSSector] = 0
                         self.serving_tenure = 0
@@ -388,4 +365,21 @@ class LTMEnv(gym.Env):
                     former_BS = self.ServingBSSector[t0]
                     former_HO_time = t0
             else:
+                # NORMAL STEP
+                self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(NextBSSector, self.ChBS2UE[:, t], System, self.Sync)
                 action = yield self._get_obs_dict(t, 'NORMAL_STEP')
+                t += 1
+                if t < self.Max_iter:
+                    self.ServingBSSector[t] = NextBSSector
+
+    def _build_metrics_dict(self):
+        return {
+            "mcs": self.MCS,
+            "rlf": self.RLF,
+            "ho": self.HO_event,
+            "hof": self.HOF,
+            "pp": self.ping_pong,
+            "serving": self.ServingBSSector,
+            "pl3": self.PL3,
+            "reserved": self.ReservedBSSectors
+        }

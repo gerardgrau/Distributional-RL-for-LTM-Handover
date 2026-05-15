@@ -1,14 +1,14 @@
 # Global Configuration for Distributional RL for LTM Handover
 
 system:
-  tx_power: 25                # Aligned with CMAB paper
-  noise_level: -174           # dBm
+  tx_power: 25                # Aligned with CMAB paper Table I
+  noise_level: -91            # Total noise power for 200MHz BW (-174 dBm/Hz)
   receiver_sensitivity: -95   # dBm
 
 simulation:
   total_sim_time: 300         # seconds (Aligned with CMAP paper)
   time_step: 0.01             # 10 ms (10e-3)
-  ue_number: 1000             # Increased to full dataset for 500-ep run
+  ue_number: 1000             # Full dataset
   bs_number: 7                # Set to 7 for hexagonal cells
 
 agent:
@@ -45,8 +45,10 @@ ho_prep:
   kl3: 8                                # L3 IIR constant
   preparation_power_offset: -3          # dB
   preparation_time: 0.04                # 40 ms
-  exec_power_offset: 3.4                  # dB
-  max_number_prepared_bs: 4             # Max prepared cells
+  exec_power_offset: 3.0                  # dB (Table II)
+  max_number_prepared_bs: 4             # Max prepared cells (Table II)
 
 paths:
   channel_data_directory: "data/ChannelGains"
+  precomputed_data_directory: "data/Precomputed"
+  dataset_subdir: "no_ris"      # "no_ris" (Baseline) or "with_ris" (Proposal)
