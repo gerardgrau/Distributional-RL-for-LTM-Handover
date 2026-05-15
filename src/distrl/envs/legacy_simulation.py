@@ -264,6 +264,9 @@ def run_simulation():
 
     for indUE in range(0, UE_Number):
         print(f"Simulando UE {indUE+1}/{UE_Number}...")
+        # Per-UE seed for reproducibility (matches the seed set externally in
+        # verify_simulation_parity.py and other gym wrappers).
+        np.random.seed(42 + indUE + 1)
         filename = os.path.join(ChannelDirectory, f"ChannelGainBSUE_User{indUE+1}.mat")
         mat_data = loadmat(filename)
         # Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)

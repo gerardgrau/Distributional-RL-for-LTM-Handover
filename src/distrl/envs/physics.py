@@ -7,15 +7,14 @@ ReceiverSensitivity = -95
 
 System = {
     "TxPower": 25,  # dBm (Table I)
-    "NoiseLevel": -91,  # dBm (-174 dBm/Hz + 10log10(200MHz) = -91 dBm)
+    "NoiseLevel": -174,  # dBm — raw linear floor (matches legacy_simulation)
     "SINRThreshold": np.array([
-        -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
-        22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
+        -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5,
+        12.5, 14.5, 16.5, 19.0, 21.5, 24.0
     ]),
     "SpectralEff": np.array([
-        0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
-        2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
-        5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
+        0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41,
+        2.73, 3.32, 3.90, 4.52, 5.12, 5.55
     ])
 }
 
@@ -36,7 +35,7 @@ HO = {
         "PreparationPowerOffset": -3,
         "PreparationTime": 40e-3,
         "ExecPowerOffset": 3.0,
-        "MaxNumberPreparedBS": 4
+        "MaxNumberPreparedBS": 5
     }
 }
 
@@ -48,10 +47,10 @@ Time_RRCTransfer2 = 0.01
 Time_RRCConf3 = 0.022
 Time_RRCReconf4_5 = 0.02
 Time_MeasReportL1_67 = 0.01
-Time_HOdecision_8 = 0.00
-Time_LLHOCommand_9 = 0.00
-Time_RA_10 = 5e-3
-Time_ContextRelease_11 = 0.00
+Time_HOdecision_8 = 0.01
+Time_LLHOCommand_9 = 0.02
+Time_RA_10 = 10e-3
+Time_ContextRelease_11 = 20e-3
 
 # ============================================================
 # PHYSICS FUNCTIONS
@@ -115,19 +114,22 @@ def CheckHO_Failure(serving_sector, channels, System):
 
     serving_channel = channels[serving_sector]
     reuse_factor = 3
-    all_sectors = np.arange(len(channels)) 
+    all_sectors = np.arange(len(channels))
     target_mask = (all_sectors % reuse_factor) == (serving_sector % reuse_factor)
     Ps = 10 ** ((serving_channel + System["TxPower"]) / 10)
 
     relevant_channels = channels[target_mask]
     Inter = (relevant_channels + System["TxPower"]) / 10.0
     AllInter = np.sum(10**Inter) - Ps
+    M = 3
     noise_linear = 10**(System["NoiseLevel"] / 10.0)
 
-    # RACH with 0.05 interference factor for parity
-    Inter_Noise = (AllInter * 0.05) + noise_linear
-    
-    SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)    
+    if np.random.rand() < (1 / M):
+        Inter_Noise = M * AllInter + noise_linear
+    else:
+        Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
+
+    SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)
     idx = np.where(SNR_level <= SNIR)[0]
     Pe = BLER[idx[-1]]
 

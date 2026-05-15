@@ -279,16 +279,13 @@ class LTMEnv(gym.Env):
                 continue
 
             # 1. L3 Measurement report
-            # Legacy does not `break` here on RLF — it sets NextBSSector=-1 and
-            # keeps iterating through Tf (writing Res and ServingBSSector each
-            # tick). The post-loop `if RLF[t]: continue` then bails out.
             PL3_report = self.PL3[:, t]
             Tf = min(t + int(np.ceil(Time_MeasReportL3_1 / Time["TimeStep"])), self.Max_iter-1)
             while t < Tf:
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 if self.RLF[t]:
-                    NextBSSector = -1
+                    break
                 t += 1
                 self.t = t
                 self.serving_tenure += 1
@@ -301,7 +298,7 @@ class LTMEnv(gym.Env):
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 if self.RLF[t]:
-                    NextBSSector = -1
+                    break
                 t += 1
                 self.t = t
                 self.serving_tenure += 1
@@ -328,7 +325,7 @@ class LTMEnv(gym.Env):
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 if self.RLF[t]:
-                    NextBSSector = -1
+                    break
                 t += 1
                 self.t = t
                 self.serving_tenure += 1
@@ -344,7 +341,7 @@ class LTMEnv(gym.Env):
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 if self.RLF[t]:
-                    NextBSSector = -1
+                    break
                 t += 1
                 self.t = t
                 self.serving_tenure += 1
@@ -363,7 +360,7 @@ class LTMEnv(gym.Env):
                         self.ReservedBSSectors[:, t] = self.ListBSPrepared
                         self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                         if self.RLF[t]:
-                            NextBSSector = -1
+                            break
                         t += 1
                         self.t = t
                         self.serving_tenure += 1
@@ -380,9 +377,6 @@ class LTMEnv(gym.Env):
                         t = min(t + int(np.ceil(Time_ContextRelease_11 / Time["TimeStep"])), self.Max_iter-1)
                         self.t = t
                         self.serving_tenure += 1
-                        
-                        # SYNC RESET ON HO
-                        self.Sync.update({"out_sync_count": 0, "in_sync_count": 0, "t310_running": False, "t310_counter": np.inf})
 
                         self.ReservedBSSectors[:, t0:t + 1] = np.tile(self.ListBSPrepared.reshape(-1, 1), (1, t - t0 + 1))
                         self.ListBSPrepared[NextBSSector] = 0
