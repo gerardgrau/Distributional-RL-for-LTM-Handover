@@ -109,6 +109,97 @@ def plot_efficiency(results_dir: str, metric: str = "reward", save_path: Optiona
     else:
         plt.show()
 
+def plot_metrics_grid(
+    results_dir: str,
+    save_path: Optional[str] = None,
+    window: int = 51,
+) -> None:
+    """3x3 grid of per-episode learning curves across all 8 scientific
+    metrics plus the training reward, aggregated across seeds per agent.
+
+    Layout (left-to-right, top-to-bottom):
+        reward, capacity, reliability,
+        ho_rate, pp_rate, hof_rate,
+        rlf_rate, prep_rate, res_reservation
+    """
+    files = glob.glob(os.path.join(results_dir, "*.csv"))
+    if not files:
+        print(f"No CSV files found in {results_dir}")
+        return
+
+    frames = []
+    for f in files:
+        df = pd.read_csv(f)
+        df['agent'] = os.path.basename(f).split('_')[0]
+        frames.append(df)
+    all_data = pd.concat(frames, ignore_index=True)
+    agents = all_data['agent'].unique()
+
+    panels = [
+        ("reward",          "Episode reward",        "reward (sum of per-step Ainna)"),
+        ("capacity",        "Capacity",              "bps/Hz"),
+        ("reliability",     "Reliability",           "%"),
+        ("ho_rate",         "HO rate",               "events/min"),
+        ("pp_rate",         "Ping-pong rate",        "events/min"),
+        ("hof_rate",        "HOF rate",              "events/min"),
+        ("rlf_rate",        "RLF rate",              "events/min"),
+        ("prep_rate",       "Cell preparation rate", "preps/min"),
+        ("res_reservation", "Resource reservation",  "%"),
+    ]
+
+    fig, axes = plt.subplots(3, 3, figsize=(18, 12), sharex=True)
+    fig.suptitle("Training metrics by episode", fontsize=14, fontweight='bold')
+
+    for ax, (col, title, ylabel) in zip(axes.flat, panels):
+        if col not in all_data.columns:
+            ax.set_title(f"{title} (missing)")
+            ax.set_axis_off()
+            continue
+        for agent in agents:
+            sub = all_data[all_data['agent'] == agent]
+            grouped = sub.groupby('episode')[col].agg(['mean', 'std']).reset_index()
+            grouped['ma'] = grouped['mean'].rolling(
+                window=window, min_periods=1, center=True
+            ).mean()
+
+            raw_line, = ax.plot(grouped['episode'], grouped['mean'], alpha=0.2)
+            color = raw_line.get_color()
+            ax.plot(
+                grouped['episode'], grouped['ma'],
+                color=color, linewidth=2.0,
+                label=f"{agent.upper()} (MA {window})",
+            )
+            if grouped['std'].notna().any():
+                ax.fill_between(
+                    grouped['episode'],
+                    grouped['mean'] - grouped['std'],
+                    grouped['mean'] + grouped['std'],
+                    color=color, alpha=0.1,
+                )
+        ax.set_title(title)
+        ax.set_ylabel(ylabel)
+        ax.grid(True, linestyle=':', alpha=0.5)
+
+    for ax in axes[-1]:
+        ax.set_xlabel("Episode")
+
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    if handles:
+        fig.legend(
+            handles, labels, loc='lower center',
+            ncol=max(1, len(handles)), bbox_to_anchor=(0.5, -0.01),
+            fontsize='medium',
+        )
+    fig.tight_layout(rect=(0, 0.03, 1, 0.96))
+
+    if save_path:
+        fig.savefig(save_path, dpi=120, bbox_inches='tight')
+        plt.close(fig)
+        print(f"Metrics grid saved to {save_path}")
+    else:
+        plt.show()
+
+
 def plot_quantiles(agent: Any, state: np.ndarray, action_names: Optional[list[str]] = None, save_path: Optional[str] = None):
     """
     Plots the return distribution (quantiles) for each action in a given state.
@@ -158,6 +249,7 @@ if __name__ == "__main__":
         plot_learning_curves(target_dir, save_path=os.path.join(target_dir, "learning_curves.png"))
         plot_efficiency(target_dir, metric="reward", save_path=os.path.join(target_dir, "reward_vs_time.png"))
         plot_efficiency(target_dir, metric="loss", save_path=os.path.join(target_dir, "loss_vs_time.png"))
+        plot_metrics_grid(target_dir, save_path=os.path.join(target_dir, "metrics_grid.png"))
     
     elif args.mode == "quantiles":
         print("Quantile plotting requires an active agent instance.")
