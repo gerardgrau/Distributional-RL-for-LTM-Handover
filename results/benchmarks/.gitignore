@@ -2,5 +2,6 @@
 /*.csv
 /*.png
 /*.pdf
+/*.log
 # Ignore subdirectories (individual run folders)
 /*/
