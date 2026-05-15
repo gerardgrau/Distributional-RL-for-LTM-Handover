@@ -1,3 +1,5 @@
+import hashlib
+
 import numpy as np
 
 # ============================================================
@@ -51,6 +53,26 @@ Time_HOdecision_8 = 0.01
 Time_LLHOCommand_9 = 0.02
 Time_RA_10 = 10e-3
 Time_ContextRelease_11 = 20e-3
+
+# ============================================================
+# PHYSICS HASH
+# ============================================================
+def physics_hash() -> str:
+    """Short hash of the physics constants that drive the precomputed cache.
+
+    Precomputed `.npz` files are stamped with this value; `LTMEnv.reset()`
+    cross-checks it on load and refuses to run if it doesn't match — the
+    cache must be regenerated whenever TxPower / NoiseLevel / SINR table
+    changes, otherwise the agent's observations and the runtime physics
+    diverge silently.
+    """
+    h = hashlib.sha256()
+    h.update(str(System["TxPower"]).encode())
+    h.update(str(System["NoiseLevel"]).encode())
+    h.update(System["SINRThreshold"].tobytes())
+    h.update(System["SpectralEff"].tobytes())
+    return h.hexdigest()[:16]
+
 
 # ============================================================
 # PHYSICS FUNCTIONS

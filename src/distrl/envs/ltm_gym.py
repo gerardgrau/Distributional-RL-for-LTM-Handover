@@ -24,6 +24,7 @@ from src.distrl.envs.physics import (
     Time_RRCTransfer2,
     CheckHO_Failure,
     MCSEvaluation,
+    physics_hash,
 )
 
 def natural_sort_key(s):
@@ -118,6 +119,15 @@ class LTMEnv(gym.Env):
         # Fast loading from .npz — `with` ensures the file descriptor is
         # released even though we materialize the arrays we need.
         with np.load(filename) as data:
+            cached_hash = str(data['physics_hash'].item()) if 'physics_hash' in data.files else None
+            current_hash = physics_hash()
+            if cached_hash != current_hash:
+                raise RuntimeError(
+                    f"Precomputed cache {filename} has physics_hash="
+                    f"{cached_hash!r} but current physics is {current_hash!r}. "
+                    "Rebuild with: "
+                    "`./venv-RL/bin/python3 src/tools/preprocess_dataset.py`"
+                )
             self.ChBS2UE = data['ch_bs2ue']
             self.all_mcs_episode = data['all_mcs_episode']
             self.all_snir_episode = data['all_snir_episode']

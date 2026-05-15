@@ -28,8 +28,10 @@ from src.distrl.utils.metrics import calculate_8_metrics
 METRIC_ORDER = [
     "ho_rate", "hof_rate", "pp_rate", "capacity_avg", "rlf_rate",
     "reliability_pct", "prep_rate", "res_reservation_pct",
-    "total_steps", "total_minutes",
 ]
+# Diagnostic-only fields surfaced during the run but excluded from the saved
+# CSV so its schema matches `legacy_baseline_summary.csv`.
+EXTRA_METRICS = ["total_steps", "total_minutes"]
 
 
 def verify_parity(ue_count: int) -> None:
@@ -85,6 +87,11 @@ def verify_parity(ue_count: int) -> None:
         std_val = float(np.std(summary[k]))
         print(f"{k:20}: {mean_val:10.4f} (std: {std_val:.4f})")
         rows.append({"metric": k, "mean": mean_val, "std": std_val})
+
+    for k in EXTRA_METRICS:
+        if k not in summary:
+            continue
+        print(f"{k:20}: {float(np.mean(summary[k])):10.4f} (std: {float(np.std(summary[k])):.4f})")
 
     out_path = "results/final_metrics/baseline_summary.csv"
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
