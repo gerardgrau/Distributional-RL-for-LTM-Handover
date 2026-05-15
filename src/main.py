@@ -89,18 +89,25 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         done = False
         last_info = {}
         
+        is_baseline = agent_type.lower() == "ltm_baseline"
         while not done:
-            action = agent.select_action(state, epsilon)
-            next_state, reward, done, _, info = env.step(action)
-            if buffer is not None:
-                buffer.push(state, action, reward, next_state, done)
+            if is_baseline:
+                # Hardcoded baseline: drive the env in high-resolution callback
+                # mode so the agent sees every FIND_CELL / HO_DECISION yield.
+                next_state, reward, done, _, info = env.step(
+                    0, high_res_callback=agent.select_action
+                )
+            else:
+                action = agent.select_action(state, epsilon)
+                next_state, reward, done, _, info = env.step(action)
+                if buffer is not None:
+                    buffer.push(state, action, reward, next_state, done)
+                if buffer is not None and len(buffer) > batch_size and global_step % train_freq == 0:
+                    metrics = agent.train_step(buffer.sample(batch_size, device=device))
+                    episode_loss.append(metrics['loss'])
             state = next_state
             episode_reward += reward
             global_step += 1
-            
-            if buffer is not None and len(buffer) > batch_size and global_step % train_freq == 0:
-                metrics = agent.train_step(buffer.sample(batch_size, device=device))
-                episode_loss.append(metrics['loss'])
             if done:
                 last_info = info
         

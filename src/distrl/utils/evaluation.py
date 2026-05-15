@@ -31,17 +31,23 @@ def run_evaluation(
 
     all_eval_metrics = []
     
+    is_baseline = agent_type.lower() == "ltm_baseline"
     for ep in tqdm(range(num_eval_episodes), desc=f"    Eval {agent_type}", leave=False):
         state, _ = eval_env.reset()
         agent.reset()
         done = False
         last_info = {}
         episode_reward = 0
-        
+
         while not done:
-            # Pure greedy selection (Frozen weights, No exploration)
-            action = agent.select_action(state, epsilon=0.0)
-            state, reward, done, _, info = eval_env.step(action)
+            if is_baseline:
+                state, reward, done, _, info = eval_env.step(
+                    0, high_res_callback=agent.select_action
+                )
+            else:
+                # Pure greedy selection (Frozen weights, No exploration)
+                action = agent.select_action(state, epsilon=0.0)
+                state, reward, done, _, info = eval_env.step(action)
             episode_reward += reward
             if done:
                 last_info = info
@@ -82,11 +88,26 @@ def run_evaluation(
             raw_csv = os.path.join(eval_dir, f"{agent_type}_raw_seed{seed}.csv")
         
         # 1. Save Summary CSV (Metric, Mean, Std)
+        metric_order = [
+            "ho_rate", "hof_rate", "pp_rate", "capacity_avg", "rlf_rate",
+            "reliability_pct", "prep_rate", "res_reservation_pct",
+            "reward", "total_steps", "total_minutes"
+        ]
+        
         summary_df = pd.DataFrame({
             "metric": summary["mean"].keys(),
             "mean": summary["mean"].values(),
             "std": summary["std"].values()
         })
+        
+        # Sort according to standard order, keeping any extra metrics at the end
+        summary_df['metric'] = pd.Categorical(
+            summary_df['metric'], 
+            categories=metric_order + [m for m in summary_df['metric'] if m not in metric_order], 
+            ordered=True
+        )
+        summary_df = summary_df.sort_values('metric')
+        
         summary_df.to_csv(summary_csv, index=False)
             
         # 2. Save Raw CSV (Per-episode metrics)

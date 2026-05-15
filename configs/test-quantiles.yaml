@@ -44,8 +44,8 @@ ho_prep:
   kl3: 8
   preparation_power_offset: -3
   preparation_time: 0.04
-  exec_power_offset: 3
-  max_number_prepared_bs: 5
+  exec_power_offset: 3.0
+  max_number_prepared_bs: 4
 
 paths:
   channel_data_directory: "data/ChannelGains"
