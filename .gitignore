@@ -13,5 +13,5 @@ __pycache__/
 /.DS_Store
 
 /conductor
-/meeting-notes.md
-/conversation-summary.md
+/notes/meeting-notes.md
+/notes/conversation-summary.md
