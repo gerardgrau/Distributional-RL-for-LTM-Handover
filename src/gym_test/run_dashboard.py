@@ -2,8 +2,6 @@ import argparse
 import os
 import sys
 
-import numpy as np
-
 # Ensure src is in PYTHONPATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
@@ -34,7 +32,10 @@ def run_agent_dashboard(
     model_path: str | None = None,
     output_path: str | None = None,
 ) -> None:
-    print(f"=== Generating Dashboard for {agent_type.upper()} (UE {ue_idx}) ===")
+    print(
+        f"=== Generating Dashboard for {agent_type.upper()} "
+        f"(file index {ue_idx} → User{ue_idx + 1}_precomputed.npz) ==="
+    )
 
     env = LTMEnv(config=Config.get())
     env.current_ue_idx = ue_idx
@@ -98,7 +99,14 @@ if __name__ == "__main__":
         "--agent", type=str, default="dqn",
         choices=["dqn", "qrdqn", "ltm_baseline"],
     )
-    parser.add_argument("--ue_idx", type=int, default=500, help="UE index (1 to 1000)")
+    parser.add_argument(
+        "--ue_idx", type=int, default=500,
+        help=(
+            "1-based UE number (1..1000); the script converts to 0-based "
+            "internally, so --ue_idx 42 loads User42_precomputed.npz and "
+            "the output filename embeds 'ue41'."
+        ),
+    )
     parser.add_argument(
         "--model_path", type=str,
         help="Specific path to model weights (ignored for ltm_baseline)",

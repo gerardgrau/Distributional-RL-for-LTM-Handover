@@ -138,7 +138,7 @@ class MobilityDashboard:
         ylim: tuple[float, float],
     ) -> tuple[list, list, list]:
         ax.set_title(title)
-        ax.set_xlabel("Time Step")
+        ax.set_xlabel("RL step (100 ms)")
         ax.set_ylabel(ylabel)
         ax.set_ylim(*ylim)
 
@@ -309,8 +309,9 @@ class MobilityDashboard:
                         marks[i].set_offsets(np.empty((0, 2)))
                 artists += bg_lines + act_lines + marks
 
-            ax_rsrp.set_xlim(t - 140, t + 10)
-            ax_snir.set_xlim(t - 140, t + 10)
+            left = max(0, t - 140)
+            ax_rsrp.set_xlim(left, t + 10)
+            ax_snir.set_xlim(left, t + 10)
             return artists
 
         num_frames = 500
