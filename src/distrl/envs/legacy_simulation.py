@@ -90,46 +90,6 @@ Time_ContextRelease_11 = 0.00         # Time for release and switching: between 
 # ============================================================
 # FUNCIONES PRINCIPALES
 # ============================================================
-def get_realistic_interference(ch_vector, serving_idx, all_inter_linear, system_params):
-    """
-    Implements ICIC (Inter-Cell Interference Coordination).
-    ch_vector: All BS gains for the current UE at time t
-    serving_idx: Current BS
-    all_inter_linear: Raw total interference
-    """
-    raise NotImplementedError()
-    noise_floor = 10**(system_params["NoiseLevel"] / 10.0)
-    
-    if serving_idx == -1:
-        return all_inter_linear + noise_floor, False
-
-    # 1. Identify the strongest neighbor to check HO proximity
-    neighbor_indices = np.delete(np.arange(len(ch_vector)), serving_idx)
-    target_idx = neighbor_indices[np.argmax(ch_vector[neighbor_indices])]
-    
-    # 2. Calculate the Handover Margin (dB)
-    # How close is the neighbor to taking over?
-    serving_pwr = ch_vector[serving_idx]
-    target_pwr = ch_vector[target_idx]
-    ho_margin_db = 10 * np.log10(serving_pwr / (target_pwr + 1e-15))
-    
-    # 3. ICIC Trigger Logic
-    # In 5G, if the neighbor is within 3-6dB, the network coordinates.
-    icic_active = ho_margin_db < 7.0  
-    
-    if icic_active:
-        # ICIC reduction (0.1 = -10dB). 
-        # This is the "Safety Window" for the handover to succeed.
-        reduction_factor = 0.1
-        signal = serving_pwr + 3  # Assume the network boosts the signal by 3 dB during HO prep
-        inter_noise = (all_inter_linear * reduction_factor) + noise_floor
-    else:
-        # Standard Reuse 1 - No protection
-        inter_noise = all_inter_linear + noise_floor
-        signal = serving_pwr
-        
-    return inter_noise, icic_active
-
 def MCSEvaluation(serving_sector, channels, System, Sync):
     RLF = 0
     serving_channel = channels[serving_sector]

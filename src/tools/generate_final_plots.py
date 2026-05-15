@@ -85,24 +85,23 @@ def generate_plots():
 
     for idx, metric in enumerate(metrics_to_plot):
         ax = axes[idx]
-        if metric in data.columns:
-            valid_series = data[metric].dropna()
-            current_agents = valid_series.index
-            current_colors = [colors[agents.index(a)] for a in current_agents]
-            
-            bars = ax.bar(current_agents, valid_series, color=current_colors, alpha=0.8, edgecolor='black')
-            
-            ax.set_title(nice_names[metric], fontsize=15, fontweight='bold', pad=10)
-            ax.grid(axis='y', linestyle='--', alpha=0.3)
-            ax.tick_params(axis='x', rotation=35, labelsize=9)
-            
-            for bar in bars:
-                yval = bar.get_height()
-                fmt = '.3f' if yval < 1 else '.2f'
-                ax.text(bar.get_x() + bar.get_width()/2, yval + (yval*0.01), f'{yval:{fmt}}', 
-                         ha='center', va='bottom', fontsize=9, fontweight='bold')
-        else:
+        valid_series = data[metric].dropna() if metric in data.columns else None
+        if valid_series is None or valid_series.empty:
             ax.set_visible(False)
+            continue
+
+        current_agents = valid_series.index
+        current_colors = [colors[agents.index(a)] for a in current_agents]
+
+        bars = ax.bar(current_agents, valid_series, color=current_colors, alpha=0.8, edgecolor='black')
+        ax.set_title(nice_names[metric], fontsize=15, fontweight='bold', pad=10)
+        ax.grid(axis='y', linestyle='--', alpha=0.3)
+        ax.tick_params(axis='x', rotation=35, labelsize=9)
+        for bar in bars:
+            yval = bar.get_height()
+            fmt = '.3f' if yval < 1 else '.2f'
+            ax.text(bar.get_x() + bar.get_width()/2, yval + (yval*0.01), f'{yval:{fmt}}',
+                     ha='center', va='bottom', fontsize=9, fontweight='bold')
 
     plt.suptitle("LTM-HO Comparative Analysis: RL Agents vs. State-of-the-Art Baselines", fontsize=24, fontweight='bold', y=0.98)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])

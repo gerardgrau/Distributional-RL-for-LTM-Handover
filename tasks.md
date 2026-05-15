@@ -51,10 +51,27 @@ Plots animacó: Afegir plot de MCS al costat del RSRP
 - **Assumpció RLF i Dataset (PENDENT)**: Tot i clavar la HO Rate i la Prep Rate, els RLF segueixen sent 0.0. Hem confirmat que fins i tot l'script original dels autors dona 0.008 sobre aquest dataset. **Conclusió**: La taxa de 0.068 del paper depèn de dades o soroll temporal (fading) que no tenim.
 - **Assumpció Resolució Temporal (VALIDADA)**: La resolució de 10ms és imprescindible per tenir paritat de temps de preparació (40ms). **Acció**: El baseline d'ara endavant s'avaluarà sempre amb el loop de 10ms.
 
-# Configuració de Paritat Final:
+# Configuració de Paritat Final (actualitzada 2026-05-15):
+
+Les decisions anteriors (45 dBm / 3.4 dB / taula Outage) van ser revertides
+a la configuració del paper (Table I / II) per quedar-nos amb una calibració
+defensable acadèmicament. Sacrifica el match exacte amb els números
+publicats al paper a canvi de coherència física.
+
 - **Loop**: 10ms High-Resolution
-- **TxPower**: 45 dBm
-- **ExecPowerOffset**: 3.4 dB
-- **SINR Table**: Alternative (Outage < -3dB)
+- **TxPower**: **25 dBm** (Table I)
+- **NoiseLevel**: **-91 dBm** = -174 dBm/Hz integrat sobre 200 MHz
+- **ExecPowerOffset**: **3.0 dB** (Table II)
+- **MaxNumberPreparedBS**: **4** (Table II)
+- **SINR Table**: la de 26 esglaons (la "Outage < -3dB" inclosa)
 - **Bandwidth**: 200 MHz
+- **Channels**: `ChannelBS2UE_noRIS` (amb les obstruccions de 20 dB)
+
+Resultats 1000 UEs (baseline LTM, paritat gym ↔ legacy bit-exacta):
+ho_rate=11.69 · hof_rate=0.35 · pp_rate=4.25 · capacity=2.75 ·
+rlf_rate=0.20 · reliability=90.94% · prep_rate=807.24 · res_reservation=6.41%
+
+Gap vs paper: capacity i reliability són més baixes que el paper (3.75 i 95%)
+i el RLF és més alt (0.198 vs 0.068). Pendent de confirmar amb el tutor si
+volem revisar la interpretació de NoiseLevel.
 

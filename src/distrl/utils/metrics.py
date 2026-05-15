@@ -74,11 +74,11 @@ def calculate_8_metrics(
                 timer_leaving[:] = 0
             else:
                 cond_in = in_condition[:, t]
-                timer_entering = (timer_entering + (time_step / 10.0)) * cond_in
+                timer_entering = (timer_entering + time_step) * cond_in
                 list_bs_prepared |= (timer_entering > prep_time_thresh)
 
                 cond_out = out_condition[:, t]
-                timer_leaving = (timer_leaving + (time_step / 10.0)) * cond_out
+                timer_leaving = (timer_leaving + time_step) * cond_out
                 list_bs_prepared &= ~(timer_leaving > prep_time_thresh)
 
                 if np.sum(list_bs_prepared) > max_prep:

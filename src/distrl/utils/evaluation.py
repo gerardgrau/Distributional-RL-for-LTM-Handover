@@ -31,17 +31,23 @@ def run_evaluation(
 
     all_eval_metrics = []
     
+    is_baseline = agent_type.lower() == "ltm_baseline"
     for ep in tqdm(range(num_eval_episodes), desc=f"    Eval {agent_type}", leave=False):
         state, _ = eval_env.reset()
         agent.reset()
         done = False
         last_info = {}
         episode_reward = 0
-        
+
         while not done:
-            # Pure greedy selection (Frozen weights, No exploration)
-            action = agent.select_action(state, epsilon=0.0)
-            state, reward, done, _, info = eval_env.step(action)
+            if is_baseline:
+                state, reward, done, _, info = eval_env.step(
+                    0, high_res_callback=agent.select_action
+                )
+            else:
+                # Pure greedy selection (Frozen weights, No exploration)
+                action = agent.select_action(state, epsilon=0.0)
+                state, reward, done, _, info = eval_env.step(action)
             episode_reward += reward
             if done:
                 last_info = info

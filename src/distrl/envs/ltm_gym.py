@@ -1,13 +1,30 @@
-import gymnasium as gym
-from gymnasium import spaces
-import numpy as np
-from scipy.io import loadmat
-from scipy.signal import lfilter
-from src.distrl.envs.physics import *
 import glob
 import os
-import pandas as pd
 import re
+
+import gymnasium as gym
+import numpy as np
+from gymnasium import spaces
+
+from src.distrl.envs.physics import (
+    HO,
+    NBS,
+    ReceiverSensitivity,
+    System,
+    Time,
+    Time_ContextRelease_11,
+    Time_HOdecision_8,
+    Time_LLHOCommand_9,
+    Time_MeasReportL1_67,
+    Time_MeasReportL3_1,
+    Time_PingPong,
+    Time_RA_10,
+    Time_RRCConf3,
+    Time_RRCReconf4_5,
+    Time_RRCTransfer2,
+    CheckHO_Failure,
+    MCSEvaluation,
+)
 
 def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower()
@@ -98,16 +115,17 @@ class LTMEnv(gym.Env):
         filename = self.files[self.current_ue_idx % len(self.files)]
         self.current_ue_idx += 1
         
-        # Fast loading from .npz
-        data = np.load(filename)
-        self.ChBS2UE = data['ch_bs2ue']
+        # Fast loading from .npz — `with` ensures the file descriptor is
+        # released even though we materialize the arrays we need.
+        with np.load(filename) as data:
+            self.ChBS2UE = data['ch_bs2ue']
+            self.all_mcs_episode = data['all_mcs_episode']
+            self.all_snir_episode = data['all_snir_episode']
+            self.all_pe_episode = data['all_pe_episode']
+            self.ue_positions = data['ue_positions']
+            self.PL1 = data['pl1']
+            self.PL3 = data['pl3']
         self.Max_iter = self.ChBS2UE.shape[1]
-        self.all_mcs_episode = data['all_mcs_episode']
-        self.all_snir_episode = data['all_snir_episode']
-        self.all_pe_episode = data['all_pe_episode']
-        self.ue_positions = data['ue_positions']
-        self.PL1 = data['pl1']
-        self.PL3 = data['pl3']
         
         self.ue_speeds = np.full(self.Max_iter, 10.0) 
         
@@ -344,7 +362,8 @@ class LTMEnv(gym.Env):
                     while t < Tf:
                         self.ReservedBSSectors[:, t] = self.ListBSPrepared
                         self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
-                        if self.RLF[t]: break
+                        if self.RLF[t]:
+                            NextBSSector = -1
                         t += 1
                         self.t = t
                         self.serving_tenure += 1
