@@ -1,128 +1,79 @@
 # Distributional Reinforcement Learning for LTM Handover
 
-This project explores the application of **Distributional Reinforcement Learning (DistRL)** to optimize the **Lower Layer Triggered Mobility (LTM)** handover process in 5G/6G wireless networks. Unlike traditional RL, which focuses on the expected value of future rewards, Distributional RL models the entire probability distribution of returns, enabling more robust and risk-aware decision-making in highly dynamic environments like mobile communications.
+Research project applying **Distributional Reinforcement Learning** (DQN vs
+QR-DQN) to optimize **Lower Layer Triggered Mobility (LTM)** handover decisions
+in 5G/6G wireless networks. Unlike standard RL, which optimizes the expected
+return, distributional RL models the full distribution of returns — enabling
+risk-aware policies (CVaR) that are well suited to highly variable radio
+environments.
 
----
+## Project goals
 
-## 🎯 Project Objectives
+1. Benchmark DQN, QR-DQN, and a hardcoded LTM baseline on a high-fidelity 5G
+   sectored deployment (7 BS × 3 sectors, 1000 pre-computed UE trajectories).
+2. Track 8 scientific metrics: capacity, RLF rate, HO rate, ping-pong rate,
+   reliability, cell-preparation rate, resource reservation, HOF rate.
+3. Compare results against the published Ainna / LTM-CMAB paper numbers under
+   matched physics (TxPower=25 dBm, 26-step SINR table, etc.).
+4. Explore risk-aware variants (CVaR-QR-DQN) for stability-critical mobility.
 
-### 1. Robust Handover Decision-Making
-Implement and evaluate state-of-the-art Distributional RL algorithms (C51, IQN, QRDQN, and FQF) to handle the uncertainty and high variability of the 5G radio environment.
+## Repository layout
 
-### 2. LTM-HO Simulation Framework
-Develop a high-fidelity simulation environment based on the **LTM (Lower Layer Triggered Mobility)** protocol, incorporating:
-*   **Realistic Physical Layer:** 5G signal-to-interference-plus-noise ratio (SINR) modeling.
-*   **Mobility Patterns:** Real-world vehicle trajectories (via SUMO integration).
-*   **Protocol Dynamics:** Multi-stage handover processes including preparation, execution, and resource reservation.
-
-### 3. Multi-Objective Optimization
-Optimize the handover process across conflicting metrics:
-*   **Maximize Throughput:** Maintain high Modulation and Coding Schemes (MCS).
-*   **Minimize Failures:** Reduce Radio Link Failures (RLF) and Handover Failures (HOF).
-*   **Cost Efficiency:** Minimize unnecessary resource reservations and ping-pong effects.
-
-### 4. Risk-Aware Strategies
-Leverage the "Distributional" aspect of the agents to implement risk-aware policies (e.g., using **Conditional Value-at-Risk (CVaR)**) that prioritize network stability during critical mobility events.
-
----
-
-## 🔬 Research Methodology & Features
-
-### 1. Performance-Optimized Environment
-The LTM simulator has been heavily optimized for research-scale iterations:
-*   **Vectorized Radio Physics**: Replaced scalar loops with parallel NumPy matrix math.
-*   **Global Trajectory Caching**: In-RAM caching of 1,000 UE radio paths for zero-cost resets.
-*   **Speed**: Training loop optimized to **~400 steps/s** (a **4.2x speedup** over the baseline), with the environment running at **~5,200 steps/s** for random actions.
-
-### 2. Formal Evaluation Protocol
-To ensure scientific rigor, the project enforces a formal evaluation cycle:
-*   **Train/Test Split**: Trajectories are split 80/20. The agent only trains on a subset and is tested on unseen users.
-*   **Automated Post-Training Eval**: At the end of training, the model is automatically frozen (epsilon=0) and evaluated on the hold-out set to measure generalization.
-
-### 3. Comprehensive Metric Suite
-The framework evaluates agents across **8 scientific metrics**:
-*   **Capacity**: Average spectral efficiency (MCS).
-*   **RLF Rate**: Radio Link Failures per minute.
-*   **HO Rate**: Successful handovers per minute.
-*   **PP Rate**: Ping-Pong events per minute.
-*   **Reliability**: % of time spent in-service.
-*   **Prep Rate**: Signaling overhead (cell preparations) per minute.
-*   **Resource Reservation**: % of system resources held by the UE.
-*   **HOF Rate**: Handover Failures per minute.
-
----
-
-## 🏗️ Repository Structure
-
-The project is organized as a modular Python package to ensure scalability and clear separation of concerns:
-
-- `src/`: Source code directory.
-    - `main.py`: Main entry point for training and simulations.
-    - `distrl/`: Core framework package.
-        - `agents/`: Learning logic and algorithm implementations (C51, IQN, etc.).
-        - `models/`: Neural network architectures (decoupled from agent logic).
-        - `envs/`: Gymnasium environment wrappers and LTM-HO simulation logic.
-        - `utils/`: Shared utilities, configuration management, and data loading.
-- `data/`: Data storage for simulation artifacts.
-    - `ChannelGains/`: Storage for generated channel gain datasets.
-- `conductor/`: Local project management and planning (untracked).
-- `configs/config.yaml`: Global configuration file for hyperparameters and simulation settings.
-
----
-
-## 🚀 Getting Started
-
-### 1. Installation
-Ensure you have Python 3.8+ and install the required dependencies:
-```bash
-pip install -r requirements.txt
+```
+src/distrl/      Core framework
+  agents/        BaseAgent + DQN, QR-DQN, LTM heuristic baseline
+  envs/          Gymnasium env, legacy reference simulator, shared physics
+  utils/         Config, replay buffer, metrics, plot, evaluation, dashboard
+src/tools/       Standalone CLI utilities (see src/tools/README.md)
+src/gym_test/    Smoke / verification scripts (see CLAUDE.md)
+src/main.py      Training entrypoint
+src/evaluate_model.py
+                 Frozen-weight evaluation on all 1000 UEs
+configs/         YAML configs (see configs/README.md)
+data/            Channel-gain dataset (raw .mat + precomputed .npz cache)
+docs/            Reference docs, parity audit notes, future improvements
+notes/           Working notes — task list, meeting notes (see notes/README.md)
+results/         All training / eval / animation outputs (see results/README.md)
 ```
 
-### 2. Running a Single Experiment
-The project uses a centralized entry point in `src/main.py`. To run it, ensure the `src/` directory is in your `PYTHONPATH`:
+For deeper guidance, see:
+- **`CLAUDE.md`** — full architecture overview + canonical commands
+- **`GEMINI.md`** — physical constants, reward formula, parity decisions
+- **`notes/tasks.md`** — live to-do list and calibration history
+
+## Getting started
+
 ```bash
+# 1. One-time setup (creates venv-RL, installs deps)
+python3 -m venv venv-RL
+./venv-RL/bin/pip install -r requirements.txt
+
+# 2. Set PYTHONPATH (every shell)
 export PYTHONPATH=$PYTHONPATH:$(pwd)/src
-python3 src/main.py
+
+# 3. Generate the precomputed dataset (one-time)
+./venv-RL/bin/python3 src/tools/preprocess_dataset.py
+
+# 4. Run a benchmark (DQN + QR-DQN, multi-seed, auto eval + plots)
+./venv-RL/bin/python3 src/main.py \
+    --config configs/config.yaml \
+    --device xpu \
+    --description my-run
 ```
 
-### 3. Benchmarking & Visualization
-For scientific evaluation across multiple seeds, use the benchmarking suite:
+Outputs land in `results/benchmarks/bmk_<date>_<num>_<desc>/`. Frozen-weight
+post-training evaluation runs automatically at the end of each seed.
 
-#### Run Experiment
-Runs automated trials for both DQN and QRDQN across multiple random seeds.
-```bash
-export PYTHONPATH=$PYTHONPATH:$(pwd)/src
-python3 src/experiment.py
-```
+## Performance
 
-#### Generate Performance Plots
-Creates learning curves and efficiency graphs (Reward/Loss vs Time).
-```bash
-python3 src/distrl/utils/plot.py
-```
+The env is heavily optimized for research-scale iteration:
+- Precomputed channel-gain `.npz` cache (no RAM resets, hashed against the
+  active physics constants)
+- Vectorized SINR / MCS / HOF math in `src/distrl/envs/physics.py`
+- O(1) moving-average state computations
+- ~1.5 s/episode on Intel XPU (≈ 41 % faster than CPU since the precomputed
+  cache removes the radio-physics bottleneck)
 
-#### Distributional Visualizer
-Visualizes the learned return distributions (quantiles) for a specific state.
-```bash
-python3 src/gym_test/test_quantile_vis.py
-```
+## License
 
-### 4. Verification
-To ensure everything is working correctly, follow the [Environment Verification Guide](docs/verification.md).
-
----
-
-## 📋 Requirements
-
-*   Python 3.8+
-*   PyTorch
-*   Gymnasium
-*   NumPy / SciPy
-*   PyYAML
-*   ale-py (for Atari baselines)
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT — see the `LICENSE` file.
