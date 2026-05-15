@@ -309,9 +309,8 @@ class MobilityDashboard:
                         marks[i].set_offsets(np.empty((0, 2)))
                 artists += bg_lines + act_lines + marks
 
-            left = max(0, t - 140)
-            ax_rsrp.set_xlim(left, t + 10)
-            ax_snir.set_xlim(left, t + 10)
+            ax_rsrp.set_xlim(t - 140, t + 10)
+            ax_snir.set_xlim(t - 140, t + 10)
             return artists
 
         num_frames = 500
