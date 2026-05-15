@@ -180,7 +180,8 @@ class LTMEnv(gym.Env):
                     terminated = True
                     break
         else:
-            # RL Mode (Strict 100ms Action Repeat with RLF Tripwire)
+            # RL Mode (Strict 100ms Action Repeat — pure paper Ainna reward,
+            # no RLF tripwire penalty)
             mcs_accum = 0.0
             alpha_ho = 0.8
             alpha_pp = 0.9
@@ -188,14 +189,12 @@ class LTMEnv(gym.Env):
             has_ho = 0
             has_pp = 0
             has_hof = 0
-            
+
             for _ in range(10):
                 try:
                     current_state = self._last_obs_dict['state_type']
-                    
-                    if current_state == 1: # FIND_CELL (RLF Tripwire)
-                        reward -= 100.0 # Massive penalty
-                        # Force greedy recovery
+
+                    if current_state == 1:  # FIND_CELL — force greedy recovery
                         ChBS2UE = self._last_obs_dict['ChBS2UE_t']
                         Pbest = np.max(ChBS2UE)
                         if Pbest + System["TxPower"] > ReceiverSensitivity:
