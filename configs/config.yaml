@@ -2,7 +2,7 @@
 
 system:
   tx_power: 25                # Aligned with CMAB paper Table I
-  noise_level: -91            # Total noise power for 200MHz BW (-174 dBm/Hz)
+  noise_level: -174           # Raw linear floor (matches legacy_simulation)
   receiver_sensitivity: -95   # dBm
 
 simulation:
@@ -46,7 +46,7 @@ ho_prep:
   preparation_power_offset: -3          # dB
   preparation_time: 0.04                # 40 ms
   exec_power_offset: 3.0                  # dB (Table II)
-  max_number_prepared_bs: 4             # Max prepared cells (Table II)
+  max_number_prepared_bs: 5             # Max prepared cells (matches legacy_simulation)
 
 paths:
   channel_data_directory: "data/ChannelGains"

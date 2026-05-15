@@ -3,20 +3,14 @@ from scipy.io import loadmat
 from scipy.signal import lfilter
 import os
 import glob
-import re
 from typing import Any
-
-def natural_sort_key(s):
-    import re
-    return [int(text) if text.isdigit() else text.lower()
-            for text in re.split('([0-9]+)', s)]
 
 ChannelDirectory = "data/ChannelGains"
 
 # Buscar todos los archivos
-files = sorted(glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat")), key=natural_sort_key)
+files = glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat"))
 
-UE_Number = 10
+UE_Number = len(files)
 # UE_Number = 5  # To test, limitar a 5 UEs
 
 print(f"Detected {len(files)} UE channel files. Simulating {UE_Number} UEs.")
@@ -29,23 +23,33 @@ ReceiverSensitivity = -95
 
 # Parámetros del sistema
 System = {
-    "TxPower": 25,  # dBm (Table I)
-    "NoiseLevel": -91,  # dBm (-174 dBm/Hz + 10log10(200MHz) = -91 dBm)
+    "TxPower": 25,  # dBm
+    # Al paper està a 25
+    "NoiseLevel": -174,  # dBm
+    # "SINRThreshold": np.array([
+    #     -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
+    #     22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
+    # ]),
+    # "SpectralEff": np.array([
+    #     0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
+    #     2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
+    #     5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
+    # ])
     "SINRThreshold": np.array([
-        -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
-        22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
+        -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
+        12.5, 14.5, 16.5, 19.0, 21.5, 24.0
     ]),
     "SpectralEff": np.array([
-        0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
-        2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
-        5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
+        0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
+        2.73, 3.32, 3.90, 4.52, 5.12, 5.55
     ])
+    # ! Aquests últims són els bons
 }
 
 # Parámetros temporales
 Time = {
-    "TotalSimTime": 300,         # 300 segundos
-    "TimeStep": 10e-3           # 10 ms
+    "TotalSimTime": 60,         # 60 segundos
+    "TimeStep": 10e-3           # 1 ms
 }
 
 # Parámetros de BS
@@ -60,8 +64,8 @@ HO["Prep"] = {
     "alphaIIRfilter": 2 ** (-8 / 4),          # 2^(-kL3/4)
     "PreparationPowerOffset": -3,             # dB
     "PreparationTime": 40e-3,                 # 40 ms
-    "ExecPowerOffset": 3.0,                     # dB (Table II)
-    "MaxNumberPreparedBS": 4                  # Max prepared cells (Table II)
+    "ExecPowerOffset": 3,                     # dB
+    "MaxNumberPreparedBS": 5                  # Max prepared cells
 }
 
 # HO["Prep"] = {
@@ -83,13 +87,54 @@ Time_RRCTransfer2 = 0.01
 Time_RRCConf3 = 0.022
 Time_RRCReconf4_5 = 0.02
 Time_MeasReportL1_67 = 0.01
-Time_HOdecision_8 = 0.00
-Time_LLHOCommand_9 = 0.00
-Time_RA_10 = 5e-3                     # Time spent in RACH
-Time_ContextRelease_11 = 0.00         # Time for release and switching: between 10 and 50ms
+Time_HOdecision_8 = 0.01
+Time_LLHOCommand_9 = 0.02
+Time_RA_10 = 10e-3                     # Time spent in RACH
+Time_ContextRelease_11 = 20e-3         # Time for release and switching: between 10 and 50ms
+
 # ============================================================
 # FUNCIONES PRINCIPALES
 # ============================================================
+def get_realistic_interference(ch_vector, serving_idx, all_inter_linear, system_params):
+    """
+    Implements ICIC (Inter-Cell Interference Coordination).
+    ch_vector: All BS gains for the current UE at time t
+    serving_idx: Current BS
+    all_inter_linear: Raw total interference
+    """
+    raise NotImplementedError()
+    noise_floor = 10**(system_params["NoiseLevel"] / 10.0)
+    
+    if serving_idx == -1:
+        return all_inter_linear + noise_floor, False
+
+    # 1. Identify the strongest neighbor to check HO proximity
+    neighbor_indices = np.delete(np.arange(len(ch_vector)), serving_idx)
+    target_idx = neighbor_indices[np.argmax(ch_vector[neighbor_indices])]
+    
+    # 2. Calculate the Handover Margin (dB)
+    # How close is the neighbor to taking over?
+    serving_pwr = ch_vector[serving_idx]
+    target_pwr = ch_vector[target_idx]
+    ho_margin_db = 10 * np.log10(serving_pwr / (target_pwr + 1e-15))
+    
+    # 3. ICIC Trigger Logic
+    # In 5G, if the neighbor is within 3-6dB, the network coordinates.
+    icic_active = ho_margin_db < 7.0  
+    
+    if icic_active:
+        # ICIC reduction (0.1 = -10dB). 
+        # This is the "Safety Window" for the handover to succeed.
+        reduction_factor = 0.1
+        signal = serving_pwr + 3  # Assume the network boosts the signal by 3 dB during HO prep
+        inter_noise = (all_inter_linear * reduction_factor) + noise_floor
+    else:
+        # Standard Reuse 1 - No protection
+        inter_noise = all_inter_linear + noise_floor
+        signal = serving_pwr
+        
+    return inter_noise, icic_active
+
 def MCSEvaluation(serving_sector, channels, System, Sync):
     RLF = 0
     serving_channel = channels[serving_sector]
@@ -169,11 +214,22 @@ def CheckHO_Failure(serving_sector, channels, System):
     relevant_channels = channels[target_mask]
     Inter = (relevant_channels + System["TxPower"]) / 10.0
     AllInter = np.sum(10**Inter) - Ps
+    # AllInter = AllInter * 0.1  # Attenuation factor to simulate better conditions during HO
+    M = 3
     noise_linear = 10**(System["NoiseLevel"] / 10.0)
 
-    # RACH with 0.05 interference factor for parity
-    Inter_Noise = (AllInter * 0.05) + noise_linear
+    if np.random.rand() < (1 / M):
+        # Case: High interference scenario
+        Inter_Noise = M * AllInter + noise_linear
+    else:
+        # Case: Low interference scenario (attenuated by 15 dB)
+        Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
+    # Temporary debug line
+    # Inter_Noise = 10**(System["NoiseLevel"]/10)
     
+    # Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
+    
+    # print(f"Serving channel (dB): {serving_channel:.2f}, Interference+Noise (dB): {10*np.log10(Inter_Noise):.2f}, ICIC active: {icic_on}")
     SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)    
     idx = np.where(SNR_level <= SNIR)[0]
     Pe = BLER[idx[-1]]
@@ -208,12 +264,9 @@ def run_simulation():
 
     for indUE in range(0, UE_Number):
         print(f"Simulando UE {indUE+1}/{UE_Number}...")
-        
-        import re
-        user_id = f"User{indUE+1}"
-        numeric_id = int(re.search(r'\d+', user_id).group())
-        np.random.seed(42 + numeric_id)
-        
+        # Per-UE seed for reproducibility (matches the seed set externally in
+        # verify_simulation_parity.py and other gym wrappers).
+        np.random.seed(42 + indUE + 1)
         filename = os.path.join(ChannelDirectory, f"ChannelGainBSUE_User{indUE+1}.mat")
         mat_data = loadmat(filename)
         # Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)
@@ -335,8 +388,7 @@ def run_simulation():
                 ReservedBSSectors[:, t] = ListBSPrepared
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
-                    # print(f"DEBUG LEGACY: RLF at t={t}")
-                    NextBSSector = -1
+                    break
                 t += 1
                 ServingBSSector[t] = ServingBSSector[t - 1]
 
@@ -350,8 +402,7 @@ def run_simulation():
                 ReservedBSSectors[:, t] = ListBSPrepared
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
-                    # print(f"DEBUG LEGACY: RLF at t={t}")
-                    NextBSSector = -1
+                    break
                 t += 1
                 ServingBSSector[t] = ServingBSSector[t - 1]
 
@@ -383,8 +434,7 @@ def run_simulation():
                 ReservedBSSectors[:, t] = ListBSPrepared
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
-                    # print(f"DEBUG LEGACY: RLF at t={t}")
-                    NextBSSector = -1
+                    break
                 t += 1
                 ServingBSSector[t] = ServingBSSector[t - 1]
 
@@ -410,8 +460,7 @@ def run_simulation():
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 ReservedBSSectors[:, t] = ListBSPrepared
                 if RLF[t]:
-                    # print(f"DEBUG LEGACY: RLF at t={t}")
-                    NextBSSector = -1
+                    break
                 t += 1
                 ServingBSSector[t] = ServingBSSector[t - 1]
 
@@ -451,12 +500,6 @@ def run_simulation():
                     # 11. UE context release and path switch
                     NextBSSector = I
                     t = min(t + int(np.ceil(Time_ContextRelease_11 / Time["TimeStep"])), Max_iter-1)
-
-                    # Resetear contadores de sincronización al cambiar de célula
-                    Sync["out_sync_count"] = 0
-                    Sync["in_sync_count"] = 0
-                    Sync["t310_running"] = False
-                    Sync["t310_counter"] = np.inf
 
                     # Recursos reservados durante el HO
                     ReservedBSSectors[:, t0:t + 1] = np.tile(ListBSPrepared.reshape(-1, 1), (1, t - t0 + 1))

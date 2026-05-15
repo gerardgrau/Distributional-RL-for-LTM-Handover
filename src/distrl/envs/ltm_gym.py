@@ -24,6 +24,7 @@ from src.distrl.envs.physics import (
     Time_RRCTransfer2,
     CheckHO_Failure,
     MCSEvaluation,
+    physics_hash,
 )
 
 def natural_sort_key(s):
@@ -118,6 +119,15 @@ class LTMEnv(gym.Env):
         # Fast loading from .npz — `with` ensures the file descriptor is
         # released even though we materialize the arrays we need.
         with np.load(filename) as data:
+            cached_hash = str(data['physics_hash'].item()) if 'physics_hash' in data.files else None
+            current_hash = physics_hash()
+            if cached_hash != current_hash:
+                raise RuntimeError(
+                    f"Precomputed cache {filename} has physics_hash="
+                    f"{cached_hash!r} but current physics is {current_hash!r}. "
+                    "Rebuild with: "
+                    "`./venv-RL/bin/python3 src/tools/preprocess_dataset.py`"
+                )
             self.ChBS2UE = data['ch_bs2ue']
             self.all_mcs_episode = data['all_mcs_episode']
             self.all_snir_episode = data['all_snir_episode']
@@ -279,16 +289,13 @@ class LTMEnv(gym.Env):
                 continue
 
             # 1. L3 Measurement report
-            # Legacy does not `break` here on RLF — it sets NextBSSector=-1 and
-            # keeps iterating through Tf (writing Res and ServingBSSector each
-            # tick). The post-loop `if RLF[t]: continue` then bails out.
             PL3_report = self.PL3[:, t]
             Tf = min(t + int(np.ceil(Time_MeasReportL3_1 / Time["TimeStep"])), self.Max_iter-1)
             while t < Tf:
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 if self.RLF[t]:
-                    NextBSSector = -1
+                    break
                 t += 1
                 self.t = t
                 self.serving_tenure += 1
@@ -301,7 +308,7 @@ class LTMEnv(gym.Env):
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 if self.RLF[t]:
-                    NextBSSector = -1
+                    break
                 t += 1
                 self.t = t
                 self.serving_tenure += 1
@@ -328,7 +335,7 @@ class LTMEnv(gym.Env):
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 if self.RLF[t]:
-                    NextBSSector = -1
+                    break
                 t += 1
                 self.t = t
                 self.serving_tenure += 1
@@ -344,7 +351,7 @@ class LTMEnv(gym.Env):
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 if self.RLF[t]:
-                    NextBSSector = -1
+                    break
                 t += 1
                 self.t = t
                 self.serving_tenure += 1
@@ -363,7 +370,7 @@ class LTMEnv(gym.Env):
                         self.ReservedBSSectors[:, t] = self.ListBSPrepared
                         self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                         if self.RLF[t]:
-                            NextBSSector = -1
+                            break
                         t += 1
                         self.t = t
                         self.serving_tenure += 1
@@ -380,9 +387,6 @@ class LTMEnv(gym.Env):
                         t = min(t + int(np.ceil(Time_ContextRelease_11 / Time["TimeStep"])), self.Max_iter-1)
                         self.t = t
                         self.serving_tenure += 1
-                        
-                        # SYNC RESET ON HO
-                        self.Sync.update({"out_sync_count": 0, "in_sync_count": 0, "t310_running": False, "t310_counter": np.inf})
 
                         self.ReservedBSSectors[:, t0:t + 1] = np.tile(self.ListBSPrepared.reshape(-1, 1), (1, t - t0 + 1))
                         self.ListBSPrepared[NextBSSector] = 0

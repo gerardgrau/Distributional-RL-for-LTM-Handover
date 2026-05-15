@@ -11,7 +11,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from src.distrl.envs.physics import (
-    System, Time, HO, NBS, vectorized_oracle, vectorized_hof
+    System, Time, HO, NBS, physics_hash, vectorized_oracle, vectorized_hof
 )
 
 def natural_sort_key(s):
@@ -33,6 +33,8 @@ def preprocess():
     
     # ENSURE SYSTEM POWER IS 25 (Pure Paper)
     print(f"Using System TxPower: {System['TxPower']} dBm, Noise: {System['NoiseLevel']} dBm")
+    cache_hash = physics_hash()
+    print(f"Physics hash: {cache_hash}")
 
     for mode_name, mat_key in modes.items():
         mode_dir = os.path.join(output_base, mode_name)
@@ -76,6 +78,7 @@ def preprocess():
             # Save as compressed NumPy binary
             np.savez_compressed(
                 out_filename,
+                physics_hash=cache_hash,
                 total_time=total_time,
                 ch_bs2ue=ch_bs2ue,
                 all_mcs_episode=all_mcs.astype(np.float32),
