@@ -46,7 +46,7 @@ ho_prep:
   kl3: 8
   preparation_power_offset: -3
   preparation_time: 0.04
-  exec_power_offset: 3.4
+  exec_power_offset: 3.0
   max_number_prepared_bs: 4
 
 paths:

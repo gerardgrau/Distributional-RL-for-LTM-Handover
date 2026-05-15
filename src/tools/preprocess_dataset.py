@@ -55,7 +55,6 @@ def preprocess():
                     idx += 1
             
             # Reproducible Stochasticity for Parity Audit
-            import re
             numeric_id = int(re.search(r'\d+', user_id).group())
             np.random.seed(42 + numeric_id)
             

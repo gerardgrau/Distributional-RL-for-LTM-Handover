@@ -1,72 +1,77 @@
-import subprocess
+"""Sweep QR-DQN CVaR risk fractions on top of the quantile-ablation base.
+
+Loads `configs/test-quantiles.yaml`, overrides `num_quantiles`, `risk_type`
+and `risk_fraction` for each k in the sweep, writes a temp YAML and invokes
+`src/main.py`. Aborts on the first failed sub-run so broken sweeps don't
+get logged as success.
+"""
+
+import argparse
 import os
-import sys
+import subprocess
 import time
 
-def run_cvar_study():
+import yaml
+
+
+def run_cvar_study(device: str) -> None:
     risk_fractions = [0.05, 0.1, 0.25, 0.5]
-    config_path = "configs/test-quantiles.yaml" # We reuse the ablation base
-    device = "xpu" if "--cpu" not in sys.argv else "cpu"
-    N = 200 # Optimal N from ablation
-    
+    config_path = "configs/test-quantiles.yaml"
+    N = 200  # Optimal N from the quantile ablation.
+
     print(f"=== Starting Risk-Management (CVaR) Study ===")
     print(f"Quantiles (N): {N}")
     print(f"Risk Fractions: {risk_fractions}")
     print(f"Device: {device}")
-    
-    results_summary = []
-    
+
+    with open(config_path, "r") as f:
+        base_config = yaml.safe_load(f)
+
+    results_summary: list[tuple[float, float]] = []
+
     for k in risk_fractions:
         print(f"\n>>> Running QRDQN with CVaR fraction={k}...")
         temp_config = f"configs/temp_cvar_k{k}.yaml"
-        
-        # Read base config
-        with open(config_path, 'r') as f:
-            lines = f.readlines()
-            
-        # Write temp config with risk parameters
-        with open(temp_config, 'w') as f:
-            agent_section = False
-            for line in lines:
-                f.write(line)
-                if 'agent:' in line:
-                    agent_section = True
-                if agent_section and 'num_quantiles:' in line:
-                    # We already wrote the line, just making sure we override if needed
-                    pass 
-            
-            # Append overrides at the end to be sure
-            f.write("\n  # CVaR Overrides\n")
-            f.write(f"  num_quantiles: {N}\n")
-            f.write(f"  risk_type: \"cvar\"\n")
-            f.write(f"  risk_fraction: {k}\n")
-        
+
+        cfg = yaml.safe_load(yaml.safe_dump(base_config))  # deep copy
+        cfg.setdefault("agent", {})
+        cfg["agent"]["num_quantiles"] = N
+        cfg["agent"]["risk_type"] = "cvar"
+        cfg["agent"]["risk_fraction"] = k
+
+        with open(temp_config, "w") as f:
+            yaml.safe_dump(cfg, f, sort_keys=False)
+
         cmd = [
             "venv-RL/bin/python3", "src/main.py",
             "--config", temp_config,
             "--description", f"cvar-study-k{k}",
             "--device", device,
-            "--agents", "qrdqn"
+            "--agents", "qrdqn",
         ]
-        
+
         start_time = time.time()
-        subprocess.run(cmd)
-        end_time = time.time()
-        
-        duration = end_time - start_time
+        try:
+            subprocess.run(cmd, check=True)
+        finally:
+            os.remove(temp_config)
+        duration = time.time() - start_time
+
         results_summary.append((k, duration))
         print(f"--- k={k} completed in {duration:.2f} seconds ---")
-        
-        os.remove(temp_config)
-        
-    print("\n" + "="*40)
+
+    print("\n" + "=" * 40)
     print("      CVaR STUDY SUMMARY")
-    print("="*40)
+    print("=" * 40)
     print(f"{'Risk Fraction (k)':<20} | {'Duration (s)':<15}")
     print("-" * 38)
     for k, dur in results_summary:
         print(f"{k:<20} | {dur:<15.2f}")
-    print("="*40)
+    print("=" * 40)
+
 
 if __name__ == "__main__":
-    run_cvar_study()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--device", default="cpu", choices=["cpu", "cuda", "xpu"])
+    args = parser.parse_args()
+    run_cvar_study(args.device)
