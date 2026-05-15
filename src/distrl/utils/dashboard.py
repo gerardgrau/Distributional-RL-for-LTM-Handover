@@ -36,8 +36,9 @@ class MobilityDashboard:
       * Mobility map with hexagonal cells, sector boresights and antenna
         patterns (matches Ainna's MATLAB reference plot).
       * Real-time RSRP trace per BS (strongest sector).
-      * Real-time SNIR trace per BS — the radio-stability indicator that
-        explains *why* the agent picks one BS over another.
+      * Real-time MCS trace per BS — the spectral efficiency the UE
+        would get if connected, i.e. *why* the agent picks one BS over
+        another (higher MCS → higher reward).
     """
 
     def __init__(
@@ -136,44 +137,36 @@ class MobilityDashboard:
         title: str,
         ylabel: str,
         ylim: tuple[float, float],
-    ) -> tuple[list, list, list]:
+    ) -> tuple[list, list]:
         ax.set_title(title)
         ax.set_xlabel("RL step (100 ms)")
         ax.set_ylabel(ylabel)
         ax.set_ylim(*ylim)
 
-        bg_lines, active_lines, change_markers = [], [], []
+        bg_lines, active_lines = [], []
         for i in range(self.num_bs):
             l_bg, = ax.plot(
                 [], [], color=self.bs_colors[i], linewidth=1.0, alpha=0.25,
             )
             l_act, = ax.plot(
-                [], [], color=self.bs_colors[i], linewidth=2.5, alpha=1.0,
+                [], [], color=self.bs_colors[i], linewidth=1.8, alpha=1.0,
                 label=f"BS {i}",
-            )
-            scat = ax.scatter(
-                [], [], color=self.bs_colors[i], marker='x', s=40,
-                zorder=4, alpha=0.8,
             )
             bg_lines.append(l_bg)
             active_lines.append(l_act)
-            change_markers.append(scat)
         ax.legend(loc='upper right', fontsize='small', ncol=4)
         ax.grid(True, linestyle=':', alpha=0.5)
-        return bg_lines, active_lines, change_markers
+        return bg_lines, active_lines
 
     def _preprocess_per_bs(
         self,
         metric_2d: np.ndarray,
         serving_sector_history: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, list[list[tuple[int, float]]]]:
-        """Returns max-per-BS time series, serving mask, and sector-change events."""
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Returns max-per-BS time series and serving mask."""
         total_steps = metric_2d.shape[0]
         bs_max = np.zeros((total_steps, self.num_bs))
         serving_mask = np.zeros((total_steps, self.num_bs), dtype=bool)
-        sector_change_events: list[list[tuple[int, float]]] = [[] for _ in range(self.num_bs)]
-
-        last_sectors = [-1] * self.num_bs
 
         for t in range(total_steps):
             curr_sect = serving_sector_history[t]
@@ -181,17 +174,11 @@ class MobilityDashboard:
 
             for b in range(self.num_bs):
                 sects = metric_2d[t, b * 3:b * 3 + 3]
-                max_idx = int(np.argmax(sects))
-                bs_max[t, b] = sects[max_idx]
+                bs_max[t, b] = sects.max()
                 if curr_bs == b:
                     serving_mask[t, b] = True
 
-                global_sect_idx = b * 3 + max_idx
-                if last_sectors[b] != -1 and global_sect_idx != last_sectors[b]:
-                    sector_change_events[b].append((t, float(sects[max_idx])))
-                last_sectors[b] = global_sect_idx
-
-        return bs_max, serving_mask, sector_change_events
+        return bs_max, serving_mask
 
     # ------------------------------------------------------------
     # Public entry point
@@ -208,14 +195,14 @@ class MobilityDashboard:
                 'ue_pos'      -> list[T] of (x, y)
                 'serving_bs'  -> list[T] of int (global sector index, -1 if none)
                 'rsrp'        -> list[T] of (num_sectors,) RSRP per sector
-                'snir'        -> list[T] of (num_sectors,) SNIR per sector
+                'mcs'         -> list[T] of (num_sectors,) MCS per sector
             save_path: If ends with '.mp4', writes via FFMpeg. Otherwise
                 uses Pillow GIF. If None, shows the figure interactively.
         """
         ue_positions = np.array(history['ue_pos'])
         serving_sector_history = np.array(history['serving_bs'])
         rsrp_history = np.array(history['rsrp'])
-        snir_history = np.array(history['snir'])
+        mcs_history = np.array(history['mcs'])
 
         total_steps = len(ue_positions)
 
@@ -223,7 +210,7 @@ class MobilityDashboard:
         gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.25], height_ratios=[1, 1])
         ax_map = fig.add_subplot(gs[:, 0])
         ax_rsrp = fig.add_subplot(gs[0, 1])
-        ax_snir = fig.add_subplot(gs[1, 1])
+        ax_mcs = fig.add_subplot(gs[1, 1])
 
         # --- Map setup ---
         ax_map.set_title("LTM-HO Mobility Map")
@@ -251,26 +238,44 @@ class MobilityDashboard:
         ax_map.legend(loc='upper right', fontsize='small')
 
         # --- RSRP panel ---
-        rsrp_bg, rsrp_act, rsrp_marks = self._setup_metric_axis(
+        rsrp_bg, rsrp_act = self._setup_metric_axis(
             ax_rsrp,
             title="Real-time RSRP (Strongest Sector per BS)",
             ylabel="RSRP (dBm)",
             ylim=(-115, -40),
         )
-        rsrp_bs_max, rsrp_mask, rsrp_changes = self._preprocess_per_bs(
+        rsrp_bs_max, rsrp_mask = self._preprocess_per_bs(
             rsrp_history, serving_sector_history,
         )
 
-        # --- SNIR panel ---
-        snir_bg, snir_act, snir_marks = self._setup_metric_axis(
-            ax_snir,
-            title="Real-time SNIR (Strongest Sector per BS)",
-            ylabel="SNIR (dB)",
-            ylim=(-10, 50),
+        # --- MCS panel ---
+        mcs_bg, mcs_act = self._setup_metric_axis(
+            ax_mcs,
+            title="Real-time MCS (Strongest Sector per BS)",
+            ylabel="Spectral Efficiency [bps/Hz]",
+            ylim=(0, 7),
         )
-        snir_bs_max, snir_mask, snir_changes = self._preprocess_per_bs(
-            snir_history, serving_sector_history,
+        mcs_bs_max, mcs_mask = self._preprocess_per_bs(
+            mcs_history, serving_sector_history,
         )
+
+        # --- HO event markers (any serving-sector change, intra- or cross-BS) ---
+        ho_label_done = False
+        for t_step in range(1, len(serving_sector_history)):
+            curr = serving_sector_history[t_step]
+            prev = serving_sector_history[t_step - 1]
+            if curr < 0 or prev < 0 or curr == prev:
+                continue
+            label = "Handover" if not ho_label_done else None
+            ho_label_done = True
+            for ax in (ax_rsrp, ax_mcs):
+                ax.axvline(
+                    t_step, color='#c62828', linestyle='--',
+                    linewidth=1.0, alpha=0.6,
+                    label=label if ax is ax_rsrp else None,
+                )
+        # Refresh legend on RSRP so the new "Handover" entry is included
+        ax_rsrp.legend(loc='upper right', fontsize='small', ncol=4)
 
         def animate(t):
             ue_dot.set_data([ue_positions[t, 0]], [ue_positions[t, 1]])
@@ -290,27 +295,19 @@ class MobilityDashboard:
             x_vals = np.arange(t + 1)
             artists = [ue_dot, conn_line, traj_line]
 
-            for (bs_max, mask, changes, bg_lines, act_lines, marks) in (
-                (rsrp_bs_max, rsrp_mask, rsrp_changes, rsrp_bg, rsrp_act, rsrp_marks),
-                (snir_bs_max, snir_mask, snir_changes, snir_bg, snir_act, snir_marks),
+            for (bs_max, mask, bg_lines, act_lines) in (
+                (rsrp_bs_max, rsrp_mask, rsrp_bg, rsrp_act),
+                (mcs_bs_max, mcs_mask, mcs_bg, mcs_act),
             ):
                 for i in range(self.num_bs):
                     bg_lines[i].set_data(x_vals, bs_max[:t + 1, i])
                     active_y = bs_max[:t + 1, i].copy()
                     active_y[~mask[:t + 1, i]] = np.nan
                     act_lines[i].set_data(x_vals, active_y)
-
-                    valid_events = [
-                        ev for ev in changes[i] if ev[0] <= t and mask[ev[0], i]
-                    ]
-                    if valid_events:
-                        marks[i].set_offsets(valid_events)
-                    else:
-                        marks[i].set_offsets(np.empty((0, 2)))
-                artists += bg_lines + act_lines + marks
+                artists += bg_lines + act_lines
 
             ax_rsrp.set_xlim(t - 140, t + 10)
-            ax_snir.set_xlim(t - 140, t + 10)
+            ax_mcs.set_xlim(t - 140, t + 10)
             return artists
 
         num_frames = 500
@@ -373,7 +370,7 @@ if __name__ == "__main__":
         'ue_pos': [[300 + t * 0.2, 300 + t * 0.1] for t in range(steps)],
         'serving_bs': [0 if t < 500 else 3 * 3 for t in range(steps)],
         'rsrp': np.random.uniform(-100, -60, (steps, 21)).tolist(),
-        'snir': np.random.uniform(-5, 25, (steps, 21)).tolist(),
+        'mcs': np.random.uniform(0, 5.5, (steps, 21)).tolist(),
     }
     os.makedirs("results/animations", exist_ok=True)
     dash.render_episode(history, save_path="results/animations/dashboard_video_test.mp4")

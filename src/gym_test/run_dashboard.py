@@ -55,7 +55,7 @@ def run_agent_dashboard(
     state, _ = env.reset()
     done = False
     history: dict[str, list] = {
-        'ue_pos': [], 'serving_bs': [], 'rsrp': [], 'snir': []
+        'ue_pos': [], 'serving_bs': [], 'rsrp': [], 'mcs': []
     }
 
     print("Running episode...")
@@ -64,7 +64,7 @@ def run_agent_dashboard(
         history['ue_pos'].append(env.ue_positions[t_idx].tolist())
         history['serving_bs'].append(int(env.ServingBSSector[t_idx]))
         history['rsrp'].append(env.PL3[:, t_idx].tolist())
-        history['snir'].append(env.all_snir_episode[:, t_idx].tolist())
+        history['mcs'].append(env.all_mcs_episode[:, t_idx].tolist())
 
         if is_baseline:
             state, _, done, _, _ = env.step(
