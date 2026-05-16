@@ -1,0 +1,119 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+Research project applying **Distributional Reinforcement Learning (DQN vs QR-DQN)** to optimize **5G Lower Layer Triggered Mobility (LTM)** handover decisions. The environment simulates a multi-sector 5G deployment (7 BS × 3 sectors = 21 sectors, NBS=21) over 1,000 pre-computed UE trajectories from `.mat`/`.npz` channel-gain datasets.
+
+`GEMINI.md` is the canonical ground-truth context (reward formula, state space, parity decisions). Read it before changing any of: state space, reward, physics, or simulation constants. Update it when those change.
+
+## Environment & Common Commands
+
+The project ships a virtualenv at `venv-RL/`; `requirements.txt` lists deps (PyTorch, Gymnasium, NumPy/SciPy, PyYAML, matplotlib, pandas, tqdm, sumolib, ale-py extras). Always export `PYTHONPATH` before invoking any script — every entry point uses absolute `src.distrl.*` imports.
+
+```bash
+export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+./venv-RL/bin/python3 <script>            # use the venv binary explicitly
+```
+
+### Training / benchmarks
+```bash
+# Full benchmark (DQN + QR-DQN, multi-seed, auto eval + plots)
+./venv-RL/bin/python3 src/main.py --config configs/config.yaml --device xpu --description my-run
+
+# Profiling run with no artifacts
+./venv-RL/bin/python3 src/main.py --config configs/config.yaml --no_save
+
+# Pick agents to run (comma-separated): dqn, qrdqn, ltm_baseline
+./venv-RL/bin/python3 src/main.py --agents qrdqn --device cpu
+```
+
+`--device` accepts `cpu`, `cuda`, or `xpu`. XPU (Intel iGPU) is ~41% faster than CPU on this workload because the precomputed dataset removes the CPU's radio-physics bottleneck.
+
+### Single-agent evaluation (frozen weights, ε=0, all 1,000 users)
+```bash
+./venv-RL/bin/python3 src/evaluate_model.py \
+    --agent qrdqn --model results/benchmarks/<run>/models/qrdqn_best.pth \
+    --config configs/config.yaml --output results/final_metrics/qrdqn
+```
+
+### Data preprocessing (one-time, generates `data/Precomputed/{no_ris,with_ris}/*.npz`)
+```bash
+./venv-RL/bin/python3 src/tools/preprocess_dataset.py
+```
+
+### Smoke / verification tests (no pytest harness — each is a runnable script)
+```bash
+./venv-RL/bin/python3 src/gym_test/test_env.py             # Atari smoke (Breakout via ale-py)
+./venv-RL/bin/python3 src/gym_test/test_dqn_ltm.py         # DQN end-to-end
+./venv-RL/bin/python3 src/gym_test/test_qrdqn_ltm.py       # QR-DQN end-to-end
+./venv-RL/bin/python3 src/gym_test/verify_parity.py        # Gym vs legacy parity
+./venv-RL/bin/python3 src/gym_test/test_metrics_calc.py    # 8-metric correctness
+./venv-RL/bin/python3 src/tools/verify_simulation_parity.py
+```
+
+### Visualization & analysis
+```bash
+./venv-RL/bin/python3 src/tools/generate_final_plots.py    # master bar/radial plots from results/final_metrics/*.csv
+./venv-RL/bin/python3 src/gym_test/run_dashboard.py        # MP4 agent-behavior animation (uses src/distrl/utils/dashboard.py)
+./venv-RL/bin/python3 src/gym_test/test_quantile_vis.py    # QR-DQN learned return-distribution viewer
+```
+
+### Multi-run orchestrators (sweep configs under `configs/`)
+```bash
+./venv-RL/bin/python3 src/tools/run_ablation.py            # quantile-count ablation (N=10/50/100/200)
+./venv-RL/bin/python3 src/tools/run_cvar_study.py          # CVaR risk-fraction sweep
+```
+
+## Architecture
+
+### Two parallel simulators (must stay in physical parity)
+- `src/distrl/envs/ltm_gym.py` — Gymnasium `LTMEnv` used by the RL agents. RL steps at 100 ms; the underlying simulator advances at 10 ms.
+- `src/distrl/envs/legacy_simulation.py` — Standalone reference simulator (baseline LTM hardcoded algorithm) used for paper-parity verification.
+- `src/distrl/envs/physics.py` — **Single source of truth** for SINR/MCS/HOF math and all `System`/`Time`/`HO` constants. Both simulators import from here. Do not duplicate physics code in the env files.
+
+### Agent framework (`src/distrl/agents/`)
+- `base.py` — `BaseAgent` ABC with shared soft/hard target-update logic.
+- `networks.py` — `MLPTrunk` + interchangeable heads (`QHead`, `QuantileHead`) wired via `UnifiedQNet`. Trunk/head split is intentional: agents pick a head, not a network.
+- `standard/dqn.py` — Vanilla DQN.
+- `standard/ltm_baseline.py` — Hardcoded LTM heuristic (no learning), used as a comparison baseline.
+- `distributional/qrdqn.py` — QR-DQN with optional CVaR risk policy (configured by `risk_type`/`risk_fraction` in the agent config).
+
+### Observation & reward
+- **State (88 dims)**: `[speed(1), tenure(1), serving_one_hot(21), RSRP(21), MA_MCS(21), MA_SNIR(21), x(1), y(1)]`. Moving averages use O(1) running sums.
+- **Reward**: Multiplicative Ainna form — `R = R_thr · α_HO^ind_HO · α_PP^ind_PP · α_HOF^ind_HOF · reliability_factor`. Alphas live in `ho_reward:` block of the YAML; reliability factor is a soft reverse-sigmoid of the Out-Of-Sync counter.
+
+### Config system
+- All YAML configs live in `configs/`. `src/distrl/utils/config.py` exposes a `Config` singleton — call `Config.set_config_path(path)` once at startup, then `Config.get()` anywhere.
+- `main.py` copies the active YAML into every benchmark folder (`config.yaml` next to `metadata.json`) for full reproducibility.
+
+### Benchmark output layout
+Every `main.py` invocation creates `results/benchmarks/bmk_YYYY-MM-DD_<num>_<description>/` with subfolders:
+- `train/` — per-episode CSV logs (reward, loss, 8 metrics)
+- `eval/` — post-training frozen evaluation on all 1,000 users (summary + raw CSVs)
+- `models/` — `<agent>_seed<N>.pth` checkpoints plus `<agent>_best.pth`
+- `figures/` — learning curves, efficiency plots, quantile distribution (QR-DQN)
+- `config.yaml`, `metadata.json`
+
+Stick to the `bmk_YYYY-MM-DD_num_description` naming when creating folders manually; `main.py` auto-increments `num` to avoid collisions.
+
+### Evaluation protocol
+Training and final evaluation both use **all 1,000 trajectories** (no train/test split). Final evaluation is invoked automatically at the end of each seed in `src/distrl/utils/evaluation.py` with ε=0 and frozen weights. The 8 metrics (Capacity, RLF, HO, PP, Reliability, Prep, ResReservation, HOF) are computed by `src/distrl/utils/metrics.py`; the prep/resource-reservation math is non-trivial and shared between live tracking and retroactive computation.
+
+### Master comparison
+`results/final_metrics/` aggregates the final summaries from this project (`dqn_summary.csv`, `qrdqn_summary.csv`, `baseline_summary.csv`, `legacy_baseline_summary.csv`) alongside the paper reference numbers (`paper_ltm.csv`, `paper_lmmse.csv`, `paper_ltm_cmab.csv`, `paper_lmmse_cmab.csv`). `src/tools/generate_final_plots.py` consumes that folder to produce the master bar/radial plots.
+
+## Conventions
+
+- **Code style**: Google Python Style Guide (`conductor/code_styleguides/python.md`). 80-char lines, 4-space indent, snake_case modules/functions, PascalCase classes, ALL_CAPS constants. Type hints required on all function signatures; use modern Python 3.10+ syntax (`int | None`, `list[str]`, `dict[str, Any]`).
+- **Imports inside `src/`**: always import via the full `src.distrl....` path (mirrors what `main.py` sets up via `sys.path`).
+- **Track management**: Project tracks live under `conductor/tracks/` and are indexed in `conductor/tracks.md` (one line per track). Use the Conductor extension for planning new tracks rather than ad-hoc TODO files.
+- **`.gitignore`**: prefer distributed `.gitignore` files inside data/result subfolders with relative patterns (`/pattern`) over global rules — these double as documentation of expected directory contents.
+- **Commits**: atomic, one logical change each; task summaries belong in the commit body.
+
+## Things to double-check before editing
+
+- Changes to `physics.py`, `System["TxPower"]`, `ExecPowerOffset`, or the SINR table affect **paper parity**. The current calibration (see `notes/tasks.md` "Configuració de Paritat Final") follows the paper's Table I / II: `TxPower=25 dBm`, `NoiseLevel=-91 dBm` (= -174 dBm/Hz over 200 MHz), `ExecPowerOffset=3.0 dB`, `MaxNumberPreparedBS=4`, 26-step SINR table with Outage < -3 dB, `ChannelBS2UE_noRIS` channels. The canonical reference implementation is `docs/reference/ltm_ho_codi_ainna.py` — when in doubt about a physics constant, match that file rather than the paper's prose. Re-run `src/tools/verify_simulation_parity.py` after touching any of these.
+- Anything that changes the 88-dim state vector breaks all saved `.pth` checkpoints — bump and document.
+- The Gymnasium env and legacy simulator must produce matching physical metrics on identical seeds; the verification scripts in `src/gym_test/verify_parity.py` and `src/tools/verify_simulation_parity.py` are the regression net.

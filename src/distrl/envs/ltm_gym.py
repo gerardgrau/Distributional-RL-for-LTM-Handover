@@ -169,9 +169,22 @@ class LTMEnv(gym.Env):
         reward = 0.0
         terminated = False
         truncated = False
-        
+
+        # Read the multiplicative-Ainna alpha penalties from the active
+        # config so ablations / experiments can adjust them without
+        # touching the env source. Defaults match the paper.
+        ho_reward_cfg = self.config.get('ho_reward', {})
+        alpha_ho = ho_reward_cfg.get('alpha_ho', 0.8)
+        alpha_pp = ho_reward_cfg.get('alpha_pp', 0.9)
+        alpha_hof = ho_reward_cfg.get('alpha_hof', 0.1)
+
         if high_res_callback:
-            # High-res mode for baseline parity (100ms block = 10 ticks, callback each tick)
+            # High-res mode for baseline parity (100ms block = 10 ticks, callback each tick).
+            # Computes the same pure-Ainna reward as RL mode (range-aggregated over
+            # the actual tick range covered by these sends) so the LTM baseline gets
+            # a meaningful reward signal comparable to DQN / QR-DQN.
+            t_start = int(self._last_obs_dict['t'][0])
+
             for _ in range(10):
                 try:
                     act = high_res_callback(self._last_obs_dict)
@@ -179,23 +192,45 @@ class LTMEnv(gym.Env):
                 except StopIteration:
                     terminated = True
                     break
+
+            if not terminated:
+                t_end = min(int(self._last_obs_dict['t'][0]), self.Max_iter)
+                if t_end > t_start:
+                    mcs_slice = self.MCS[t_start:t_end]
+                    avg_mcs = float(mcs_slice.mean())
+                    has_ho = int(np.any(self.HO_event[t_start:t_end] > 0))
+                    has_pp = int(np.any(self.ping_pong[t_start:t_end] > 0))
+                    has_hof = int(np.any(self.HOF[t_start:t_end] > 0))
+                else:
+                    avg_mcs = 0.0
+                    has_ho = has_pp = has_hof = 0
+
+                multiplier = 1.0
+                if has_ho: multiplier *= alpha_ho
+                if has_pp: multiplier *= alpha_pp
+                if has_hof: multiplier *= alpha_hof
+                n_oos = self.Sync["out_sync_count"]
+                reliability_factor = 1.0 / (1.0 + np.exp(2 * (n_oos - 2)))
+                reward += avg_mcs * multiplier * reliability_factor
         else:
-            # RL Mode (Strict 100ms Action Repeat with RLF Tripwire)
-            mcs_accum = 0.0
-            alpha_ho = 0.8
-            alpha_pp = 0.9
-            alpha_hof = 0.1
-            has_ho = 0
-            has_pp = 0
-            has_hof = 0
-            
+            # RL Mode — pure paper Ainna reward.
+            #
+            # MCS / HO_event / ping_pong / HOF are written by the simulation
+            # generator at the START of each outer iteration, but the
+            # generator yields AFTER the time-advance blocks have moved t
+            # forward. So the freshly-yielded `self._last_obs_dict['t']`
+            # points to a tick whose array slot is still the initialized
+            # zero — it will be filled at the top of the NEXT outer iter,
+            # AFTER this step() has returned. To get the correct values
+            # for the reward we therefore aggregate over the actual range
+            # [t_start, t_end) covered by this step's sends.
+            t_start = int(self._last_obs_dict['t'][0])
+
             for _ in range(10):
                 try:
                     current_state = self._last_obs_dict['state_type']
-                    
-                    if current_state == 1: # FIND_CELL (RLF Tripwire)
-                        reward -= 100.0 # Massive penalty
-                        # Force greedy recovery
+
+                    if current_state == 1:  # FIND_CELL — force greedy recovery
                         ChBS2UE = self._last_obs_dict['ChBS2UE_t']
                         Pbest = np.max(ChBS2UE)
                         if Pbest + System["TxPower"] > ReceiverSensitivity:
@@ -203,35 +238,37 @@ class LTMEnv(gym.Env):
                         else:
                             act = -1
                         self._last_obs_dict = self._sim_gen.send(act)
-                        
-                    elif current_state == 2: # HO_DECISION
+
+                    elif current_state == 2:  # HO_DECISION
                         self._last_obs_dict = self._sim_gen.send(action)
-                        action = -1 # Consume action
-                        
-                    else: # NORMAL_STEP
+                        action = -1  # Consume action
+
+                    else:  # NORMAL_STEP
                         self._last_obs_dict = self._sim_gen.send(-1)
 
-                    # Track metrics
-                    t_idx = min(self._last_obs_dict['t'][0], self.Max_iter - 1)
-                    mcs_accum += self.MCS[t_idx]
-                    has_ho = max(has_ho, self.HO_event[t_idx])
-                    has_pp = max(has_pp, self.ping_pong[t_idx])
-                    has_hof = max(has_hof, self.HOF[t_idx])
-                    
                 except StopIteration:
                     terminated = True
                     break
-                    
+
             if not terminated:
-                # Ainna Reward
-                avg_mcs = mcs_accum / 10.0
+                t_end = min(int(self._last_obs_dict['t'][0]), self.Max_iter)
+                if t_end > t_start:
+                    mcs_slice = self.MCS[t_start:t_end]
+                    avg_mcs = float(mcs_slice.mean())
+                    has_ho = int(np.any(self.HO_event[t_start:t_end] > 0))
+                    has_pp = int(np.any(self.ping_pong[t_start:t_end] > 0))
+                    has_hof = int(np.any(self.HOF[t_start:t_end] > 0))
+                else:
+                    avg_mcs = 0.0
+                    has_ho = has_pp = has_hof = 0
+
                 multiplier = 1.0
                 if has_ho: multiplier *= alpha_ho
                 if has_pp: multiplier *= alpha_pp
                 if has_hof: multiplier *= alpha_hof
                 n_oos = self.Sync["out_sync_count"]
                 reliability_factor = 1.0 / (1.0 + np.exp(2 * (n_oos - 2)))
-                
+
                 reward += avg_mcs * multiplier * reliability_factor
 
         info = {}

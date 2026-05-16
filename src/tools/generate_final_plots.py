@@ -30,9 +30,13 @@ def generate_plots():
     }
     
     desired_order = [
-        "LTM", "LMMSE", "LTM-CMAB", "LMMSE-CMAB", 
+        "LTM", "LMMSE", "LTM-CMAB", "LMMSE-CMAB",
         "Baseline (Legacy)", "Baseline (Ours)", "DQN (Ours)", "QR-DQN (Ours)"
     ]
+
+    # Paper references get a striped hatch so they are visually distinct from
+    # the measurements produced by this project.
+    paper_refs = {"LTM", "LMMSE", "LTM-CMAB", "LMMSE-CMAB"}
     
     all_data = {}
     csv_files = glob.glob(os.path.join(results_dir, "*.csv"))
@@ -51,11 +55,13 @@ def generate_plots():
             if series is not None:
                 all_data[name] = series
 
-    # Convert to DataFrame and REINDEX to enforce the requested order
+    # Convert to DataFrame and REINDEX to enforce the requested order.
+    # Keep ALL agents from `desired_order` (filling missing rows with NaN)
+    # so the 8-slot x-axis layout stays consistent across every subplot,
+    # even when a CSV is missing for some agent.
     data = pd.DataFrame(all_data).transpose()
-    # Filter only available agents that are in our desired order
-    data = data.reindex([a for a in desired_order if a in data.index])
-    agents = data.index.tolist()
+    data = data.reindex(desired_order)
+    agents = desired_order
 
     metrics_to_plot = [
         "ho_rate", "hof_rate", "pp_rate",
@@ -83,25 +89,83 @@ def generate_plots():
     fig, axes = plt.subplots(3, 3, figsize=(22, 18))
     axes = axes.flatten()
 
+    # Broken-y-axis configuration: (ymin, ymax). NaN ymax = autoscale upper.
+    broken_ylim = {
+        "capacity_avg": (2.0, None),
+        "reliability_pct": (80.0, 100.0),
+    }
+
+    def _draw_axis_break(ax_) -> None:
+        """Flag a broken (non-zero-anchored) y-axis with a visible indicator.
+
+        Draws the universal "≈" symbol at the bottom-left of the axis and a
+        thicker double-slash zigzag on the y-axis spine just above the
+        bottom tick — together these are unambiguous "this axis does not
+        start at zero".
+        """
+        # ≈ symbol just below the axis bottom-left
+        ax_.text(
+            -0.06, -0.04, "≈",
+            transform=ax_.transAxes,
+            fontsize=20, fontweight='bold',
+            ha='center', va='center',
+            clip_on=False,
+        )
+        # Two short diagonal segments on the y-axis spine for the zigzag
+        d_x = 0.025
+        d_y = 0.022
+        kw = dict(transform=ax_.transAxes, color='k',
+                  clip_on=False, linewidth=2.0)
+        ax_.plot([-d_x, d_x], [0.005, 0.005 + 1.6 * d_y], **kw)
+        ax_.plot([-d_x, d_x], [0.005 + 2 * d_y, 0.005 + 3.6 * d_y], **kw)
+
     for idx, metric in enumerate(metrics_to_plot):
         ax = axes[idx]
-        valid_series = data[metric].dropna() if metric in data.columns else None
-        if valid_series is None or valid_series.empty:
+        if metric not in data.columns:
             ax.set_visible(False)
             continue
 
-        current_agents = valid_series.index
-        current_colors = [colors[agents.index(a)] for a in current_agents]
+        # Keep all 8 agents on the x-axis (NaN -> invisible bar but reserved
+        # slot). Use numeric positions so matplotlib doesn't drop empty
+        # categories and the bar widths stay consistent across panels.
+        series = data[metric].reindex(agents)
+        current_colors = [colors[i] for i in range(len(agents))]
+        current_hatches = ['///' if a in paper_refs else '' for a in agents]
+        x_pos = np.arange(len(agents))
 
-        bars = ax.bar(current_agents, valid_series, color=current_colors, alpha=0.8, edgecolor='black')
+        bars = ax.bar(
+            x_pos, series.values,
+            color=current_colors, alpha=0.8,
+            edgecolor='black',
+        )
+        # Apply hatches per-bar — older matplotlib versions don't accept
+        # `hatch=` as a list, so set it on each bar individually.
+        for bar, hatch in zip(bars, current_hatches):
+            if hatch:
+                bar.set_hatch(hatch)
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(agents)
+        ax.set_xlim(-0.6, len(agents) - 0.4)
         ax.set_title(nice_names[metric], fontsize=15, fontweight='bold', pad=10)
         ax.grid(axis='y', linestyle='--', alpha=0.3)
         ax.tick_params(axis='x', rotation=35, labelsize=9)
-        for bar in bars:
-            yval = bar.get_height()
+
+        for bar, yval in zip(bars, series.values):
+            if yval is None or pd.isna(yval):
+                continue
             fmt = '.3f' if yval < 1 else '.2f'
-            ax.text(bar.get_x() + bar.get_width()/2, yval + (yval*0.01), f'{yval:{fmt}}',
-                     ha='center', va='bottom', fontsize=9, fontweight='bold')
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                yval + abs(yval) * 0.01,
+                f'{yval:{fmt}}',
+                ha='center', va='bottom', fontsize=9, fontweight='bold',
+            )
+
+        # Broken y-axis: clip the visible range and mark the break visually
+        if metric in broken_ylim:
+            ymin, ymax = broken_ylim[metric]
+            ax.set_ylim(bottom=ymin, top=ymax)
+            _draw_axis_break(ax)
 
     plt.suptitle("LTM-HO Comparative Analysis: RL Agents vs. State-of-the-Art Baselines", fontsize=24, fontweight='bold', y=0.98)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])

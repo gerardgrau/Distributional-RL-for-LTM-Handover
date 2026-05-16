@@ -19,7 +19,12 @@ from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
 from src.distrl.agents.standard.ltm_baseline import LTMBaselineAgent
 from src.distrl.utils.replay_buffer import ReplayBuffer
-from src.distrl.utils.plot import plot_learning_curves, plot_efficiency, plot_quantiles
+from src.distrl.utils.plot import (
+    plot_efficiency,
+    plot_learning_curves,
+    plot_metrics_grid,
+    plot_quantiles,
+)
 from src.distrl.utils.metrics import calculate_8_metrics
 from src.distrl.utils.evaluation import run_evaluation
 
@@ -278,6 +283,7 @@ def run_benchmark():
         plot_learning_curves(csv_dir, save_path=os.path.join(fig_dir, "learning_curves.png"))
         plot_efficiency(csv_dir, metric="reward", save_path=os.path.join(fig_dir, "reward_vs_time.png"))
         plot_efficiency(csv_dir, metric="loss", save_path=os.path.join(fig_dir, "loss_vs_time.png"))
+        plot_metrics_grid(csv_dir, save_path=os.path.join(fig_dir, "metrics_grid.png"))
 
         import json
         metadata = {
