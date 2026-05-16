@@ -18,7 +18,7 @@ def test_metrics():
         'ho_prep': {
             'preparation_power_offset': -3.0,
             'preparation_time': 0.04,
-            'max_number_prepared_bs': 5
+            'max_number_prepared_bs': 4
         }
     }
     

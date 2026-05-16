@@ -37,7 +37,7 @@ HO = {
         "PreparationPowerOffset": -3,
         "PreparationTime": 40e-3,
         "ExecPowerOffset": 3.0,
-        "MaxNumberPreparedBS": 5
+        "MaxNumberPreparedBS": 4
     }
 }
 
