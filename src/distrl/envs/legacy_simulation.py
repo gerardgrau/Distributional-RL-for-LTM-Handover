@@ -65,7 +65,7 @@ HO["Prep"] = {
     "PreparationPowerOffset": -3,             # dB
     "PreparationTime": 40e-3,                 # 40 ms
     "ExecPowerOffset": 3,                     # dB
-    "MaxNumberPreparedBS": 5                  # Max prepared cells
+    "MaxNumberPreparedBS": 4                  # Table II: predicted top-4 neighbors
 }
 
 # HO["Prep"] = {

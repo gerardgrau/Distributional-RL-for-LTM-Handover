@@ -22,21 +22,50 @@
 - Mètrica composta (e.g. HOF · PP) a maximitzar — complicat, posposable.
 - Escriure el document final: títol, subtítol, estructura.
 
-# Configuració de Paritat Final (actualitzada 2026-05-15):
+# Configuració de Paritat Final (actualitzada 2026-05-16):
 
 - **Loop**: 10ms High-Resolution
-- **TxPower**: **25 dBm** (Table I)
-- **NoiseLevel**: **-91 dBm** = -174 dBm/Hz integrat sobre 200 MHz
-- **ExecPowerOffset**: **3.0 dB** (Table II)
-- **MaxNumberPreparedBS**: **4** (Table II)
-- **SINR Table**: la de 26 esglaons (la "Outage < -3dB" inclosa)
-- **Bandwidth**: 200 MHz
-- **Channels**: `ChannelBS2UE_noRIS` (amb les obstruccions de 20 dB)
+- **TxPower**: **25 dBm** (Table I) ✓
+- **NoiseLevel**: **-174** (codi: linear floor; paper: density dBm/Hz) ⚠️ veure pregunta sota
+- **ExecPowerOffset**: **3.0 dB** (Table II) ✓
+- **MaxNumberPreparedBS**: **4** (Table II) ✓ — actualitzat de 5→4 el 2026-05-16
+- **Channels**: `ChannelBS2UE_noRIS` (amb les obstruccions de 20 dB) ✓
+- **Reward α**: HOF=0.1, HO=0.8, PP=0.9 (secció III.B) ✓
 
-Resultats 1000 UEs (LTMBaselineAgent en LTMEnv, re-run 2026-05-16):
+Resultats 1000 UEs (LTMBaselineAgent en LTMEnv, re-run 2026-05-16, abans del canvi a MaxPrep=4):
 ho_rate=11.36 · hof_rate=2.05 · pp_rate=3.22 · capacity=3.23 ·
 rlf_rate=0.19 · reliability=94.35% · prep_rate=812.40 · res_reservation=6.45%
 
 Gap vs paper: HO/PP/Prep/Res ja són pràcticament idèntics. Capacity
 (3.23 vs 3.75), reliability (94.35 vs 95.00), HOF (2.05 vs 1.10) i RLF
 (0.19 vs 0.068) encara tenen marge — pendent de revisar amb el tutor.
+Pendent re-run amb MaxPrep=4 per veure si prep_rate i res_reservation
+canvien (probablement baixen lleugerament).
+
+# Preguntes per al tutor (paritat física amb el paper):
+
+1. **MaxNumberPreparedBS — paper diu 4, codi de referència diu 5.**
+   Table II del paper: "Target cell pre-selection | Predicted top-4 neighbors".
+   El codi `docs/reference/ltm_ho_codi_ainna.py` (l. 75) fixa `MaxNumberPreparedBS = 5`.
+   He posat 4 al codi (config.yaml, physics.py, legacy_simulation.py) per
+   coherència amb el paper. Confirmar.
+
+2. **Noise floor — paper diu densitat -174 dBm/Hz, codi fa servir -174 com a
+   floor lineal directe sense integrar sobre l'ample de banda.**
+   Table I del paper: "Noise power density | -174 dBm/Hz". Amb BW=200 MHz,
+   això integrat seria N0·B = -174 + 10·log10(200e6) ≈ **-91 dBm**.
+   Però `physics.py` i `legacy_simulation.py` fan `noise_linear = 10^(-174/10)`
+   directament — tractant-lo com a noise floor lineal en dBm, no com a
+   densitat. Això fa la diferència de ~10⁸ en la potència de soroll vs senyal,
+   convertint el sistema en pràcticament noise-free (interference-limited).
+   Possibilitats:
+   - El codi de referència ho fa malament i caldria canviar a -91 dBm.
+   - Les taules SINR (16 esglaons) ja estan calibrades assumint aquest floor
+     artificial i canviar-lo trencaria la paritat.
+   - El paper Table I és una notació informal i el valor numèric -174 ja
+     és el que es fa servir directament.
+   Pendent decidir amb el tutor abans de tocar res.
+
+3. **Bandwidth 200 MHz — no apareix explícitament al codi.**
+   Connecta amb el punt 2 (integració del soroll). Si fem -91 dBm com a
+   noise floor, ja s'aplica implícitament. Si no, BW no s'utilitza enlloc.

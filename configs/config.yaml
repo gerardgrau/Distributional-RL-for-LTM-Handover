@@ -46,7 +46,7 @@ ho_prep:
   preparation_power_offset: -3          # dB
   preparation_time: 0.04                # 40 ms
   exec_power_offset: 3.0                  # dB (Table II)
-  max_number_prepared_bs: 5             # Max prepared cells (matches legacy_simulation)
+  max_number_prepared_bs: 4             # Table II: predicted top-4 neighbors
 
 paths:
   channel_data_directory: "data/ChannelGains"
