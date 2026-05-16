@@ -32,15 +32,23 @@
 - **Channels**: `ChannelBS2UE_noRIS` (amb les obstruccions de 20 dB) ✓
 - **Reward α**: HOF=0.1, HO=0.8, PP=0.9 (secció III.B) ✓
 
-Resultats 1000 UEs (LTMBaselineAgent en LTMEnv, re-run 2026-05-16, abans del canvi a MaxPrep=4):
-ho_rate=11.36 · hof_rate=2.05 · pp_rate=3.22 · capacity=3.23 ·
-rlf_rate=0.19 · reliability=94.35% · prep_rate=812.40 · res_reservation=6.45%
+Resultats 1000 UEs (LTMBaselineAgent en LTMEnv, MaxPrep=4, 2026-05-16):
+ho_rate=11.36 · hof_rate=2.06 · pp_rate=3.22 · capacity=3.23 ·
+rlf_rate=0.19 · reliability=94.35% · prep_rate=810.04 · res_reservation=6.43%
 
-Gap vs paper: HO/PP/Prep/Res ja són pràcticament idèntics. Capacity
-(3.23 vs 3.75), reliability (94.35 vs 95.00), HOF (2.05 vs 1.10) i RLF
-(0.19 vs 0.068) encara tenen marge — pendent de revisar amb el tutor.
-Pendent re-run amb MaxPrep=4 per veure si prep_rate i res_reservation
-canvien (probablement baixen lleugerament).
+Δ vs run anterior amb MaxPrep=5: prep_rate −2.36 i res_reservation −0.02
+(la resta inalterada). Confirmat que el canvi 5→4 només toca prep_rate
+i res_reservation lleugerament, i no tanca els forats grans amb el paper.
+
+Gaps que persisteixen vs paper LTM:
+- capacity_avg: 3.23 vs 3.75 (−14%)
+- hof_rate: 2.06 vs 1.10 (1.9× alt)
+- rlf_rate: 0.19 vs 0.068 (2.8× alt)
+- reliability_pct: 94.35 vs 95.00 (−0.65 pts)
+
+Aquests gaps quadren amb la hipòtesi del noise floor (pregunta 2 sota):
+soroll efectiu massa baix faria SNIR més alta, però l'efecte real depèn
+de com les taules SINR/BLER van ser calibrades. Cal validar amb el tutor.
 
 # Preguntes per al tutor (paritat física amb el paper):
 
