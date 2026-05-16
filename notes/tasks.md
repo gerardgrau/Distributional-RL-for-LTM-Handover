@@ -81,3 +81,13 @@ El gap residual ve d'algun altre lloc (no del soroll).
 3. **Interpretació del −174 dBm/Hz de Table I**: el codi el tracta com a
    floor lineal directe (no integra sobre BW). És intencionat o és que les
    taules SINR ja absorbeixen aquesta calibració?
+
+4. **Model d'interferència `M=3` vs ICIC** — el nostre `physics.py` i
+   `legacy_simulation.py` fan servir una mescla Bernoulli (1/3 high ·×3,
+   2/3 low ·0.095) per modelar reuse-3, però aquest bloc està **comentat**
+   al codi de referència actual (`ltm_ho_codi_ainna.py` línies 148–158).
+   La referència viva fa servir `get_realistic_interference()`, un model
+   ICIC: si el veí més fort és a <7 dB, redueix interferència en −10 dB
+   i puja el senyal +3 dB. És a dir, **el nostre codi correspon a una
+   versió antiga de la referència, no a l'activa**. Hauríem de migrar a
+   ICIC? Podria explicar part del gap residual.
