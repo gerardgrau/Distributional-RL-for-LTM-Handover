@@ -49,7 +49,6 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 ./venv-RL/bin/python3 src/scripts/test_dqn_ltm.py                   # DQN end-to-end
 ./venv-RL/bin/python3 src/scripts/test_qrdqn_ltm.py                 # QR-DQN end-to-end
 ./venv-RL/bin/python3 src/scripts/test_metrics_calc.py              # 8-metric correctness
-./venv-RL/bin/python3 src/scripts/verify_physics_vectorization.py   # scalar vs vectorized SINR/MCS/HOF
 ./venv-RL/bin/python3 src/scripts/verify_simulation_parity.py       # LTM baseline in gym vs paper numbers
 ```
 
@@ -116,4 +115,4 @@ Training and final evaluation both use **all 1,000 trajectories** (no train/test
 
 - Changes to `physics.py`, `System["TxPower"]`, `ExecPowerOffset`, or the SINR table affect **paper parity**. The current calibration (see `notes/tasks.md` "Configuració de Paritat Final") follows the paper's Table I / II: `TxPower=25 dBm`, `NoiseLevel=-91 dBm` (= -174 dBm/Hz over 200 MHz), `ExecPowerOffset=3.0 dB`, `MaxNumberPreparedBS=4`, 26-step SINR table with Outage < -3 dB, `ChannelBS2UE_noRIS` channels. The canonical reference implementation is `docs/reference/ltm_ho_codi_ainna.py` — when in doubt about a physics constant, match that file rather than the paper's prose. Re-run `src/scripts/verify_simulation_parity.py` after touching any of these.
 - Anything that changes the 88-dim state vector breaks all saved `.pth` checkpoints — bump and document.
-- The Gymnasium env and legacy simulator must produce matching physical metrics on identical seeds; `src/scripts/verify_physics_vectorization.py` (scalar vs vectorized math) and `src/scripts/verify_simulation_parity.py` (end-to-end gym vs paper) are the regression net.
+- The Gymnasium env and legacy simulator must produce matching physical metrics on identical seeds; `src/scripts/verify_simulation_parity.py` (end-to-end gym vs paper LTM numbers) is the regression net.
