@@ -123,16 +123,22 @@ def generate_plots():
             ax.set_visible(False)
             continue
 
-        # Keep all 8 agents on the x-axis (NaN -> invisible bar but reserved slot)
+        # Keep all 8 agents on the x-axis (NaN -> invisible bar but reserved
+        # slot). Use numeric positions so matplotlib doesn't drop empty
+        # categories and the bar widths stay consistent across panels.
         series = data[metric].reindex(agents)
         current_colors = [colors[i] for i in range(len(agents))]
         current_hatches = ['///' if a in paper_refs else '' for a in agents]
+        x_pos = np.arange(len(agents))
 
         bars = ax.bar(
-            agents, series.values,
+            x_pos, series.values,
             color=current_colors, alpha=0.8,
             edgecolor='black', hatch=current_hatches,
         )
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(agents)
+        ax.set_xlim(-0.6, len(agents) - 0.4)
         ax.set_title(nice_names[metric], fontsize=15, fontweight='bold', pad=10)
         ax.grid(axis='y', linestyle='--', alpha=0.3)
         ax.tick_params(axis='x', rotation=35, labelsize=9)
