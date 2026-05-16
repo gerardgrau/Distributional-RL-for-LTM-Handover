@@ -3,8 +3,28 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import os
+import re
 import glob
 from typing import Optional, Any
+
+
+_AGENT_FROM_FILENAME_RE = re.compile(r'^(?P<agent>.+)_[^_]+_seed\d+\.csv$')
+
+
+def _parse_agent_from_filename(filename: str) -> str:
+    """Extract the agent type from a training-CSV filename.
+
+    Training CSVs are named `<agent>_<env>_seed<N>.csv`, where the agent
+    name itself may contain underscores (e.g. `ltm_baseline`). A naive
+    `split('_')[0]` therefore mislabels multi-token agents. We strip the
+    trailing `_<env>_seed<N>.csv` and keep the rest.
+    """
+    base = os.path.basename(filename)
+    match = _AGENT_FROM_FILENAME_RE.match(base)
+    if match:
+        return match.group('agent')
+    # Fallback for non-standard filenames
+    return base.split('_seed')[0].rsplit('_', 1)[0]
 
 def plot_learning_curves(results_dir: str, save_path: Optional[str] = None):
     """
@@ -19,9 +39,7 @@ def plot_learning_curves(results_dir: str, save_path: Optional[str] = None):
     data_frames = []
     for f in files:
         df = pd.read_csv(f)
-        filename = os.path.basename(f)
-        agent_type = filename.split('_')[0]
-        df['agent'] = agent_type
+        df['agent'] = _parse_agent_from_filename(f)
         data_frames.append(df)
 
     all_data = pd.concat(data_frames, ignore_index=True)
@@ -70,7 +88,9 @@ def plot_efficiency(results_dir: str, metric: str = "reward", save_path: Optiona
     Plots a metric (reward or loss) against wall-clock time with a 50-unit moving average.
     """
     files = glob.glob(os.path.join(results_dir, "*.csv"))
-    all_data = pd.concat([pd.read_csv(f).assign(agent=os.path.basename(f).split('_')[0]) for f in files])
+    all_data = pd.concat([
+        pd.read_csv(f).assign(agent=_parse_agent_from_filename(f)) for f in files
+    ])
     agents = all_data['agent'].unique()
 
     plt.figure(figsize=(10, 6))
@@ -130,7 +150,7 @@ def plot_metrics_grid(
     frames = []
     for f in files:
         df = pd.read_csv(f)
-        df['agent'] = os.path.basename(f).split('_')[0]
+        df['agent'] = _parse_agent_from_filename(f)
         frames.append(df)
     all_data = pd.concat(frames, ignore_index=True)
     agents = all_data['agent'].unique()

@@ -169,15 +169,20 @@ class LTMEnv(gym.Env):
         reward = 0.0
         terminated = False
         truncated = False
-        
+
+        # Read the multiplicative-Ainna alpha penalties from the active
+        # config so ablations / experiments can adjust them without
+        # touching the env source. Defaults match the paper.
+        ho_reward_cfg = self.config.get('ho_reward', {})
+        alpha_ho = ho_reward_cfg.get('alpha_ho', 0.8)
+        alpha_pp = ho_reward_cfg.get('alpha_pp', 0.9)
+        alpha_hof = ho_reward_cfg.get('alpha_hof', 0.1)
+
         if high_res_callback:
             # High-res mode for baseline parity (100ms block = 10 ticks, callback each tick).
             # Computes the same pure-Ainna reward as RL mode (range-aggregated over
             # the actual tick range covered by these sends) so the LTM baseline gets
             # a meaningful reward signal comparable to DQN / QR-DQN.
-            alpha_ho = 0.8
-            alpha_pp = 0.9
-            alpha_hof = 0.1
             t_start = int(self._last_obs_dict['t'][0])
 
             for _ in range(10):
@@ -219,10 +224,6 @@ class LTMEnv(gym.Env):
             # AFTER this step() has returned. To get the correct values
             # for the reward we therefore aggregate over the actual range
             # [t_start, t_end) covered by this step's sends.
-            alpha_ho = 0.8
-            alpha_pp = 0.9
-            alpha_hof = 0.1
-
             t_start = int(self._last_obs_dict['t'][0])
 
             for _ in range(10):

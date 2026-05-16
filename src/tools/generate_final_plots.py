@@ -55,11 +55,13 @@ def generate_plots():
             if series is not None:
                 all_data[name] = series
 
-    # Convert to DataFrame and REINDEX to enforce the requested order
+    # Convert to DataFrame and REINDEX to enforce the requested order.
+    # Keep ALL agents from `desired_order` (filling missing rows with NaN)
+    # so the 8-slot x-axis layout stays consistent across every subplot,
+    # even when a CSV is missing for some agent.
     data = pd.DataFrame(all_data).transpose()
-    # Filter only available agents that are in our desired order
-    data = data.reindex([a for a in desired_order if a in data.index])
-    agents = data.index.tolist()
+    data = data.reindex(desired_order)
+    agents = desired_order
 
     metrics_to_plot = [
         "ho_rate", "hof_rate", "pp_rate",
@@ -134,8 +136,13 @@ def generate_plots():
         bars = ax.bar(
             x_pos, series.values,
             color=current_colors, alpha=0.8,
-            edgecolor='black', hatch=current_hatches,
+            edgecolor='black',
         )
+        # Apply hatches per-bar — older matplotlib versions don't accept
+        # `hatch=` as a list, so set it on each bar individually.
+        for bar, hatch in zip(bars, current_hatches):
+            if hatch:
+                bar.set_hatch(hatch)
         ax.set_xticks(x_pos)
         ax.set_xticklabels(agents)
         ax.set_xlim(-0.6, len(agents) - 0.4)
