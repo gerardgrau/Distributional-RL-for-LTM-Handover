@@ -171,7 +171,15 @@ class LTMEnv(gym.Env):
         truncated = False
         
         if high_res_callback:
-            # High-res mode for baseline parity (100ms block = 10 ticks, callback each tick)
+            # High-res mode for baseline parity (100ms block = 10 ticks, callback each tick).
+            # Computes the same pure-Ainna reward as RL mode (range-aggregated over
+            # the actual tick range covered by these sends) so the LTM baseline gets
+            # a meaningful reward signal comparable to DQN / QR-DQN.
+            alpha_ho = 0.8
+            alpha_pp = 0.9
+            alpha_hof = 0.1
+            t_start = int(self._last_obs_dict['t'][0])
+
             for _ in range(10):
                 try:
                     act = high_res_callback(self._last_obs_dict)
@@ -179,6 +187,26 @@ class LTMEnv(gym.Env):
                 except StopIteration:
                     terminated = True
                     break
+
+            if not terminated:
+                t_end = min(int(self._last_obs_dict['t'][0]), self.Max_iter)
+                if t_end > t_start:
+                    mcs_slice = self.MCS[t_start:t_end]
+                    avg_mcs = float(mcs_slice.mean())
+                    has_ho = int(np.any(self.HO_event[t_start:t_end] > 0))
+                    has_pp = int(np.any(self.ping_pong[t_start:t_end] > 0))
+                    has_hof = int(np.any(self.HOF[t_start:t_end] > 0))
+                else:
+                    avg_mcs = 0.0
+                    has_ho = has_pp = has_hof = 0
+
+                multiplier = 1.0
+                if has_ho: multiplier *= alpha_ho
+                if has_pp: multiplier *= alpha_pp
+                if has_hof: multiplier *= alpha_hof
+                n_oos = self.Sync["out_sync_count"]
+                reliability_factor = 1.0 / (1.0 + np.exp(2 * (n_oos - 2)))
+                reward += avg_mcs * multiplier * reliability_factor
         else:
             # RL Mode — pure paper Ainna reward.
             #
