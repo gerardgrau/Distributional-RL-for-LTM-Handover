@@ -21,10 +21,6 @@ package — they're command-line tools you run by hand. Group them by purpose:
 - **`run_ablation.py`** — Sweep QR-DQN over `num_quantiles ∈ {10, 50, 100, 200}`.
 - **`run_cvar_study.py`** — Sweep QR-DQN CVaR `risk_fraction` over `{0.05, 0.1, 0.25, 0.5}`.
 
-## Parity verification
-- **`verify_simulation_parity.py`** — Hi-resolution check that
-  `LTMBaselineAgent` driving `LTMEnv` matches the paper-LTM numbers tick-for-tick.
-
 ## Profiling
 - **`benchmark_device.py`** — CPU vs CUDA vs XPU iteration-rate benchmark for
   the env-only and env+agent loops.

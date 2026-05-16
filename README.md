@@ -25,7 +25,7 @@ src/distrl/      Core framework
   envs/          Gymnasium env, legacy reference simulator, shared physics
   utils/         Config, replay buffer, metrics, plot, evaluation, dashboard
 src/tools/       Standalone CLI utilities (see src/tools/README.md)
-src/gym_test/    Smoke / verification scripts (see CLAUDE.md)
+src/scripts/     Smoke / verification scripts (see CLAUDE.md)
 src/main.py      Training entrypoint
 src/evaluate_model.py
                  Frozen-weight evaluation on all 1000 UEs
