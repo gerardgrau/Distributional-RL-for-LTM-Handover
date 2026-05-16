@@ -30,9 +30,13 @@ def generate_plots():
     }
     
     desired_order = [
-        "LTM", "LMMSE", "LTM-CMAB", "LMMSE-CMAB", 
+        "LTM", "LMMSE", "LTM-CMAB", "LMMSE-CMAB",
         "Baseline (Legacy)", "Baseline (Ours)", "DQN (Ours)", "QR-DQN (Ours)"
     ]
+
+    # Paper references get a striped hatch so they are visually distinct from
+    # the measurements produced by this project.
+    paper_refs = {"LTM", "LMMSE", "LTM-CMAB", "LMMSE-CMAB"}
     
     all_data = {}
     csv_files = glob.glob(os.path.join(results_dir, "*.csv"))
@@ -92,8 +96,13 @@ def generate_plots():
 
         current_agents = valid_series.index
         current_colors = [colors[agents.index(a)] for a in current_agents]
+        current_hatches = ['///' if a in paper_refs else '' for a in current_agents]
 
-        bars = ax.bar(current_agents, valid_series, color=current_colors, alpha=0.8, edgecolor='black')
+        bars = ax.bar(
+            current_agents, valid_series,
+            color=current_colors, alpha=0.8,
+            edgecolor='black', hatch=current_hatches,
+        )
         ax.set_title(nice_names[metric], fontsize=15, fontweight='bold', pad=10)
         ax.grid(axis='y', linestyle='--', alpha=0.3)
         ax.tick_params(axis='x', rotation=35, labelsize=9)
