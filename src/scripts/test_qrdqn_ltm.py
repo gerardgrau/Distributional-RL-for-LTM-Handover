@@ -8,13 +8,15 @@ from tqdm import tqdm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from src.distrl.envs.ltm_gym import LTMEnv
-from src.distrl.agents.standard.dqn import DQNAgent
-from src.distrl.utils.replay_buffer import ReplayBuffer
+from src.distrl.agents.distributional.qrdqn import QRDQNAgent
+from src.distrl.agents.replay_buffer import ReplayBuffer
 
-def train_ltm_minimal():
+def train_qrdqn_ltm_minimal():
     env = LTMEnv()
     
     config = {
+        "num_quantiles": 30,
+        "kappa": 1.0,
         "hidden_dims": [64, 64],
         "lr": 1e-3,
         "gamma": 0.9,
@@ -27,15 +29,15 @@ def train_ltm_minimal():
     }
     
     device = "cpu"
-    agent = DQNAgent(config, env.observation_space, env.action_space, device=device)
+    agent = QRDQNAgent(config, env.observation_space, env.action_space, device=device)
     buffer = ReplayBuffer(config["buffer_size"], env.observation_space.shape)
     
-    print(f"Starting DQN training on LTM-HO simulation ({device})...")
+    print(f"Starting QRDQN training on LTM-HO simulation ({device})...")
     
     num_episodes = 20
     epsilon = config["epsilon_start"]
     
-    pbar = tqdm(range(num_episodes), desc="DQN Test")
+    pbar = tqdm(range(num_episodes), desc="QRDQN Test")
     for ep in pbar:
         state, _ = env.reset()
         episode_reward = 0
@@ -57,7 +59,7 @@ def train_ltm_minimal():
             
         pbar.set_postfix({"reward": f"{episode_reward:.1f}"})
 
-    print("DQN LTM-HO validation successful.")
+    print("QRDQN LTM-HO validation successful.")
 
 if __name__ == "__main__":
-    train_ltm_minimal()
+    train_qrdqn_ltm_minimal()

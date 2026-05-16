@@ -10,7 +10,7 @@ from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.standard.ltm_baseline import LTMBaselineAgent
 from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.utils.config import Config
-from src.distrl.utils.dashboard import MobilityDashboard, get_bs_sites
+from src.distrl.viz.dashboard import MobilityDashboard, get_bs_sites
 
 
 def _build_agent(agent_type: str, env: LTMEnv, device: str):

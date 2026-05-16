@@ -1,0 +1,5 @@
+# Raw per-UE evaluation CSVs are too large to track. Everything else in this
+# directory is checked in: aggregated `*_summary.csv` files (one row per
+# metric, produced by training/eval runs), the published `paper_*.csv`
+# reference numbers, and the master plots that consume them.
+/*_raw.csv

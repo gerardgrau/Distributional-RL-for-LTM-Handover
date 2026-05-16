@@ -21,11 +21,12 @@ environments.
 
 ```
 src/distrl/      Core framework
-  agents/        BaseAgent + DQN, QR-DQN, LTM heuristic baseline
+  agents/        BaseAgent + DQN, QR-DQN, LTM heuristic baseline, replay buffer
   envs/          Gymnasium env, legacy reference simulator, shared physics
-  utils/         Config, replay buffer, metrics, plot, evaluation, dashboard
+  viz/           Learning-curve plots + MP4 dashboard animation
+  utils/         Config, metrics, evaluation
 src/tools/       Standalone CLI utilities (see src/tools/README.md)
-src/gym_test/    Smoke / verification scripts (see CLAUDE.md)
+src/scripts/     Smoke / verification scripts (see CLAUDE.md)
 src/main.py      Training entrypoint
 src/evaluate_model.py
                  Frozen-weight evaluation on all 1000 UEs
@@ -37,8 +38,7 @@ results/         All training / eval / animation outputs (see results/README.md)
 ```
 
 For deeper guidance, see:
-- **`CLAUDE.md`** — full architecture overview + canonical commands
-- **`GEMINI.md`** — physical constants, reward formula, parity decisions
+- **`CLAUDE.md`** — full architecture overview + canonical commands + parity decisions
 - **`notes/tasks.md`** — live to-do list and calibration history
 
 ## Getting started

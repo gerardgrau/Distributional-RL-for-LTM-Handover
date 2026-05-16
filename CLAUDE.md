@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Research project applying **Distributional Reinforcement Learning (DQN vs QR-DQN)** to optimize **5G Lower Layer Triggered Mobility (LTM)** handover decisions. The environment simulates a multi-sector 5G deployment (7 BS × 3 sectors = 21 sectors, NBS=21) over 1,000 pre-computed UE trajectories from `.mat`/`.npz` channel-gain datasets.
 
-`GEMINI.md` is the canonical ground-truth context (reward formula, state space, parity decisions). Read it before changing any of: state space, reward, physics, or simulation constants. Update it when those change.
+This file is the single source of truth for architecture, commands, and parity decisions. When state space, reward, physics, or simulation constants change, update it here.
 
 ## Environment & Common Commands
 
@@ -45,19 +45,18 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 
 ### Smoke / verification tests (no pytest harness — each is a runnable script)
 ```bash
-./venv-RL/bin/python3 src/gym_test/test_env.py             # Atari smoke (Breakout via ale-py)
-./venv-RL/bin/python3 src/gym_test/test_dqn_ltm.py         # DQN end-to-end
-./venv-RL/bin/python3 src/gym_test/test_qrdqn_ltm.py       # QR-DQN end-to-end
-./venv-RL/bin/python3 src/gym_test/verify_parity.py        # Gym vs legacy parity
-./venv-RL/bin/python3 src/gym_test/test_metrics_calc.py    # 8-metric correctness
-./venv-RL/bin/python3 src/tools/verify_simulation_parity.py
+./venv-RL/bin/python3 src/scripts/test_env.py                       # Atari smoke (Breakout via ale-py)
+./venv-RL/bin/python3 src/scripts/test_dqn_ltm.py                   # DQN end-to-end
+./venv-RL/bin/python3 src/scripts/test_qrdqn_ltm.py                 # QR-DQN end-to-end
+./venv-RL/bin/python3 src/scripts/test_metrics_calc.py              # 8-metric correctness
+./venv-RL/bin/python3 src/scripts/verify_simulation_parity.py       # LTM baseline in gym vs paper numbers
 ```
 
 ### Visualization & analysis
 ```bash
 ./venv-RL/bin/python3 src/tools/generate_final_plots.py    # master bar/radial plots from results/final_metrics/*.csv
-./venv-RL/bin/python3 src/gym_test/run_dashboard.py        # MP4 agent-behavior animation (uses src/distrl/utils/dashboard.py)
-./venv-RL/bin/python3 src/gym_test/test_quantile_vis.py    # QR-DQN learned return-distribution viewer
+./venv-RL/bin/python3 src/scripts/run_dashboard.py         # MP4 agent-behavior animation (uses src/distrl/viz/dashboard.py)
+./venv-RL/bin/python3 src/scripts/test_quantile_vis.py     # QR-DQN learned return-distribution viewer
 ```
 
 ### Multi-run orchestrators (sweep configs under `configs/`)
@@ -82,7 +81,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 
 ### Observation & reward
 - **State (88 dims)**: `[speed(1), tenure(1), serving_one_hot(21), RSRP(21), MA_MCS(21), MA_SNIR(21), x(1), y(1)]`. Moving averages use O(1) running sums.
-- **Reward**: Multiplicative Ainna form — `R = R_thr · α_HO^ind_HO · α_PP^ind_PP · α_HOF^ind_HOF · reliability_factor`. Alphas live in `ho_reward:` block of the YAML; reliability factor is a soft reverse-sigmoid of the Out-Of-Sync counter.
+- **Reward**: Multiplicative Ainna form — `R = R_thr · α_HO^ind_HO · α_PP^ind_PP · α_HOF^ind_HOF · reliability_factor`. Alphas live in the `ho_reward:` block of the active YAML (paper defaults: `α_HOF=0.1, α_HO=0.8, α_PP=0.9`); reliability factor is a soft reverse-sigmoid of the Out-Of-Sync counter.
 
 ### Config system
 - All YAML configs live in `configs/`. `src/distrl/utils/config.py` exposes a `Config` singleton — call `Config.set_config_path(path)` once at startup, then `Config.get()` anywhere.
@@ -114,6 +113,6 @@ Training and final evaluation both use **all 1,000 trajectories** (no train/test
 
 ## Things to double-check before editing
 
-- Changes to `physics.py`, `System["TxPower"]`, `ExecPowerOffset`, or the SINR table affect **paper parity**. The current calibration (see `notes/tasks.md` "Configuració de Paritat Final") follows the paper's Table I / II: `TxPower=25 dBm`, `NoiseLevel=-91 dBm` (= -174 dBm/Hz over 200 MHz), `ExecPowerOffset=3.0 dB`, `MaxNumberPreparedBS=4`, 26-step SINR table with Outage < -3 dB, `ChannelBS2UE_noRIS` channels. The canonical reference implementation is `docs/reference/ltm_ho_codi_ainna.py` — when in doubt about a physics constant, match that file rather than the paper's prose. Re-run `src/tools/verify_simulation_parity.py` after touching any of these.
+- Changes to `physics.py`, `System["TxPower"]`, `ExecPowerOffset`, or the SINR table affect **paper parity**. The current calibration (see `notes/tasks.md` "Configuració de Paritat Final") follows the paper's Table I / II: `TxPower=25 dBm`, `NoiseLevel=-91 dBm` (= -174 dBm/Hz over 200 MHz), `ExecPowerOffset=3.0 dB`, `MaxNumberPreparedBS=4`, 26-step SINR table with Outage < -3 dB, `ChannelBS2UE_noRIS` channels. The canonical reference implementation is `docs/reference/ltm_ho_codi_ainna.py` — when in doubt about a physics constant, match that file rather than the paper's prose. Re-run `src/scripts/verify_simulation_parity.py` after touching any of these.
 - Anything that changes the 88-dim state vector breaks all saved `.pth` checkpoints — bump and document.
-- The Gymnasium env and legacy simulator must produce matching physical metrics on identical seeds; the verification scripts in `src/gym_test/verify_parity.py` and `src/tools/verify_simulation_parity.py` are the regression net.
+- The active calibration target is the published paper LTM numbers; `src/scripts/verify_simulation_parity.py` (LTMBaselineAgent in LTMEnv, 10 ms high-res, 1000 UEs) is the regression net. Gym ↔ legacy_simulation bit-exactness was achieved during the parity audit and is no longer continuously tested — if you change either side, re-run that script and eyeball the numbers against the paper LTM reference printed at the bottom of the run.
