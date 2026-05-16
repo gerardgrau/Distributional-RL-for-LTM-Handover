@@ -28,6 +28,3 @@ package — they're command-line tools you run by hand. Group them by purpose:
 ## Profiling
 - **`benchmark_device.py`** — CPU vs CUDA vs XPU iteration-rate benchmark for
   the env-only and env+agent loops.
-
-When in doubt, the top of each script has a `"""docstring"""` describing its
-exact purpose.
