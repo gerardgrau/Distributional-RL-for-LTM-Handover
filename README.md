@@ -37,8 +37,7 @@ results/         All training / eval / animation outputs (see results/README.md)
 ```
 
 For deeper guidance, see:
-- **`CLAUDE.md`** — full architecture overview + canonical commands
-- **`GEMINI.md`** — physical constants, reward formula, parity decisions
+- **`CLAUDE.md`** — full architecture overview + canonical commands + parity decisions
 - **`notes/tasks.md`** — live to-do list and calibration history
 
 ## Getting started

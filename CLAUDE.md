@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Research project applying **Distributional Reinforcement Learning (DQN vs QR-DQN)** to optimize **5G Lower Layer Triggered Mobility (LTM)** handover decisions. The environment simulates a multi-sector 5G deployment (7 BS × 3 sectors = 21 sectors, NBS=21) over 1,000 pre-computed UE trajectories from `.mat`/`.npz` channel-gain datasets.
 
-`GEMINI.md` is the canonical ground-truth context (reward formula, state space, parity decisions). Read it before changing any of: state space, reward, physics, or simulation constants. Update it when those change.
+This file is the single source of truth for architecture, commands, and parity decisions. When state space, reward, physics, or simulation constants change, update it here.
 
 ## Environment & Common Commands
 
@@ -81,7 +81,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 
 ### Observation & reward
 - **State (88 dims)**: `[speed(1), tenure(1), serving_one_hot(21), RSRP(21), MA_MCS(21), MA_SNIR(21), x(1), y(1)]`. Moving averages use O(1) running sums.
-- **Reward**: Multiplicative Ainna form — `R = R_thr · α_HO^ind_HO · α_PP^ind_PP · α_HOF^ind_HOF · reliability_factor`. Alphas live in `ho_reward:` block of the YAML; reliability factor is a soft reverse-sigmoid of the Out-Of-Sync counter.
+- **Reward**: Multiplicative Ainna form — `R = R_thr · α_HO^ind_HO · α_PP^ind_PP · α_HOF^ind_HOF · reliability_factor`. Alphas live in the `ho_reward:` block of the active YAML (paper defaults: `α_HOF=0.1, α_HO=0.8, α_PP=0.9`); reliability factor is a soft reverse-sigmoid of the Out-Of-Sync counter.
 
 ### Config system
 - All YAML configs live in `configs/`. `src/distrl/utils/config.py` exposes a `Config` singleton — call `Config.set_config_path(path)` once at startup, then `Config.get()` anywhere.
