@@ -55,7 +55,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 ### Visualization & analysis
 ```bash
 ./venv-RL/bin/python3 src/tools/generate_final_plots.py    # master bar/radial plots from results/final_metrics/*.csv
-./venv-RL/bin/python3 src/scripts/run_dashboard.py         # MP4 agent-behavior animation (uses src/distrl/utils/dashboard.py)
+./venv-RL/bin/python3 src/scripts/run_dashboard.py         # MP4 agent-behavior animation (uses src/distrl/viz/dashboard.py)
 ./venv-RL/bin/python3 src/scripts/test_quantile_vis.py     # QR-DQN learned return-distribution viewer
 ```
 

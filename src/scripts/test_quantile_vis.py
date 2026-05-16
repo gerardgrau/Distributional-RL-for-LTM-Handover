@@ -10,7 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"
 from src.distrl.utils.config import Config
 from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
-from src.distrl.utils.plot import plot_quantiles
+from src.distrl.viz.plot import plot_quantiles
 
 def visualize_distributional_risk():
     print("=== QRDQN Distributional Visualization ===")

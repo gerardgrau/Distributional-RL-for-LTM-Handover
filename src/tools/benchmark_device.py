@@ -14,7 +14,7 @@ from src.distrl.utils.config import Config
 from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
-from src.distrl.utils.replay_buffer import ReplayBuffer
+from src.distrl.agents.replay_buffer import ReplayBuffer
 
 def run_device_benchmark(device_name: str, num_episodes: int = 10):
     print(f"\n>>> Benchmarking Device: {device_name.upper()}")

@@ -21,9 +21,10 @@ environments.
 
 ```
 src/distrl/      Core framework
-  agents/        BaseAgent + DQN, QR-DQN, LTM heuristic baseline
+  agents/        BaseAgent + DQN, QR-DQN, LTM heuristic baseline, replay buffer
   envs/          Gymnasium env, legacy reference simulator, shared physics
-  utils/         Config, replay buffer, metrics, plot, evaluation, dashboard
+  viz/           Learning-curve plots + MP4 dashboard animation
+  utils/         Config, metrics, evaluation
 src/tools/       Standalone CLI utilities (see src/tools/README.md)
 src/scripts/     Smoke / verification scripts (see CLAUDE.md)
 src/main.py      Training entrypoint

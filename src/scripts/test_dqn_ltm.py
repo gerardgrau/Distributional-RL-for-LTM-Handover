@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"
 
 from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.agents.standard.dqn import DQNAgent
-from src.distrl.utils.replay_buffer import ReplayBuffer
+from src.distrl.agents.replay_buffer import ReplayBuffer
 
 def train_ltm_minimal():
     env = LTMEnv()

@@ -18,8 +18,8 @@ from src.distrl.envs.ltm_gym import LTMEnv
 from src.distrl.agents.standard.dqn import DQNAgent
 from src.distrl.agents.distributional.qrdqn import QRDQNAgent
 from src.distrl.agents.standard.ltm_baseline import LTMBaselineAgent
-from src.distrl.utils.replay_buffer import ReplayBuffer
-from src.distrl.utils.plot import (
+from src.distrl.agents.replay_buffer import ReplayBuffer
+from src.distrl.viz.plot import (
     plot_efficiency,
     plot_learning_curves,
     plot_metrics_grid,
