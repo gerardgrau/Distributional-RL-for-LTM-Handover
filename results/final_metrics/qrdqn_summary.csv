@@ -1,0 +1,12 @@
+metric,mean,std
+ho_rate,15.7773,3.969707
+hof_rate,2.5099,0.973381
+pp_rate,2.0145,0.8913
+capacity_avg,3.488081,0.261207
+rlf_rate,0.2554,0.243321
+reliability_pct,95.351572,1.207662
+prep_rate,1068.27377,114.509118
+res_reservation_pct,8.478363,0.908803
+reward,933.153914,77.64217
+total_steps,30000.0,0.0
+total_minutes,5.0,0.0
