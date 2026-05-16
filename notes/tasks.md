@@ -33,10 +33,10 @@
 - **Bandwidth**: 200 MHz
 - **Channels**: `ChannelBS2UE_noRIS` (amb les obstruccions de 20 dB)
 
-Resultats 1000 UEs (baseline LTM, paritat gym ↔ legacy bit-exacta):
-ho_rate=11.69 · hof_rate=0.35 · pp_rate=4.25 · capacity=2.75 ·
-rlf_rate=0.20 · reliability=90.94% · prep_rate=807.24 · res_reservation=6.41%
+Resultats 1000 UEs (LTMBaselineAgent en LTMEnv, re-run 2026-05-16):
+ho_rate=11.36 · hof_rate=2.05 · pp_rate=3.22 · capacity=3.23 ·
+rlf_rate=0.19 · reliability=94.35% · prep_rate=812.40 · res_reservation=6.45%
 
-Gap vs paper: capacity i reliability són més baixes que el paper (3.75 i 95%)
-i el RLF és més alt (0.198 vs 0.068). Pendent de confirmar amb el tutor si
-volem revisar la interpretació de NoiseLevel.
+Gap vs paper: HO/PP/Prep/Res ja són pràcticament idèntics. Capacity
+(3.23 vs 3.75), reliability (94.35 vs 95.00), HOF (2.05 vs 1.10) i RLF
+(0.19 vs 0.068) encara tenen marge — pendent de revisar amb el tutor.
