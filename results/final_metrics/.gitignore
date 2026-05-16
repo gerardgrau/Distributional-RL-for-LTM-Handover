@@ -1,0 +1,3 @@
+# Raw per-UE evaluation CSVs are too large to track. Only the aggregated
+# *_summary.csv files (one row per metric) and the master plots are checked in.
+/*_raw.csv
