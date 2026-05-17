@@ -40,9 +40,15 @@ from src.distrl.agents.standard.dqn import DQNAgent  # noqa: E402
 gym.register_envs(ale_py)
 
 
-def make_env(game: str) -> gym.Env:
+def make_env(game: str, terminal_on_life_loss: bool = False) -> gym.Env:
     """Standard Nature-DQN Atari wrapper stack. Caller is responsible for
-    seeding via env.reset(seed=...)."""
+    seeding via env.reset(seed=...).
+
+    For training, pass terminal_on_life_loss=True (per-life episodes give
+    finer-grained credit assignment — the convention from Nature DQN /
+    Rainbow / QR-DQN). For evaluation, pass False so the returned mean
+    return is the actual full-game score.
+    """
     env = gym.make(f"ALE/{game}-v5", frameskip=1)
     env = AtariPreprocessing(
         env,
@@ -50,6 +56,7 @@ def make_env(game: str) -> gym.Env:
         screen_size=84,
         grayscale_obs=True,
         scale_obs=False,
+        terminal_on_life_loss=terminal_on_life_loss,
     )
     return FrameStackObservation(env, stack_size=4)
 
@@ -183,9 +190,9 @@ def main() -> int:
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    env = make_env(args.game)
+    env = make_env(args.game, terminal_on_life_loss=True)
     env.reset(seed=args.seed)
-    eval_env = make_env(args.game)
+    eval_env = make_env(args.game, terminal_on_life_loss=False)
     eval_env.reset(seed=args.seed + 10_000)
 
     AgentCls = QRDQNAgent if args.agent == "qrdqn" else DQNAgent
