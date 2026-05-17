@@ -70,3 +70,33 @@ and head were the same module instances as the online net's, so the
 soft-update became a no-op. HP-search absolute numbers were obtained
 under that regime; numbers in this study run on top of the fixed
 target net and are not directly comparable to the HP search.
+
+## Implementation note (QR-loss quadrature fix)
+
+A second bug landed mid-flight (Gemini-caught, commit `79126be`): the
+QR Huber loss aggregator collapsed with `.mean()` over batch /
+predictor / target, which uniformly averages each axis. That is
+correct for midpoint (uniform weights) but discards the non-uniform
+quadrature of gauss_legendre and trapezoidal — effectively turning
+both into a uniform midpoint loss while keeping the predictor at the
+non-uniform tau nodes.
+
+The fix weights the target axis by `scheme.mean_weights` (probability
+mass at each target atom) and the predictor axis by
+`scheme.predictor_weights` (integration weights for the loss across
+tau). For midpoint these are uniform 1/N and the new loss is
+bit-equal to the old `.mean()` (locked in by
+`test_loss_backward_compat`). For trapezoidal the Bellman target now
+also includes the fixed q_min and q_max atoms in the target axis.
+
+Per-variant impact:
+
+  - `qmode_midpoint`: identical loss before and after the fix.
+    Variant 1 was running with old code at the moment of the fix;
+    results are valid either way.
+  - `qmode_gauss_legendre`: spawned after the fix → uses the corrected
+    GL-weighted loss.
+  - `qmode_trapezoidal`: spawned after the fix → target includes the
+    fixed endpoints + uses trapezoidal weights.
+  - `qmode_cvar_full` / `qmode_cvar_truncated`: built on midpoint, so
+    target distribution stays uniform → loss identical before/after.
