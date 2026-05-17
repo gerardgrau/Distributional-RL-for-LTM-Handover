@@ -49,20 +49,34 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 ./venv-RL/bin/python3 src/scripts/test_dqn_ltm.py                   # DQN end-to-end
 ./venv-RL/bin/python3 src/scripts/test_qrdqn_ltm.py                 # QR-DQN end-to-end
 ./venv-RL/bin/python3 src/scripts/test_metrics_calc.py              # 8-metric correctness
+./venv-RL/bin/python3 src/scripts/test_quantile_modes.py            # quantile-scheme math (midpoint/GL/trapezoidal/truncated)
 ./venv-RL/bin/python3 src/scripts/verify_simulation_parity.py       # LTM baseline in gym vs paper numbers
 ```
 
+### Atari benchmark (QR-DQN on standard Nature-DQN preprocessing)
+```bash
+./venv-RL/bin/python3 src/atari_main.py \
+    --config configs/atari/qrdqn_midpoint.yaml \
+    --game Breakout --frames 500000 --device cpu --threads 3
+```
+`--threads` caps the PyTorch intra-op pool (use 3-4 when running in parallel with an LTM job).
+
 ### Visualization & analysis
 ```bash
-./venv-RL/bin/python3 src/tools/generate_final_plots.py    # master bar/radial plots from results/final_metrics/*.csv
-./venv-RL/bin/python3 src/scripts/run_dashboard.py         # MP4 agent-behavior animation (uses src/distrl/viz/dashboard.py)
-./venv-RL/bin/python3 src/scripts/test_quantile_vis.py     # QR-DQN learned return-distribution viewer
+./venv-RL/bin/python3 src/tools/generate_final_plots.py         # master bar/radial plots from results/final_metrics/*.csv
+./venv-RL/bin/python3 src/tools/plot_quantile_mode_study.py     # LTM 5-variant comparison (auto-discovers bmk_*_qmode_*)
+./venv-RL/bin/python3 src/tools/plot_atari_study.py --game Breakout  # Atari 5-variant comparison
+./venv-RL/bin/python3 src/scripts/run_dashboard.py              # MP4 agent-behavior animation (uses src/distrl/viz/dashboard.py)
+./venv-RL/bin/python3 src/scripts/test_quantile_vis.py          # QR-DQN learned return-distribution viewer
 ```
 
 ### Multi-run orchestrators (sweep configs under `configs/`)
 ```bash
-./venv-RL/bin/python3 src/tools/run_ablation.py            # quantile-count ablation (N=10/50/100/200)
-./venv-RL/bin/python3 src/tools/run_cvar_study.py          # CVaR risk-fraction sweep
+./venv-RL/bin/python3 src/tools/run_ablation.py                 # quantile-count ablation (N=10/50/100/200)
+./venv-RL/bin/python3 src/tools/run_cvar_study.py               # CVaR risk-fraction sweep
+./venv-RL/bin/python3 src/tools/run_quantile_mode_study.py      # midpoint vs GL vs trapezoidal vs CVaR-full vs CVaR-truncated
+./venv-RL/bin/python3 src/tools/run_hp_refresh.py               # 6-variant HP refresh on top of the champion (lr, tau, hard-update)
+./venv-RL/bin/python3 src/tools/run_atari_study.py --game Breakout  # same five quantile modes on Atari
 ```
 
 ## Architecture
@@ -74,10 +88,11 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 
 ### Agent framework (`src/distrl/agents/`)
 - `base.py` — `BaseAgent` ABC with shared soft/hard target-update logic.
-- `networks.py` — `MLPTrunk` + interchangeable heads (`QHead`, `QuantileHead`) wired via `UnifiedQNet`. Trunk/head split is intentional: agents pick a head, not a network.
-- `standard/dqn.py` — Vanilla DQN.
+- `networks.py` — `MLPTrunk` (LTM vector obs), `CNNTrunk` (Nature-DQN conv stack for 84x84x4 Atari uint8), and interchangeable heads (`QHead`, `QuantileHead`) wired via `UnifiedQNet`. Trunk/head split is intentional: agents pick a head, not a network. Both DQN and QR-DQN select the trunk via `agent.trunk_type ∈ {"mlp", "cnn"}`.
+- `standard/dqn.py` — Vanilla DQN. Target net has independent params (soft / hard update both real).
 - `standard/ltm_baseline.py` — Hardcoded LTM heuristic (no learning), used as a comparison baseline.
-- `distributional/qrdqn.py` — QR-DQN with optional CVaR risk policy (configured by `risk_type`/`risk_fraction` in the agent config).
+- `distributional/quantile_modes.py` — `QuantileScheme` dataclass + `build_scheme(...)` factory. Defines four quantile-positioning modes (midpoint / gauss_legendre / trapezoidal / midpoint+truncate_upper) and their `tau`, `mean_weights`, `cvar_weights`, `predictor_weights`. The agent consumes the scheme to drive both action selection (`scheme.expectation` / `scheme.cvar`) and the QR Huber loss (target-axis weighted by `mean_weights`, predictor-axis by `predictor_weights`).
+- `distributional/qrdqn.py` — QR-DQN. Configured by `agent` block keys: `quantile_mode ∈ {midpoint, gauss_legendre, trapezoidal}`, `risk_type ∈ {mean, cvar}`, `risk_fraction`, `truncate_upper_quantiles`, `q_min`/`q_max` (trapezoidal only). Target net has independent params; loss weights both axes by quadrature.
 
 ### Observation & reward
 - **State (88 dims)**: `[speed(1), tenure(1), serving_one_hot(21), RSRP(21), MA_MCS(21), MA_SNIR(21), x(1), y(1)]`. Moving averages use O(1) running sums.
