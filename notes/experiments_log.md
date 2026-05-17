@@ -22,8 +22,13 @@ Key code commits this log relies on:
 
 | ID | What | Device | ETA | Output dirs |
 |----|------|--------|-----|-------------|
-| `bumx7je6v` | LTM quantile-mode study (5 variants × 2000 ep × 1 seed) | XPU | ~12h total | `results/benchmarks/bmk_2026-05-17_3_qmode_*` |
-| (TBD) | Atari Breakout study (5 QR-DQN variants × 500k frames × 1 seed), relaunched after the terminal_on_life_loss fix | CPU | ~5h total | `results/atari/Breakout_qrdqn_*` |
+| `bumx7je6v` | LTM quantile-mode study (5 variants × 2000 ep × 1 seed) | XPU + CPU | ~12-13h | `results/benchmarks/bmk_2026-05-17_3_qmode_*` |
+
+(Atari was started in parallel at 13:02 but the two jobs over-saturated
+the box: load average climbed to 27 on 22 cores and the LTM step time
+quadrupled — 18 s/ep vs the 4.5 s/ep baseline. Stopped Atari at 13:06
+and trashed its partial output. Will relaunch once LTM finishes; net
+wall-clock is the same, but the LTM result lands cleaner and sooner.)
 
 ## Planned follow-ups (autonomous queue)
 
