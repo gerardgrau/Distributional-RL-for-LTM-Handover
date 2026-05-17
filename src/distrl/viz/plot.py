@@ -220,30 +220,86 @@ def plot_metrics_grid(
         plt.show()
 
 
-def plot_quantiles(agent: Any, state: np.ndarray, action_names: Optional[list[str]] = None, save_path: Optional[str] = None):
+def plot_quantiles(
+    agent: Any,
+    state: np.ndarray,
+    action_names: Optional[list[str]] = None,
+    save_path: Optional[str] = None,
+    top_k: int = 4,
+):
+    """Inverse-CDF view of each action's return distribution.
+
+    Plots F^{-1}(tau) (predicted quantile values) against tau for the
+    top-`top_k` actions by aggregated Q-value, plus annotations:
+      - horizontal line at the aggregated Q-value (mean or CVaR
+        depending on `agent.risk_type`).
+      - for CVaR policies, a shaded band marking [0, risk_fraction]
+        and a vertical line at tau = risk_fraction.
+      - the chosen (argmax) action highlighted.
+
+    Works for any quantile scheme (midpoint, gauss_legendre, trapezoidal,
+    truncated CVaR) by reading `agent.scheme` for tau positions and the
+    expectation / cvar weights.
     """
-    Plots the return distribution (quantiles) for each action in a given state.
-    """
-    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(agent.device)
+    state_tensor = torch.as_tensor(
+        state, dtype=torch.float32, device=agent.device
+    ).unsqueeze(0)
     with torch.no_grad():
-        quantiles = agent.q_net(state_tensor).cpu().numpy()[0]
-    
-    num_actions = quantiles.shape[0]
+        predicted = agent.q_net(state_tensor)  # [1, A, num_predicted]
+        scheme = agent.scheme
+        # Full distribution including any fixed endpoints (trapezoidal).
+        full = scheme.assemble_full(predicted)[0].cpu().numpy()  # [A, num_total]
+        if agent.risk_type == "cvar":
+            q_values = scheme.cvar(predicted)[0].cpu().numpy()
+            agg_label = f"CVaR({agent.risk_fraction:.2g})"
+        else:
+            q_values = scheme.expectation(predicted)[0].cpu().numpy()
+            agg_label = "Mean"
+
+    # tau positions for the full assembled distribution.
+    if scheme.has_fixed_endpoints:
+        n = scheme.mean_weights.numel()
+        full_tau = np.linspace(0.0, 1.0, n)
+    else:
+        full_tau = scheme.tau.cpu().numpy()
+
+    num_actions = full.shape[0]
+    chosen = int(np.argmax(q_values))
+    order = np.argsort(-q_values)
+    top = order[: min(top_k, num_actions)].tolist()
+    if chosen not in top:
+        top[-1] = chosen  # always show the picked action
+
     plt.figure(figsize=(12, 6))
-    
-    for i in range(num_actions):
+    palette = plt.cm.tab10.colors
+    for rank, i in enumerate(top):
+        color = palette[rank % len(palette)]
         label = action_names[i] if action_names else f"Action {i}"
-        plt.hist(quantiles[i], bins=30, alpha=0.5, label=label, density=True)
-        
-    plt.title("Action-Value Distributions (Quantiles)")
-    plt.xlabel("Return (Q-Value)")
-    plt.ylabel("Density")
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.7)
-    
+        label = f"{label}  ({agg_label}={q_values[i]:.3f})"
+        if i == chosen:
+            label = "* " + label
+        plt.plot(full_tau, full[i], marker="o", ms=3, color=color, label=label)
+        plt.axhline(q_values[i], color=color, alpha=0.25, linestyle="--")
+
+    if agent.risk_type == "cvar":
+        plt.axvspan(0.0, agent.risk_fraction, color="red", alpha=0.08,
+                    label=f"CVaR mass < {agent.risk_fraction}")
+        plt.axvline(agent.risk_fraction, color="red", alpha=0.4,
+                    linestyle=":")
+
+    plt.title(
+        f"Return-distribution quantiles  (mode={scheme.mode}, "
+        f"chosen=Action {chosen}, num_predicted={scheme.num_predicted})"
+    )
+    plt.xlabel(r"Quantile fraction $\tau$")
+    plt.ylabel(r"Predicted $F^{-1}(\tau)$ (return)")
+    plt.legend(loc="best", fontsize=9)
+    plt.grid(True, linestyle="--", alpha=0.5)
+
     if save_path:
-        plt.savefig(save_path)
+        plt.savefig(save_path, bbox_inches="tight", dpi=140)
         print(f"Quantile plot saved to {save_path}")
+        plt.close()
     else:
         plt.show()
 
