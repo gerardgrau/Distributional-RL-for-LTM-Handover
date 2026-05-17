@@ -180,7 +180,18 @@ def main() -> int:
     parser.add_argument("--no_save", action="store_true")
     parser.add_argument("--eval_episodes", type=int, default=5)
     parser.add_argument("--agent", default="qrdqn", choices=["qrdqn", "dqn"])
+    parser.add_argument(
+        "--threads", type=int, default=0,
+        help=(
+            "PyTorch intra-op thread cap (0 = library default). Use a "
+            "small value like 2-4 when running in parallel with the LTM "
+            "study so the two jobs don't starve each other."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.threads > 0:
+        torch.set_num_threads(args.threads)
 
     with open(args.config) as f:
         config = yaml.safe_load(f)

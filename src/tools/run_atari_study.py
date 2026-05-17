@@ -55,7 +55,9 @@ def read_final_eval(run_dir: str) -> float | None:
     return None
 
 
-def run_one(variant: str, game: str, frames: int, device: str, seed: int) -> tuple[float, str | None, float | None]:
+def run_one(
+    variant: str, game: str, frames: int, device: str, seed: int, threads: int,
+) -> tuple[float, str | None, float | None]:
     cfg = os.path.join(CFG_DIR, f"{variant}.yaml")
     if not os.path.exists(cfg):
         raise FileNotFoundError(cfg)
@@ -70,6 +72,8 @@ def run_one(variant: str, game: str, frames: int, device: str, seed: int) -> tup
         "--description", variant,
         "--agent", agent_type,
     ]
+    if threads > 0:
+        cmd.extend(["--threads", str(threads)])
     print(f"\n>>> {variant} on {game}")
     print("    " + " ".join(cmd))
     t0 = time.time()
@@ -87,6 +91,10 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--only", default=None,
                         help="Comma-separated subset of variant names.")
+    parser.add_argument(
+        "--threads", type=int, default=0,
+        help="Cap PyTorch intra-op threads (passed through to atari_main).",
+    )
     args = parser.parse_args()
 
     variants = DEFAULT_VARIANTS if args.only is None else [
@@ -98,6 +106,7 @@ def main() -> int:
         try:
             elapsed, run_dir, final_eval = run_one(
                 variant, args.game, args.frames, args.device, args.seed,
+                args.threads,
             )
         except subprocess.CalledProcessError as err:
             print(f"!!! {variant} failed: {err}", file=sys.stderr)
