@@ -6,9 +6,9 @@ import torch.nn.functional as F
 class CNNTrunk(nn.Module):
     """Nature-DQN convolutional trunk for 84x84 frame-stacked Atari input.
 
-    Expects input of shape [B, in_channels, 84, 84] with pixel values in
-    either [0, 255] uint8 or [0, 1] float. uint8 inputs are normalized
-    inline so downstream code can stay device-agnostic.
+    Inputs are expected to be in the [0, 255] pixel range — either uint8
+    straight from the replay buffer or float32 unscaled from
+    select_action. The trunk normalises to [0, 1] internally.
     """
 
     def __init__(self, in_channels: int, output_dim: int = 512) -> None:
@@ -29,10 +29,7 @@ class CNNTrunk(nn.Module):
         self.output_dim = output_dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.dtype == torch.uint8:
-            x = x.float() / 255.0
-        elif x.max() > 1.5:
-            x = x / 255.0
+        x = x.float() / 255.0
         x = self.conv(x)
         x = self.flatten(x)
         return self.fc(x)
