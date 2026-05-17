@@ -72,17 +72,28 @@ Document all of these as they complete.
 
 | Variant | Status | cap_avg | hof_rate | rlf_rate | ho_rate | pp_rate | reliability | Notes |
 |---------|--------|---------|----------|----------|---------|---------|-------------|-------|
-| qmode_midpoint | running |  |  |  |  |  |  | |
-| qmode_gauss_legendre | pending |  |  |  |  |  |  | uses corrected QR-quadrature loss |
+| qmode_midpoint | **done** | **3.515** | **1.989** | **0.258** | 16.363 | 2.093 | 95.528 | Essentially equal to HP champion (3.510 / 2.154 / 0.257) — corrected code does not regress the baseline. Even slightly better on HOF and reliability. |
+| qmode_gauss_legendre | running |  |  |  |  |  |  | uses corrected QR-quadrature loss |
 | qmode_trapezoidal | pending |  |  |  |  |  |  | uses corrected loss + assembled target |
 | qmode_cvar_full | pending |  |  |  |  |  |  | midpoint base, CVaR(0.1) action selection |
 | qmode_cvar_truncated | pending |  |  |  |  |  |  | k=5 quantiles in [0, 0.1] |
 
-### Atari Breakout (in-flight, relaunched with `terminal_on_life_loss=True`)
+**Key finding from variant 1**: the target-net fix + QR-quadrature
+fix didn't shift the LTM dynamics under midpoint. The HP champion
+config is still valid. We can interpret the remaining four
+variants' absolute numbers in HP-search terms.
+
+### Atari Breakout (aborted — 500k frames is too sparse-reward)
 
 | Variant | Status | final_eval | wall-clock | Notes |
 |---------|--------|------------|------------|-------|
-| qrdqn_midpoint | pending |  |  | baseline |
+| qrdqn_midpoint | done (uninformative) | 0.00 | 2h48m | Eval = 0 reward over 5 episodes. The agent never explored enough to break any brick (eps was still ≈0.50 at frame 500k since `epsilon_decay_frames=1_000_000` was set for 1M-frame schedules). Literature QR-DQN runs at 10M+ frames for Breakout. Switching to Pong, which gives reward every 1-2 s of play and is learnable inside a 500k-frame budget. |
+
+### Atari Pong (in-flight, denser reward)
+
+| Variant | Status | final_eval | wall-clock | Notes |
+|---------|--------|------------|------------|-------|
+| qrdqn_midpoint | running |  |  | replaces the Breakout sweep |
 | qrdqn_gauss_legendre | pending |  |  | |
 | qrdqn_trapezoidal | pending |  |  | q_max=50, q_min=-50 |
 | qrdqn_cvar_full | pending |  |  | |

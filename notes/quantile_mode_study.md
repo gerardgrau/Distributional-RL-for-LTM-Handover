@@ -45,8 +45,8 @@ Or run a single variant directly:
 
 | # | ID                  | Status   | capacity_avg | hof_rate | rlf_rate | ho_rate | pp_rate | Notes |
 |---|---------------------|----------|--------------|----------|----------|---------|---------|-------|
-| 1 | qmode_midpoint      | pending  |              |          |          |         |         |       |
-| 2 | qmode_gauss_legendre| pending  |              |          |          |         |         |       |
+| 1 | qmode_midpoint      | done     | **3.515**    | **1.989**| **0.258**| 16.363  | 2.093   | bmk_2026-05-17_3; within noise of HP champion (3.510 / 2.154 / 0.257) — corrected code does not regress |
+| 2 | qmode_gauss_legendre| running  |              |          |          |         |         |       |
 | 3 | qmode_trapezoidal   | pending  |              |          |          |         |         |       |
 | 4 | qmode_cvar_full     | pending  |              |          |          |         |         |       |
 | 5 | qmode_cvar_truncated| pending  |              |          |          |         |         |       |
