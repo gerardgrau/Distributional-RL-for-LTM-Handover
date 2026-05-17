@@ -1,0 +1,7 @@
+# Atari benchmark artifacts (per-game/per-variant per-timestamp folders)
+/*.csv
+/*.png
+/*.pdf
+/*.log
+# Ignore subdirectories (individual run folders)
+/*/
