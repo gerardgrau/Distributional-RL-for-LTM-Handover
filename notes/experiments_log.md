@@ -22,43 +22,44 @@ Key code commits this log relies on:
 
 | ID | What | Device | ETA | Output dirs |
 |----|------|--------|-----|-------------|
-| `bumx7je6v` | LTM quantile-mode study (5 variants × 2000 ep × 1 seed) | XPU + CPU | ~12-13h | `results/benchmarks/bmk_2026-05-17_3_qmode_*` |
+| `bumx7je6v` | LTM quantile-mode study (5 variants × 2000 ep × 1 seed) | XPU + CPU | ~11h remaining | `results/benchmarks/bmk_2026-05-17_3_qmode_*` |
+| `btmoh6awg` | Atari Breakout study (5 QR-DQN variants × 500k frames × 1 seed), `terminal_on_life_loss=True` for train, capped at 3 PyTorch threads to avoid starving LTM | CPU | ~4-5h | `results/atari/Breakout_qrdqn_*` |
 
-(Atari was started in parallel at 13:02 but the two jobs over-saturated
-the box: load average climbed to 27 on 22 cores and the LTM step time
-quadrupled — 18 s/ep vs the 4.5 s/ep baseline. Stopped Atari at 13:06
-and trashed its partial output. Will relaunch once LTM finishes; net
-wall-clock is the same, but the LTM result lands cleaner and sooner.)
+System utilisation under parallel run: load avg ~15 on 22 cores
+(LTM ≈7 cores XPU+CPU, Atari ≈3 cores capped). LTM steps at ~6 s/ep
+vs the 4.7 s/ep solo baseline — a 30% slowdown that the parallel
+throughput more than recovers vs running them sequentially.
 
 ## Planned follow-ups (autonomous queue)
 
 After LTM and Atari studies finish, in priority order:
 
-1. **HP delta check** — read `qmode_midpoint` eval (LTM). If
-   `capacity_avg` is within ~5% of HP-search champion (3.510), the
-   target-net + quadrature fixes did not shift the HP landscape and we
-   keep the champion config. If meaningfully worse, kick off a
-   focused HP re-search on the axes most affected by the
-   target-net fix: `lr` (1e-4, 3e-4, 1e-3) and `tau` (0.005, 0.01,
-   0.05), plus a hard-update variant (`tau=1.0` + finite
-   `target_update_freq`). Budget: 6 runs × 500 ep × 1 seed ≈ 5h on
-   XPU.
+1. **HP refresh** (configs + orchestrator already in `configs/hp_refresh/`
+   and `src/tools/run_hp_refresh.py`) — re-tests the champion plus
+   five target-net-sensitive variants (`lr` ∈ {1e-3, 3e-4}, `tau` ∈
+   {0.005, 0.05}, hard update with `tau=1.0`). 500 ep × 1 seed each,
+   ~70 min on XPU. Done unconditionally, not just on regression — the
+   `tau` and hard-update axes are genuinely new since the target-net
+   fix.
 
 2. **Atari generalisation** — re-run the 5-variant study on Pong and
-   SpaceInvaders to verify the LTM finding generalises. ~5h per game
-   on CPU.
+   SpaceInvaders. ~5h per game on CPU (with `--threads 3` if LTM
+   follow-ups are running on XPU).
 
-3. **Trapezoidal q_max tuning** — if trapezoidal lands competitive on
+3. **Top-2 multi-seed re-validation** — pick the two best LTM
+   variants by `capacity_avg` (HOF/RLF tie-break) and run them 3
+   seeds × 2000 ep. ~5h on XPU per variant.
+
+4. **Trapezoidal q_max tuning** — if trapezoidal lands competitive on
    LTM, measure the empirical Q-value range from the `qmode_midpoint`
    trained model and re-run trapezoidal with a tighter `q_max`. One
    variant, 2000 ep, ~3h on XPU.
 
-4. **Top-2 multi-seed re-validation** — pick the two best variants by
-   `capacity_avg` (HOF/RLF tie-break) and run them 3 seeds × 2000 ep.
-   ~5h on XPU per variant.
-
 5. **Quantile-distribution plots** — for each trained model, sample
    states and dump `plot_quantiles` figures. Cheap (minutes).
+   Aggregator plots already ready:
+   `src/tools/plot_quantile_mode_study.py`,
+   `src/tools/plot_atari_study.py`.
 
 Document all of these as they complete.
 
