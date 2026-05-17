@@ -141,18 +141,24 @@ class QRDQNAgent(BaseAgent):
             best_next_predicted = next_predicted[
                 range(batch_size), best_next_actions
             ]  # [B, num_predicted]
+            # Assemble the full target distribution. For trapezoidal this
+            # prepends q_min and appends q_max; for other schemes it is a
+            # no-op.
+            best_next_assembled = self.scheme.assemble_full(
+                best_next_predicted
+            )  # [B, num_total]
             target_quantiles = (
                 rewards
-                + (1 - dones) * self.gamma * best_next_predicted
-            )
+                + (1 - dones) * self.gamma * best_next_assembled
+            )  # [B, num_total]
 
         current_all = self.q_net(states)
         current_quantiles = current_all[
             range(batch_size), actions.squeeze(1)
         ]  # [B, num_predicted]
 
-        # Quantile Huber loss across all (current x target) pairs.
-        # diff: [B, num_predicted_current, num_predicted_target]
+        # Pinball matrix over (predictor i, target j).
+        # diff: [B, num_predicted, num_total]
         diff = target_quantiles.unsqueeze(1) - current_quantiles.unsqueeze(2)
         abs_diff = diff.abs()
         huber_loss = torch.where(
@@ -160,11 +166,24 @@ class QRDQNAgent(BaseAgent):
             0.5 * diff.pow(2),
             self.kappa * (abs_diff - 0.5 * self.kappa),
         )
-
-        # tau is over the PREDICTOR axis (dim=1), shape [num_predicted].
         tau = self.scheme.tau.view(1, -1, 1)
-        weight = torch.abs(tau - (diff.detach() < 0).float())
-        loss = (weight * huber_loss).mean()
+        asymmetry = torch.abs(tau - (diff.detach() < 0).float())
+        pinball_loss = asymmetry * huber_loss  # [B, num_predicted, num_total]
+
+        # Weighted aggregation. For non-uniform schemes (Gauss-Legendre,
+        # trapezoidal) a plain .mean() silently reverts to a uniform
+        # midpoint aggregator and discards the quadrature.
+        #   - target axis (dim=2) uses mean_weights, the probability mass
+        #     of each atom in the target distribution.
+        #   - predictor axis (dim=1) uses predictor_weights, the integration
+        #     weights for the loss across tau values.
+        # For midpoint these both reduce to uniform 1/N and the result is
+        # identical to .mean() — backward compatible.
+        target_w = self.scheme.mean_weights.view(1, 1, -1)
+        per_predictor_loss = (pinball_loss * target_w).sum(dim=2)  # [B, P]
+        pred_w = self.scheme.predictor_weights.view(1, -1)
+        per_sample_loss = (per_predictor_loss * pred_w).sum(dim=1)  # [B]
+        loss = per_sample_loss.mean()
 
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()

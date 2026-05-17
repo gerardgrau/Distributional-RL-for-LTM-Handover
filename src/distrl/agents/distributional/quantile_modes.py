@@ -35,25 +35,39 @@ class QuantileScheme:
     """Concrete quantile placement and integration weights.
 
     Attributes:
-        tau:            Quantile fractions used in the QR loss
-                        (only for the network-predicted quantiles). Shape
-                        [num_predicted].
-        mean_weights:   Integration weights for the FULL distribution (i.e.,
-                        predicted + fixed endpoints if any). Sum to 1. Shape
-                        [num_total].
-        cvar_weights:   Integration weights for the bottom-risk_fraction lobe
-                        (zero above the cutoff), renormalized so they sum to
-                        1 over the cutoff. Shape [num_total]. None if no
-                        risk_fraction was provided.
-        num_predicted:  How many quantile values the network's head outputs.
-        fixed_lo:       Value of F^{-1}(0). Only set for trapezoidal mode.
-        fixed_hi:       Value of F^{-1}(1). Only set for trapezoidal mode.
-        mode:           Human-readable name (for logging / checkpoints).
+        tau:                Quantile fractions used in the QR loss (only for
+                            the network-predicted quantiles). Shape
+                            [num_predicted].
+        mean_weights:       Integration weights for the FULL target
+                            distribution (predicted + fixed endpoints if
+                            any). Sum to 1. Shape [num_total]. Used both
+                            for E[Z] aggregation and as the target-axis
+                            probability mass in the QR Huber loss.
+        cvar_weights:       Integration weights for the bottom-risk_fraction
+                            lobe (zero above the cutoff), renormalised so
+                            they sum to 1 over the cutoff. Shape
+                            [num_total]. None if no risk_fraction was
+                            provided.
+        predictor_weights:  Aggregation weights over the predictor-axis of
+                            the QR loss (sums to 1). For midpoint /
+                            gauss_legendre / truncate_upper this equals
+                            mean_weights (predictor and target supports
+                            coincide). For trapezoidal, predictor_weights
+                            is uniform over the N-2 interior nodes (the
+                            fixed endpoints appear in the target axis but
+                            are not learned, so they get no predictor
+                            weight). Shape [num_predicted].
+        num_predicted:      How many quantile values the network's head
+                            outputs.
+        fixed_lo:           Value of F^{-1}(0). Only set for trapezoidal.
+        fixed_hi:           Value of F^{-1}(1). Only set for trapezoidal.
+        mode:               Human-readable name (for logging / checkpoints).
     """
 
     tau: torch.Tensor
     mean_weights: torch.Tensor
     cvar_weights: torch.Tensor | None
+    predictor_weights: torch.Tensor
     num_predicted: int
     fixed_lo: float | None
     fixed_hi: float | None
@@ -181,6 +195,7 @@ def build_scheme(
             tau=tau,
             mean_weights=weights,
             cvar_weights=weights.clone(),
+            predictor_weights=weights.clone(),
             num_predicted=k,
             fixed_lo=None,
             fixed_hi=None,
@@ -204,6 +219,7 @@ def build_scheme(
             tau=tau,
             mean_weights=weights,
             cvar_weights=cvar_w,
+            predictor_weights=weights.clone(),
             num_predicted=n,
             fixed_lo=None,
             fixed_hi=None,
@@ -230,6 +246,7 @@ def build_scheme(
             tau=tau,
             mean_weights=weights,
             cvar_weights=cvar_w,
+            predictor_weights=weights.clone(),
             num_predicted=num_quantiles,
             fixed_lo=None,
             fixed_hi=None,
@@ -253,6 +270,13 @@ def build_scheme(
             interior_tau_np, dtype=torch.float32, device=device,
         )
         weights = torch.tensor(full_w_np, dtype=torch.float32, device=device)
+        # Predictor axis: only the N-2 interior nodes are learned. Their
+        # trapezoidal weights are all 1/(n-1), so renormalising to sum to 1
+        # gives a uniform 1/(n-2). Stored explicitly for clarity.
+        predictor_w_np = np.full(n - 2, 1.0 / (n - 2), dtype=np.float64)
+        predictor_weights = torch.tensor(
+            predictor_w_np, dtype=torch.float32, device=device,
+        )
         cvar_w = (
             _compute_cvar_weights(full_tau, weights, risk_fraction)
             if risk_type == "cvar"
@@ -262,6 +286,7 @@ def build_scheme(
             tau=interior_tau,
             mean_weights=weights,
             cvar_weights=cvar_w,
+            predictor_weights=predictor_weights,
             num_predicted=n - 2,
             fixed_lo=float(q_min),
             fixed_hi=float(q_max),

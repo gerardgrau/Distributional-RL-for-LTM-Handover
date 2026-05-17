@@ -27,24 +27,65 @@ def test_shapes_and_weights() -> None:
     print("test_shapes_and_weights")
     device = torch.device("cpu")
     N = 50
+    one = torch.tensor(1.0)
 
     s = build_scheme("midpoint", N, device)
     _check("midpoint num_predicted=N", s.num_predicted == N)
-    _check("midpoint weights sum=1", torch.isclose(s.mean_weights.sum(), torch.tensor(1.0)))
+    _check("midpoint mean_w sum=1", torch.isclose(s.mean_weights.sum(), one))
+    _check("midpoint pred_w sum=1", torch.isclose(s.predictor_weights.sum(), one))
+    _check("midpoint pred_w == mean_w", torch.allclose(s.predictor_weights, s.mean_weights))
 
     s = build_scheme("gauss_legendre", N, device)
     _check("gauss_legendre num_predicted=N", s.num_predicted == N)
-    _check("gauss_legendre weights sum=1", torch.isclose(s.mean_weights.sum(), torch.tensor(1.0)))
+    _check("gauss_legendre mean_w sum=1", torch.isclose(s.mean_weights.sum(), one))
+    _check("gauss_legendre pred_w sum=1", torch.isclose(s.predictor_weights.sum(), one))
+    _check("gauss_legendre pred_w == mean_w", torch.allclose(s.predictor_weights, s.mean_weights))
     _check("gauss_legendre tau monotonic", bool((s.tau[1:] > s.tau[:-1]).all()))
+    _check("gauss_legendre weights NOT uniform",
+           not torch.allclose(s.mean_weights, torch.full_like(s.mean_weights, 1.0/N)))
 
     s = build_scheme("trapezoidal", N, device, q_min=0.0, q_max=10.0)
     _check("trapezoidal num_predicted=N-2", s.num_predicted == N - 2)
-    _check("trapezoidal weights sum=1", torch.isclose(s.mean_weights.sum(), torch.tensor(1.0)))
+    _check("trapezoidal mean_w sum=1", torch.isclose(s.mean_weights.sum(), one))
+    _check("trapezoidal pred_w sum=1", torch.isclose(s.predictor_weights.sum(), one))
+    _check("trapezoidal pred_w uniform 1/(N-2)",
+           torch.allclose(s.predictor_weights, torch.full((N-2,), 1.0/(N-2))))
     _check("trapezoidal has fixed endpoints", s.has_fixed_endpoints)
 
     s = build_scheme("midpoint", N, device, risk_type="cvar", risk_fraction=0.1, truncate_upper=True)
     _check("truncate_upper k = ceil(N*rf)", s.num_predicted == math.ceil(N * 0.1))
+    _check("truncate_upper pred_w sum=1", torch.isclose(s.predictor_weights.sum(), one))
     _check("truncate_upper tau in [0, rf]", float(s.tau.max()) <= 0.1)
+
+
+def test_loss_backward_compat() -> None:
+    """The new weighted loss must produce identical numbers for midpoint
+    (uniform weights) and differ for gauss_legendre (non-uniform)."""
+    print("test_loss_backward_compat")
+    torch.manual_seed(123)
+    B, N = 4, 20
+    pinball_loss = torch.rand(B, N, N)
+
+    # Old plain .mean() over (B, predictor, target).
+    old = pinball_loss.mean()
+
+    # New: weighted sum over predictor and target, then batch mean.
+    device = torch.device("cpu")
+    s = build_scheme("midpoint", N, device)
+    per_pred = (pinball_loss * s.mean_weights.view(1, 1, -1)).sum(dim=2)
+    per_sample = (per_pred * s.predictor_weights.view(1, -1)).sum(dim=1)
+    new_midpoint = per_sample.mean()
+    _check("midpoint .mean() == weighted sum", torch.allclose(old, new_midpoint),
+           f"old={float(old):.6f}, new={float(new_midpoint):.6f}")
+
+    # Gauss-Legendre should DIFFER from the uniform .mean().
+    s_gl = build_scheme("gauss_legendre", N, device)
+    per_pred = (pinball_loss * s_gl.mean_weights.view(1, 1, -1)).sum(dim=2)
+    per_sample = (per_pred * s_gl.predictor_weights.view(1, -1)).sum(dim=1)
+    new_gl = per_sample.mean()
+    _check("gauss_legendre loss differs from uniform .mean()",
+           not torch.allclose(old, new_gl, atol=1e-4),
+           f"old={float(old):.6f}, gl={float(new_gl):.6f}")
 
 
 def test_integration_correctness() -> None:
@@ -105,6 +146,7 @@ def main() -> None:
     test_integration_correctness()
     test_cvar_weights()
     test_assemble_full_trapezoidal()
+    test_loss_backward_compat()
     print("\nAll quantile_modes smoke tests passed.")
 
 
