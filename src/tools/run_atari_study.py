@@ -17,6 +17,8 @@ import subprocess
 import sys
 import time
 
+import yaml
+
 DEFAULT_VARIANTS = [
     "qrdqn_midpoint",
     "qrdqn_gauss_legendre",
@@ -26,6 +28,12 @@ DEFAULT_VARIANTS = [
 ]
 
 CFG_DIR = "configs/atari"
+
+
+def detect_agent_type(cfg_path: str) -> str:
+    with open(cfg_path) as f:
+        cfg = yaml.safe_load(f)
+    return str(cfg.get("agent", {}).get("type", "qrdqn"))
 
 
 def find_latest_run(game: str, description: str) -> str | None:
@@ -51,6 +59,7 @@ def run_one(variant: str, game: str, frames: int, device: str, seed: int) -> tup
     cfg = os.path.join(CFG_DIR, f"{variant}.yaml")
     if not os.path.exists(cfg):
         raise FileNotFoundError(cfg)
+    agent_type = detect_agent_type(cfg)
     cmd = [
         "venv-RL/bin/python3", "src/atari_main.py",
         "--config", cfg,
@@ -59,6 +68,7 @@ def run_one(variant: str, game: str, frames: int, device: str, seed: int) -> tup
         "--device", device,
         "--seed", str(seed),
         "--description", variant,
+        "--agent", agent_type,
     ]
     print(f"\n>>> {variant} on {game}")
     print("    " + " ".join(cmd))
