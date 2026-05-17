@@ -129,12 +129,12 @@ HOF/RLF beyond the Phase 2 baseline.
 
 | # | ID                | Override over Phase 2 base                     | Status   | capacity_avg | hof_rate | rlf_rate | ho_rate | pp_rate | Notes |
 |---|-------------------|------------------------------------------------|----------|--------------|----------|----------|---------|---------|-------|
-| 1 | x_eps_end_001     | `agent.epsilon_end: 0.01`                      | planned  |              |          |          |         |         | more committed greedy at end of training |
-| 2 | x_tau_0005        | `agent.tau: 0.005`                             | planned  |              |          |          |         |         | slower target-net update; should reduce TD oscillation |
-| 3 | x_batch_512       | `agent.batch_size: 512`                        | planned  |              |          |          |         |         | larger batch → smoother gradient updates |
+| 1 | x_eps_end_001     | `agent.epsilon_end: 0.01`                      | deferred |              |          |          |         |         | user redirected the laptop to Tasks 1/2 (quantile-mode + Atari); see skip log row "extras post-x_gamma_095_long" |
+| 2 | x_tau_0005        | `agent.tau: 0.005`                             | deferred |              |          |          |         |         | same deferral |
+| 3 | x_batch_512       | `agent.batch_size: 512`                        | deferred |              |          |          |         |         | same deferral |
 | 4 | x_hidden_256_long | `agent.hidden_dims: [256, 256]`                | done     | 3.496        | 2.134    | 0.251    | 15.518  | 2.104   | neutral vs champion (within single-seed noise); wider net not a bottleneck even at 2000 ep |
-| 5 | x_gamma_095_long  | `agent.gamma: 0.95`                            | planned  |              |          |          |         |         | revisit higher gamma at 2000 ep (lost at 500 ep, likely undertrained) |
-| 6 | x_ma_window_25    | `ho_state.moving_average_window: 25`           | planned  |              |          |          |         |         | tighter state smoothing → faster reaction to channel changes |
+| 5 | x_gamma_095_long  | `agent.gamma: 0.95`                            | done     | 3.473        | 2.993    | 0.312    | 15.759  | 1.901   | cap 1% LOWER and HOF 39% HIGHER than champion — gamma=0.9 still wins at 2000 ep, ruling out the "high gamma needs longer training" hypothesis from Phase 1 |
+| 6 | x_ma_window_25    | `ho_state.moving_average_window: 25`           | deferred |              |          |          |         |         | same deferral |
 
 **Skip rule**: drop any extra whose direction is already obviously bad based
 on Phase 1 (e.g. if Phase 2 #A with lr=1e-4 still has HOF noticeably higher
@@ -162,14 +162,25 @@ them into this document beyond a final pointer.
 | Variant ID | Phase | Reason | Justifying prior result(s) |
 |------------|-------|--------|----------------------------|
 | p2_lr_3e-4 | 2     | Phase 2 #A (lr=1e-4) returned a very clean 3-seed result (capacity 3.510 ± 0.007, HOF 2.154 ± 0.243). At full budget #A already beats Phase-1 single-seed #A on every metric. Running #B for 7h to re-confirm the Phase-1 capacity tie is lower info-gain than spending that time on new dimensions (extras). The user-stated goal is the most optimum HPs; extras explore axes never tested. | Phase 2 #A row above; Phase 1 #3 vs #4 (3e-4 had higher HOF 3.26 vs 2.86) |
+| Extras 1, 2, 3, 6 | 2.5 | User pivoted the laptop to Tasks 1 (non-uniform quantile positioning) and 2 (Atari benchmark) once the two highest-info extras (hidden_256_long and gamma_095_long) had landed. Both came in neutral-or-worse vs the champion, suggesting the remaining axes (eps_end, tau, batch_size, MA window) are also unlikely to shift the picture by more than the single-seed noise floor; their info value is now lower than starting the quantile-mode study which directly feeds the paper. | Extras 4 and 5 results above; champion's 3-seed variance (cap stdev 0.007, HOF stdev 0.24) sets the noise floor |
 
-## Final ranking
+## Final ranking (HP search closed)
 
-Filled at end of Phase 2.
+Single-seed 2000-episode evals, ranked by capacity_avg with HOF/RLF
+tie-breakers.
 
-| Rank | ID | capacity_avg | hof_rate | rlf_rate | ho_rate | pp_rate | Why |
-|------|----|--------------|----------|----------|---------|---------|-----|
-|      |    |              |          |          |         |         |     |
+| Rank | ID                | capacity_avg | hof_rate | rlf_rate | ho_rate | pp_rate | Why |
+|------|-------------------|--------------|----------|----------|---------|---------|-----|
+| 1    | p2_lr_1e-4        | **3.510**    | **2.154**| **0.257**| 16.345  | 2.086   | **CHAMPION** — 3-seed mean, tiny variance, best cap + best HOF + best RLF. Locked in as the QR-DQN starting point for the quantile-mode study and Phase 3 ablations. |
+| 2    | x_hidden_256_long | 3.496        | 2.134    | 0.251    | 15.518  | 2.104   | neutral; wider net not a bottleneck. HOF marginally below champion's, but within single-seed noise — would need 3-seed re-run to call it a real tie. |
+| 3    | x_gamma_095_long  | 3.473        | 2.993    | 0.312    | 15.759  | 1.901   | gamma=0.95 still loses at full budget — kills the "needs more training" hypothesis from Phase 1. |
+
+**Conclusion**: HPs are locked at the champion settings (`lr=1e-4`,
+`gamma=0.9`, `hidden_dims=[128, 128]`, `epsilon_mult=0.995`,
+`num_quantiles=50`, `risk_type=mean`, 2000 ep). Further QR-DQN
+exploration moves to the quantile-positioning and risk axes — see
+`notes/quantile_mode_study.md` on the `feature/distributional-improvements`
+branch.
 
 ## Update protocol
 
