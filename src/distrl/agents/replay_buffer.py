@@ -33,12 +33,22 @@ class ReplayBuffer:
         if isinstance(action_shape, int):
             action_shape = (action_shape,)
 
-        # Allocate on CPU and pin
-        self.state = torch.zeros((max_size, *state_shape), dtype=state_dtype, device=self.storage_device).pin_memory()
-        self.action = torch.zeros((max_size, *action_shape), dtype=torch.long, device=self.storage_device).pin_memory()
-        self.reward = torch.zeros((max_size, 1), dtype=torch.float32, device=self.storage_device).pin_memory()
-        self.next_state = torch.zeros((max_size, *state_shape), dtype=state_dtype, device=self.storage_device).pin_memory()
-        self.done = torch.zeros((max_size, 1), dtype=torch.float32, device=self.storage_device).pin_memory()
+        # Pinning only buys speed when the target device is a non-CPU
+        # accelerator (cuda/xpu) AND the total pinned tensors stay under the
+        # OS memlock limit. Skip it for CPU targets — the copy is in-process
+        # so pinning is wasted, and large uint8 image buffers can segfault
+        # the process if they exceed RLIMIT_MEMLOCK.
+        pin = self.target_device.type != "cpu"
+
+        def alloc(shape: tuple[int, ...], dtype: torch.dtype) -> torch.Tensor:
+            t = torch.zeros(shape, dtype=dtype, device=self.storage_device)
+            return t.pin_memory() if pin else t
+
+        self.state = alloc((max_size, *state_shape), state_dtype)
+        self.action = alloc((max_size, *action_shape), torch.long)
+        self.reward = alloc((max_size, 1), torch.float32)
+        self.next_state = alloc((max_size, *state_shape), state_dtype)
+        self.done = alloc((max_size, 1), torch.float32)
 
     def push(
         self, 
