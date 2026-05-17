@@ -48,8 +48,8 @@ Or run a single variant directly:
 | 1 | qmode_midpoint      | done     | 3.515        | 1.989    | 0.258    | 16.363  | 2.093   | bmk_2026-05-17_3; within noise of HP champion (3.510 / 2.154 / 0.257) — corrected code does not regress |
 | 2 | qmode_gauss_legendre| done     | 3.497        | 2.417    | 0.275    | 16.121  | 2.058   | bmk_2026-05-17_4; ~0.5% cap regression, **HOF +21% worse** — non-uniform quantile placement does NOT help on LTM |
 | 3 | qmode_trapezoidal   | done     | **3.528**    | **1.885**| **0.235**| 16.704  | 2.156   | bmk_2026-05-17_5; **leads all three primary metrics**. Fixed q_min=0/q_max=15 endpoints appear to regularise the extreme quantile estimates. |
-| 4 | qmode_cvar_full     | running  |              |          |          |         |         |       |
-| 5 | qmode_cvar_truncated| pending  |              |          |          |         |         |       |
+| 4 | qmode_cvar_full     | done     | 3.492        | 2.502    | 0.237    | 18.511  | 2.083   | bmk_2026-05-17_6; **worst capacity + HOF**, but RLF ties trapezoidal. HO rate jumps 13% — CVaR action selection triggers many more (and on net less-justified) handovers. |
+| 5 | qmode_cvar_truncated| running  |              |          |          |         |         |       |
 
 ## Things to revisit if results are tight
 
