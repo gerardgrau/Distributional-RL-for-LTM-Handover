@@ -45,10 +45,10 @@ Or run a single variant directly:
 
 | # | ID                  | Status   | capacity_avg | hof_rate | rlf_rate | ho_rate | pp_rate | Notes |
 |---|---------------------|----------|--------------|----------|----------|---------|---------|-------|
-| 1 | qmode_midpoint      | done     | **3.515**    | **1.989**| **0.258**| 16.363  | 2.093   | bmk_2026-05-17_3; within noise of HP champion (3.510 / 2.154 / 0.257) — corrected code does not regress |
+| 1 | qmode_midpoint      | done     | 3.515        | 1.989    | 0.258    | 16.363  | 2.093   | bmk_2026-05-17_3; within noise of HP champion (3.510 / 2.154 / 0.257) — corrected code does not regress |
 | 2 | qmode_gauss_legendre| done     | 3.497        | 2.417    | 0.275    | 16.121  | 2.058   | bmk_2026-05-17_4; ~0.5% cap regression, **HOF +21% worse** — non-uniform quantile placement does NOT help on LTM |
-| 3 | qmode_trapezoidal   | running  |              |          |          |         |         |       |
-| 4 | qmode_cvar_full     | pending  |              |          |          |         |         |       |
+| 3 | qmode_trapezoidal   | done     | **3.528**    | **1.885**| **0.235**| 16.704  | 2.156   | bmk_2026-05-17_5; **leads all three primary metrics**. Fixed q_min=0/q_max=15 endpoints appear to regularise the extreme quantile estimates. |
+| 4 | qmode_cvar_full     | running  |              |          |          |         |         |       |
 | 5 | qmode_cvar_truncated| pending  |              |          |          |         |         |       |
 
 ## Things to revisit if results are tight
