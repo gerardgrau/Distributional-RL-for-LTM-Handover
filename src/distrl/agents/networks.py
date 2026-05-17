@@ -2,6 +2,42 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+class CNNTrunk(nn.Module):
+    """Nature-DQN convolutional trunk for 84x84 frame-stacked Atari input.
+
+    Expects input of shape [B, in_channels, 84, 84] with pixel values in
+    either [0, 255] uint8 or [0, 1] float. uint8 inputs are normalized
+    inline so downstream code can stay device-agnostic.
+    """
+
+    def __init__(self, in_channels: int, output_dim: int = 512) -> None:
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, 32, kernel_size=8, stride=4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU(inplace=True),
+        )
+        self.flatten = nn.Flatten()
+        self.fc = nn.Sequential(
+            nn.Linear(64 * 7 * 7, output_dim),
+            nn.ReLU(inplace=True),
+        )
+        self.output_dim = output_dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dtype == torch.uint8:
+            x = x.float() / 255.0
+        elif x.max() > 1.5:
+            x = x / 255.0
+        x = self.conv(x)
+        x = self.flatten(x)
+        return self.fc(x)
+
+
 class MLPTrunk(nn.Module):
     """
     Common MLP-based feature extractor for vector observations.
