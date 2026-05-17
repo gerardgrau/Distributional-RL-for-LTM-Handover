@@ -16,11 +16,20 @@
 - [x] Dashboard: BS positions hexagonals + sector patterns + MCS panel + HO markers.
 
 # Feina oberta:
-- Risk-aware avaluació: passar CVaR `k ∈ {0.05, 0.1, 0.25, 0.5}` per veure
-  l'impacte real (és el sweep ja implementat a `tools/run_cvar_study.py`).
-- Millorar plots de quantils per als models de risc.
+- Risk-aware avaluació: passar CVaR `k ∈ {0.05, 0.1, 0.25, 0.5}` per veure l'impacte real (és el sweep ja implementat a `tools/run_cvar_study.py`).
+- Millorar plots de quantils per als models de risc. ==> ensenyar com s'està fent la tria de coses, quin percentatge es fa servir. Mostrar el "Q-value" (e.g. la mitjana, o el CVaR) al plot
 - Mètrica composta (e.g. HOF · PP) a maximitzar — complicat, posposable.
 - Escriure el document final: títol, subtítol, estructura.
+
+- Quantile positioning (e.g. non-uniform, gaussian weights, only use bottom k quantiles (with risk mode)???)
+- Provar els meus models al atari gym (per tenir una idea de com de bé funcionen allà). Fer un benchmark dels models de risc i de les quadratures no uniformes
+
+
+# Tasques que potser no em dona temps:
+- Provar xarxes FQF, IQN?
+
+
+
 
 # Paritat amb el paper — estat actual (2026-05-16)
 
