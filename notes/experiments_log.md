@@ -73,7 +73,7 @@ Document all of these as they complete.
 | Variant | Status | cap_avg | hof_rate | rlf_rate | ho_rate | pp_rate | reliability | Notes |
 |---------|--------|---------|----------|----------|---------|---------|-------------|-------|
 | qmode_midpoint | **done** | **3.515** | **1.989** | **0.258** | 16.363 | 2.093 | 95.528 | Essentially equal to HP champion (3.510 / 2.154 / 0.257) — corrected code does not regress the baseline. Even slightly better on HOF and reliability. |
-| qmode_gauss_legendre | running |  |  |  |  |  |  | uses corrected QR-quadrature loss |
+| qmode_gauss_legendre | done | 3.497 | 2.417 | 0.275 | 16.121 | 2.058 | 95.422 | Slight cap regression (-0.5%), HOF +21% worse. Non-uniform quantile placement does NOT improve LTM. Tentative interpretation: midpoint is already sufficiently accurate for the Q-value range in this task, and GL's quadrature advantage doesn't surface. |
 | qmode_trapezoidal | pending |  |  |  |  |  |  | uses corrected loss + assembled target |
 | qmode_cvar_full | pending |  |  |  |  |  |  | midpoint base, CVaR(0.1) action selection |
 | qmode_cvar_truncated | pending |  |  |  |  |  |  | k=5 quantiles in [0, 0.1] |
