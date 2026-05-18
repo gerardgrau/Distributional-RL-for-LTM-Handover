@@ -25,7 +25,9 @@
 - Provar els meus models al atari gym (per tenir una idea de com de bé funcionen allà). Fer un benchmark dels models de risc i de les quadratures no uniformes
 
 
+
 # Tasques que potser no em dona temps:
+- Provar quadratura de simpson
 - Provar xarxes FQF, IQN?
 
 
