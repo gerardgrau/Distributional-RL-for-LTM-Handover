@@ -110,8 +110,8 @@ echoing its 2nd-place LTM result. Treat as "ordering, not absolute".
 
 | Variant | Status | final_eval | wall-clock | Notes |
 |---------|--------|------------|------------|-------|
-| qrdqn_midpoint | running |  |  | |
-| qrdqn_gauss_legendre | pending |  |  | |
+| qrdqn_midpoint | done | +7.0 | 124 min | learning! Boxing range is [-100, +100], random ≈ -25, so +7 is real signal |
+| qrdqn_gauss_legendre | running |  |  | |
 | qrdqn_trapezoidal | pending |  |  | |
 | qrdqn_cvar_full | pending |  |  | |
 | qrdqn_cvar_truncated | pending |  |  | |
