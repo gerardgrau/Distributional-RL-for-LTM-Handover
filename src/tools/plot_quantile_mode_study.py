@@ -147,7 +147,7 @@ def write_csv(results: dict[str, dict[str, float]], path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fieldnames = ["variant"] + [m[0] for m in METRICS]
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for v in VARIANTS:
             row: dict[str, Any] = {"variant": v}

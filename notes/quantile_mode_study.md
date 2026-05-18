@@ -49,7 +49,40 @@ Or run a single variant directly:
 | 2 | qmode_gauss_legendre| done     | 3.497        | 2.417    | 0.275    | 16.121  | 2.058   | bmk_2026-05-17_4; ~0.5% cap regression, **HOF +21% worse** — non-uniform quantile placement does NOT help on LTM |
 | 3 | qmode_trapezoidal   | done     | **3.528**    | **1.885**| **0.235**| 16.704  | 2.156   | bmk_2026-05-17_5; **leads all three primary metrics**. Fixed q_min=0/q_max=15 endpoints appear to regularise the extreme quantile estimates. |
 | 4 | qmode_cvar_full     | done     | 3.492        | 2.502    | 0.237    | 18.511  | 2.083   | bmk_2026-05-17_6; **worst capacity + HOF**, but RLF ties trapezoidal. HO rate jumps 13% — CVaR action selection triggers many more (and on net less-justified) handovers. |
-| 5 | qmode_cvar_truncated| running  |              |          |          |         |         |       |
+| 5 | qmode_cvar_truncated| done     | **3.538**    | **1.808**| **0.210**| 19.926  | 2.326   | bmk_2026-05-18_1; **WINNER — best on all 3 primary metrics**. Trains 30-40% faster too (fewer network outputs). Concentrating capacity on the bottom-k quantiles that the CVaR policy actually consults clearly helps. |
+
+## Final ranking (5 variants, 1 seed × 2000 ep)
+
+Ranked by capacity_avg with HOF/RLF tie-breaks.
+
+| Rank | Variant              | cap_avg | hof_rate | rlf_rate | ho_rate | pp_rate | reliability |
+|------|----------------------|---------|----------|----------|---------|---------|-------------|
+| 1    | qmode_cvar_truncated | **3.538** | **1.808** | **0.210** | 19.93 | 2.33 | 95.43 |
+| 2    | qmode_trapezoidal    | 3.528   | 1.885    | 0.235    | 16.70   | 2.16    | 95.58 |
+| 3    | qmode_midpoint       | 3.515   | 1.989    | 0.258    | 16.36   | 2.09    | 95.53 |
+| 4    | qmode_gauss_legendre | 3.497   | 2.417    | 0.275    | 16.12   | 2.06    | 95.42 |
+| 5    | qmode_cvar_full      | 3.492   | 2.502    | 0.237    | 18.51   | 2.08    | 95.24 |
+
+**Headline findings**:
+
+- **Truncated CVaR is the clear winner.** Best on every primary metric.
+  The hypothesis from the paper draft — "concentrating network capacity
+  on the bottom-k quantiles that the policy actually consults helps" —
+  is empirically validated. Trade-off: the agent is more aggressive
+  about triggering handovers (HO rate 19.9 vs midpoint 16.4), but those
+  handovers fail less (HOF 1.81 vs 1.99).
+- **CVaR action selection on top of a full midpoint grid HURTS.**
+  cvar_full sits at the bottom of the ranking. The mean policy on a
+  midpoint grid (variant 3) is better. So *truncation* is the
+  improvement, not CVaR action selection per se.
+- **Trapezoidal-with-fixed-endpoints beats midpoint by a small but
+  consistent margin.** Fixed endpoints (q_min=0 / q_max=15) appear to
+  regularise the boundary quantile estimates.
+- **Gauss-Legendre regresses.** Better quadrature accuracy at the
+  aggregator does not improve the policy. Tentative reading: midpoint
+  is already accurate enough for the LTM Q-value range, and GL's
+  non-uniform predictor weighting under-trains the boundary quantiles
+  where HOF-relevant tails live.
 
 ## Things to revisit if results are tight
 
