@@ -15,3 +15,6 @@ __pycache__/
 /conductor
 /notes/meeting-notes.md
 /notes/conversation-summary.md
+
+# Per-run operational logs (overnight queues, parity-check stdout, etc.)
+/logs/
