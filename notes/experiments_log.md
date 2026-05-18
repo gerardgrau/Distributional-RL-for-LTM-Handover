@@ -141,8 +141,8 @@ echoing its 2nd-place LTM result. Treat as "ordering, not absolute".
 |---------|--------|------------|------------|-------|
 | qrdqn_midpoint | done | +7.0 | 124 min | learning! Boxing range is [-100, +100], random ≈ -25, so +7 is real signal |
 | qrdqn_gauss_legendre | done | +1.2 | 124 min | regresses vs midpoint, same direction as LTM |
-| qrdqn_trapezoidal | running |  |  | |
-| qrdqn_cvar_full | pending |  |  | |
+| qrdqn_trapezoidal | done | +3.4 | 124 min | between midpoint and GL — different from LTM ordering. Plausibly because q_max=50 is loose for Boxing's tighter return range. |
+| qrdqn_cvar_full | running |  |  | |
 | qrdqn_cvar_truncated | pending |  |  | |
 
 ## Open questions / known caveats
