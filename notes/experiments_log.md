@@ -30,6 +30,35 @@ System utilisation under parallel run: load avg ~15 on 22 cores
 vs the 4.7 s/ep solo baseline — a 30% slowdown that the parallel
 throughput more than recovers vs running them sequentially.
 
+## HP refresh results (500 ep × 1 seed under the corrected code)
+
+Final ranking by capacity_avg:
+
+| Rank | Variant | cap_avg | hof_rate | rlf_rate | Notes |
+|---|---|---|---|---|---|
+| **1** | **hard_update** (tau=1.0, freq=1000) | **3.503** | **2.75** | **0.232** | best — hard updates beat soft Polyak at this budget |
+| 2 | lr_3e-4 | 3.487 | 2.81 | 0.307 | |
+| 3 | tau_005 | 3.482 | 3.14 | 0.272 | |
+| 4 | tau_0005 | 3.475 | 2.85 | 0.287 | |
+| 5 | baseline_refresh (lr=1e-4, tau=0.01) | 3.473 | 3.13 | 0.278 | reference — champion HPs |
+| 6 | lr_1e-3 | 3.411 | 3.96 | 0.360 | clearly worst — old default is too high under the fix |
+
+**Findings:**
+- **Hard updates win at 500 ep.** This axis was completely
+  unreachable under the previous buggy code (tau<1.0 was a no-op).
+  Now that the target net has real parameters, the choice of update
+  mechanism matters and hard-every-1000-steps beats soft-Polyak(0.01).
+- **lr=3e-4 edges out lr=1e-4 at 500 ep.** A possible flip vs the
+  original HP search (where lr=1e-4 won the HOF tie-break at 500 ep).
+  Could be noise (single seed) or a real shift from the target-net
+  fix. The 2000-ep champion result (qmode_midpoint = 3.515 with
+  lr=1e-4) is still the most-validated point.
+- **lr=1e-3 is clearly bad.** Confirms the original HP search's
+  reading that the previous default was too aggressive.
+
+Treat the HP refresh as "exploratory signal" — 500 ep × 1 seed is
+noisy. The proper validation is multi-seed at 2000 ep.
+
 ## Planned follow-ups (autonomous queue)
 
 After LTM and Atari studies finish, in priority order:
