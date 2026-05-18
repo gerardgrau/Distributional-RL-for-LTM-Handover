@@ -92,13 +92,27 @@ variants' absolute numbers in HP-search terms.
 |---------|--------|------------|------------|-------|
 | qrdqn_midpoint | done (uninformative) | 0.00 | 2h48m | Eval = 0 reward over 5 episodes. The agent never explored enough to break any brick (eps was still ≈0.50 at frame 500k since `epsilon_decay_frames=1_000_000` was set for 1M-frame schedules). Literature QR-DQN runs at 10M+ frames for Breakout. Switching to Pong, which gives reward every 1-2 s of play and is learnable inside a 500k-frame budget. |
 
-### Atari Pong (in-flight, denser reward)
+### Atari Pong (complete)
 
 | Variant | Status | final_eval | wall-clock | Notes |
 |---------|--------|------------|------------|-------|
-| qrdqn_midpoint | running |  |  | replaces the Breakout sweep |
+| qrdqn_midpoint | done | -21.00 | 176 min | did not learn at 500k frames |
+| qrdqn_gauss_legendre | done | -21.00 | 166 min | did not learn |
+| qrdqn_trapezoidal | done | **-19.40** | 154 min | **only variant that beat random play**; won 1-2 points/game |
+| qrdqn_cvar_full | done | -21.00 | 144 min | did not learn |
+| qrdqn_cvar_truncated | done | -21.00 | 131 min | did not learn at 500k frames (lit. uses 1-2M) |
+
+Pong at 500k frames is borderline-too-few for most variants but
+informative: trapezoidal is the only one that escaped random play,
+echoing its 2nd-place LTM result. Treat as "ordering, not absolute".
+
+### Atari Boxing (in-flight, dense reward — learnable at 500k frames)
+
+| Variant | Status | final_eval | wall-clock | Notes |
+|---------|--------|------------|------------|-------|
+| qrdqn_midpoint | running |  |  | |
 | qrdqn_gauss_legendre | pending |  |  | |
-| qrdqn_trapezoidal | pending |  |  | q_max=50, q_min=-50 |
+| qrdqn_trapezoidal | pending |  |  | |
 | qrdqn_cvar_full | pending |  |  | |
 | qrdqn_cvar_truncated | pending |  |  | |
 
