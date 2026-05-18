@@ -57,10 +57,31 @@ METRICS = [
 ]
 
 
+BASELINE_CSV = os.path.join(
+    "results", "final_metrics", "baseline_summary.csv",
+)
+
+
 def find_run(variant: str) -> str | None:
     pattern = os.path.join("results", "benchmarks", f"bmk_*_{variant}")
     matches = sorted(glob.glob(pattern))
     return matches[-1] if matches else None
+
+
+def read_baseline() -> dict[str, float]:
+    """Read the LTM hardcoded-heuristic baseline summary (if present)."""
+    if not os.path.exists(BASELINE_CSV):
+        return {}
+    df = pd.read_csv(BASELINE_CSV)
+    df.columns = [c.strip() for c in df.columns]
+    out: dict[str, float] = {}
+    for _, row in df.iterrows():
+        name = str(row.get("metric", "")).strip()
+        try:
+            out[name] = float(row["mean"])
+        except (ValueError, KeyError):
+            continue
+    return out
 
 
 def read_summary(run_dir: str, seed: int = 42) -> dict[str, float]:
@@ -96,7 +117,11 @@ def print_table(results: dict[str, dict[str, float]]) -> None:
         print(f"{v:<22}{cells}")
 
 
-def plot_grid(results: dict[str, dict[str, float]], save_path: str) -> None:
+def plot_grid(
+    results: dict[str, dict[str, float]],
+    baseline: dict[str, float],
+    save_path: str,
+) -> None:
     cols = 3
     rows = (len(METRICS) + cols - 1) // cols
     fig, axes = plt.subplots(rows, cols, figsize=(cols * 5, rows * 3.2))
@@ -125,6 +150,15 @@ def plot_grid(results: dict[str, dict[str, float]], save_path: str) -> None:
                 best_idx, _ = min(valid, key=lambda iv: iv[1])
             bars[best_idx].set_edgecolor("black")
             bars[best_idx].set_linewidth(2)
+
+        # Overlay the LTM hardcoded-heuristic baseline as a reference line.
+        baseline_val = baseline.get(metric)
+        if baseline_val is not None:
+            ax.axhline(
+                baseline_val, color="#444444", linestyle="--", linewidth=1.4,
+                label=f"LTM baseline = {baseline_val:.3f}",
+            )
+            ax.legend(fontsize=7, loc="best", framealpha=0.85)
 
         ax.set_title(f"{label}  ({'↑ higher better' if direction == 'high' else '↓ lower better'})")
         ax.set_xticks(x_positions)
@@ -179,11 +213,18 @@ def main() -> int:
         if not results:
             return 1
 
+    baseline = read_baseline()
+    if not baseline:
+        print(
+            f"Note: {BASELINE_CSV} not found — plot will not include the "
+            "LTM baseline reference line."
+        )
+
     print()
     print_table(results)
 
     out_dir = os.path.join("results", "final_metrics")
-    plot_grid(results, os.path.join(out_dir, "quantile_mode_study.png"))
+    plot_grid(results, baseline, os.path.join(out_dir, "quantile_mode_study.png"))
     write_csv(results, os.path.join(out_dir, "quantile_mode_study.csv"))
     return 0
 
