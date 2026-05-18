@@ -25,6 +25,16 @@
 - Provar els meus models al atari gym (per tenir una idea de com de bé funcionen allà). Fer un benchmark dels models de risc i de les quadratures no uniformes
 
 
+# Noves tasques:
+- Redactar paper!
+- Potser canviar hiperparàmetres funció reward
+- (2026-05-19) Kappa search + DQN baseline overnight — `scripts/run_overnight_2026-05-19.sh`
+  - kappa ∈ {0.5, 1.0, 2.0} on QR-DQN champion (1 seed × 2000 ep)
+  - DQN baseline at QR-DQN champion HPs (1 seed × 2000 ep)
+  - Stretch: num_quantiles ∈ {10, 100, 200} ablation
+- (2026-05-19) Re-run quantile_mode_study + hp_refresh under new physics if kappa search confirms champion → multi-seed validation for paper
+- 
+
 
 # Tasques que potser no em dona temps:
 - Provar quadratura de simpson

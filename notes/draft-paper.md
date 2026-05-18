@@ -1,6 +1,6 @@
 # Distributional Reinforcement Learning applied to LTM Handover Decisions
 
-**Abstract:** 
+**Abstract:**
 
 **Index Terms:** Distributional Reinforcement Learning, LTM Handover
 
@@ -18,6 +18,8 @@ We can model this problem as a Markov Decision Process (Justificació!)
 
 **Actions:** At each 100ms time step, our algorithm chooses which Sector to connect to. If the sector is the same as before, no HO is performed. If it's different, a HO is performed
 
+PARLAR DEL STATE OF THE ART A LTM HO (CMAB, LMMSE...)
+
 ## Distributional Reinforcement Learning
 
 Distributional Reinforcement Learning is a variant of reinforcement learning, where instead of predicting the Q-value for any state-action pair $Q(x, a)$, we try to predict the actual distribution of this Q-value, by modelling it as a random variable $Z(x, a)$.
@@ -30,7 +32,7 @@ Even if we later only use this variable to choose the best action according to i
 
 In order to predict any arbitrary distribution, diverse algorithms exist. However, most of them have a common denominator: they approximate its cumulative probability distribution as a "stairwise function"
 
-
+PARLAR DEL STATE OF THE ART DE DISTRL
 
 
 
