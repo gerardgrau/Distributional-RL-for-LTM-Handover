@@ -111,8 +111,8 @@ echoing its 2nd-place LTM result. Treat as "ordering, not absolute".
 | Variant | Status | final_eval | wall-clock | Notes |
 |---------|--------|------------|------------|-------|
 | qrdqn_midpoint | done | +7.0 | 124 min | learning! Boxing range is [-100, +100], random ≈ -25, so +7 is real signal |
-| qrdqn_gauss_legendre | running |  |  | |
-| qrdqn_trapezoidal | pending |  |  | |
+| qrdqn_gauss_legendre | done | +1.2 | 124 min | regresses vs midpoint, same direction as LTM |
+| qrdqn_trapezoidal | running |  |  | |
 | qrdqn_cvar_full | pending |  |  | |
 | qrdqn_cvar_truncated | pending |  |  | |
 
