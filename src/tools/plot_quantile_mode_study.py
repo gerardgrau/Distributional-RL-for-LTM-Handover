@@ -29,6 +29,7 @@ import pandas as pd
 VARIANTS = [
     "qmode_midpoint",
     "qmode_gauss_legendre",
+    "qmode_simpson",
     "qmode_trapezoidal",
     "qmode_cvar_full",
     "qmode_cvar_truncated",
@@ -37,6 +38,7 @@ VARIANTS = [
 VARIANT_LABELS = {
     "qmode_midpoint":       "Midpoint (baseline)",
     "qmode_gauss_legendre": "Gauss-Legendre",
+    "qmode_simpson":        "Simpson 1/3",
     "qmode_trapezoidal":    "Trapezoidal",
     "qmode_cvar_full":      "CVaR(0.1) full",
     "qmode_cvar_truncated": "CVaR(0.1) truncated",

@@ -13,6 +13,15 @@ This module also supports:
   - gauss_legendre : Gauss-Legendre nodes on [0,1], non-uniform tau and w
   - trapezoidal    : uniform tau including endpoints; fixed q_min/q_max at
                      tau=0/1; network only predicts the N-2 interior points
+  - simpson        : composite Simpson 1/3 rule on a uniform grid; fixed
+                     q_min/q_max at tau=0/1; network only predicts the N-2
+                     interior points; weights follow the 1:4:2:4:...:4:1
+                     pattern. Requires N odd (so N-1 is even and the rule
+                     composes over pairs of intervals). Order-4 convergence
+                     vs midpoint/trapezoidal's order-2, but less aggressive
+                     than Gauss-Legendre, which may help when the integrand
+                     (a ReLU-network quantile function) is piecewise-linear
+                     rather than smooth.
 
 Risk-aware truncation (truncate_upper_quantiles): when used with the CVaR
 risk policy, the network only predicts the bottom k = ceil(N * risk_fraction)
@@ -183,19 +192,17 @@ def build_scheme(
                 f"quantile_mode='midpoint' (got {mode!r})"
             )
         k = max(1, int(math.ceil(num_quantiles * risk_fraction)))
-        tau_np = np.array(
-            [(i + 0.5) * risk_fraction / k for i in range(k)],
-            dtype=np.float64,
-        )
+        tau_np = (np.arange(k) + 0.5) * risk_fraction / k
         w_np = np.full(k, 1.0 / k, dtype=np.float64)
         tau = torch.tensor(tau_np, dtype=torch.float32, device=device)
         weights = torch.tensor(w_np, dtype=torch.float32, device=device)
-        # cvar over the full (truncated) support IS the mean by construction.
+        # CVaR over the full (truncated) support is the mean by construction,
+        # so all three weight axes share the same tensor.
         return QuantileScheme(
             tau=tau,
             mean_weights=weights,
-            cvar_weights=weights.clone(),
-            predictor_weights=weights.clone(),
+            cvar_weights=weights,
+            predictor_weights=weights,
             num_predicted=k,
             fixed_lo=None,
             fixed_hi=None,
@@ -204,9 +211,7 @@ def build_scheme(
 
     if mode == "midpoint":
         n = num_quantiles
-        tau_np = np.array(
-            [(i + 0.5) / n for i in range(n)], dtype=np.float64,
-        )
+        tau_np = (np.arange(n) + 0.5) / n
         w_np = np.full(n, 1.0 / n, dtype=np.float64)
         tau = torch.tensor(tau_np, dtype=torch.float32, device=device)
         weights = torch.tensor(w_np, dtype=torch.float32, device=device)
@@ -215,11 +220,13 @@ def build_scheme(
             if risk_type == "cvar"
             else None
         )
+        # mean_weights and predictor_weights are uniform 1/n; share the
+        # tensor since these are read-only quadrature constants.
         return QuantileScheme(
             tau=tau,
             mean_weights=weights,
             cvar_weights=cvar_w,
-            predictor_weights=weights.clone(),
+            predictor_weights=weights,
             num_predicted=n,
             fixed_lo=None,
             fixed_hi=None,
@@ -242,15 +249,64 @@ def build_scheme(
             if risk_type == "cvar"
             else None
         )
+        # GL has predictor_weights == mean_weights (same nodes/weights are
+        # used for the outer integral over tau).
         return QuantileScheme(
             tau=tau,
             mean_weights=weights,
             cvar_weights=cvar_w,
-            predictor_weights=weights.clone(),
+            predictor_weights=weights,
             num_predicted=num_quantiles,
             fixed_lo=None,
             fixed_hi=None,
             mode="gauss_legendre",
+        )
+
+    if mode == "simpson":
+        n = num_quantiles
+        if n < 3:
+            raise ValueError("simpson requires num_quantiles >= 3")
+        if n % 2 == 0:
+            raise ValueError(
+                "simpson requires odd num_quantiles (so N-1 intervals is "
+                "even and the composite 1/3 rule applies over pairs of "
+                f"intervals). Got {n}; try {n + 1} or {n - 1}."
+            )
+        full_tau_np = np.linspace(0.0, 1.0, n, dtype=np.float64)
+        # Composite Simpson 1/3 integer weights: 1, 4, 2, 4, 2, ..., 4, 1.
+        # Integer sum = 3(n-1), so normalised mean_weights sum to 1.
+        int_w = np.ones(n, dtype=np.float64)
+        int_w[1:-1:2] = 4.0  # odd indices (1, 3, ..., n-2)
+        int_w[2:-1:2] = 2.0  # even interior (2, 4, ..., n-3)
+        full_w_np = int_w / (3.0 * (n - 1))
+        interior_tau_np = full_tau_np[1:-1]
+        # Predictor-axis weights: each interior node's Simpson integer weight
+        # renormalised over the interior. Interior sum = 3n - 5 (drop the two
+        # endpoint 1s from the total 3(n-1) = 3n - 3).
+        interior_int_w = int_w[1:-1]
+        predictor_w_np = interior_int_w / interior_int_w.sum()
+        full_tau = torch.tensor(full_tau_np, dtype=torch.float32, device=device)
+        interior_tau = torch.tensor(
+            interior_tau_np, dtype=torch.float32, device=device,
+        )
+        weights = torch.tensor(full_w_np, dtype=torch.float32, device=device)
+        predictor_weights = torch.tensor(
+            predictor_w_np, dtype=torch.float32, device=device,
+        )
+        cvar_w = (
+            _compute_cvar_weights(full_tau, weights, risk_fraction)
+            if risk_type == "cvar"
+            else None
+        )
+        return QuantileScheme(
+            tau=interior_tau,
+            mean_weights=weights,
+            cvar_weights=cvar_w,
+            predictor_weights=predictor_weights,
+            num_predicted=n - 2,
+            fixed_lo=float(q_min),
+            fixed_hi=float(q_max),
+            mode="simpson",
         )
 
     if mode == "trapezoidal":

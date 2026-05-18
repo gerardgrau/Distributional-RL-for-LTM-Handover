@@ -20,10 +20,9 @@ from src.distrl.agents.distributional.quantile_modes import (
     build_scheme,
 )
 from src.distrl.agents.networks import (
-    CNNTrunk,
-    MLPTrunk,
     QuantileHead,
     UnifiedQNet,
+    build_trunk,
 )
 
 
@@ -63,40 +62,17 @@ class QRDQNAgent(BaseAgent):
             truncate_upper=self.truncate_upper,
         )
 
-        trunk_type = config.get("trunk_type", "mlp")
-        if trunk_type == "cnn":
-            in_channels = int(observation_space.shape[0])
-            trunk = CNNTrunk(
-                in_channels=in_channels,
-                output_dim=int(config.get("cnn_feature_dim", 512)),
+        def make_qnet() -> UnifiedQNet:
+            trunk = build_trunk(config, observation_space)
+            head = QuantileHead(
+                trunk.output_dim, action_dim, self.scheme.num_predicted,
             )
-        else:
-            input_dim = int(observation_space.shape[0])
-            trunk = MLPTrunk(
-                input_dim, config.get("hidden_dims", [128, 128])
-            )
+            return UnifiedQNet(trunk, head).to(self.device)
 
-        head = QuantileHead(
-            trunk.output_dim, action_dim, self.scheme.num_predicted,
-        )
-
-        self.q_net = UnifiedQNet(trunk, head).to(self.device)
-        # Build a fresh target net with a brand-new trunk+head so its
-        # parameters are independent of self.q_net (avoid shared modules).
-        if trunk_type == "cnn":
-            tgt_trunk = CNNTrunk(
-                in_channels=int(observation_space.shape[0]),
-                output_dim=int(config.get("cnn_feature_dim", 512)),
-            )
-        else:
-            tgt_trunk = MLPTrunk(
-                int(observation_space.shape[0]),
-                config.get("hidden_dims", [128, 128]),
-            )
-        tgt_head = QuantileHead(
-            tgt_trunk.output_dim, action_dim, self.scheme.num_predicted,
-        )
-        self.target_net = UnifiedQNet(tgt_trunk, tgt_head).to(self.device)
+        # Build q_net and target_net as independent module instances so the
+        # soft-update copy is real (not a shared-reference no-op).
+        self.q_net = make_qnet()
+        self.target_net = make_qnet()
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 

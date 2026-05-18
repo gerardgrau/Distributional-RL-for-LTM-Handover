@@ -1,14 +1,15 @@
 """Sweep QR-DQN quantile-positioning modes on the LTM env.
 
-Runs the five configs under ``configs/quantile_study/`` sequentially:
+Runs the six configs under ``configs/quantile_study/`` sequentially:
 
     1. qmode_midpoint        (baseline)
     2. qmode_gauss_legendre  (non-uniform tau + GL weights)
-    3. qmode_trapezoidal     (uniform-with-endpoints + fixed q_min/q_max)
-    4. qmode_cvar_full       (midpoint + CVaR(0.1) action selection)
-    5. qmode_cvar_truncated  (only learn the bottom-k quantiles)
+    3. qmode_simpson         (uniform tau + Simpson 1/3 weights + endpoints)
+    4. qmode_trapezoidal     (uniform-with-endpoints + fixed q_min/q_max)
+    5. qmode_cvar_full       (midpoint + CVaR(0.1) action selection)
+    6. qmode_cvar_truncated  (only learn the bottom-k quantiles)
 
-After all five finish, prints a comparison table built from each run's
+After all variants finish, prints a comparison table built from each run's
 final-eval ``qrdqn_summary_seed42.csv``.
 """
 
@@ -25,6 +26,7 @@ import time
 CONFIGS = [
     "qmode_midpoint",
     "qmode_gauss_legendre",
+    "qmode_simpson",
     "qmode_trapezoidal",
     "qmode_cvar_full",
     "qmode_cvar_truncated",

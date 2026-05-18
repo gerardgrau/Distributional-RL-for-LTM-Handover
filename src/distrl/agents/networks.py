@@ -1,3 +1,5 @@
+from typing import Any
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -102,3 +104,19 @@ class UnifiedQNet(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = self.trunk(x)
         return self.head(features)
+
+
+def build_trunk(config: dict[str, Any], observation_space: Any) -> nn.Module:
+    """Build a fresh trunk module from a config dict.
+
+    Dispatches on `trunk_type ∈ {"mlp", "cnn"}` (default mlp). Used by both
+    DQN and QR-DQN to construct independent trunks for the online and
+    target networks.
+    """
+    in_dim = int(observation_space.shape[0])
+    if config.get("trunk_type", "mlp") == "cnn":
+        return CNNTrunk(
+            in_channels=in_dim,
+            output_dim=int(config.get("cnn_feature_dim", 512)),
+        )
+    return MLPTrunk(in_dim, config.get("hidden_dims", [128, 128]))

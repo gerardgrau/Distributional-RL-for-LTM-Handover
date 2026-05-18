@@ -52,6 +52,36 @@ def test_shapes_and_weights() -> None:
            torch.allclose(s.predictor_weights, torch.full((N-2,), 1.0/(N-2))))
     _check("trapezoidal has fixed endpoints", s.has_fixed_endpoints)
 
+    # Simpson needs odd N. Use N=51 for parity-ish with N=50 elsewhere.
+    Ns = 51
+    s = build_scheme("simpson", Ns, device, q_min=0.0, q_max=10.0)
+    _check("simpson num_predicted=N-2", s.num_predicted == Ns - 2)
+    _check("simpson mean_w sum=1", torch.isclose(s.mean_weights.sum(), one))
+    _check("simpson pred_w sum=1", torch.isclose(s.predictor_weights.sum(), one))
+    _check("simpson has fixed endpoints", s.has_fixed_endpoints)
+    # Endpoint atoms should have the smallest mean_weight (1 / (3(N-1))).
+    _check(
+        "simpson endpoint weight = 1/(3(N-1))",
+        torch.isclose(s.mean_weights[0], torch.tensor(1.0 / (3 * (Ns - 1)))),
+    )
+    # Odd-indexed interior should have weight 4 / (3(N-1)).
+    _check(
+        "simpson odd-interior weight = 4/(3(N-1))",
+        torch.isclose(s.mean_weights[1], torch.tensor(4.0 / (3 * (Ns - 1)))),
+    )
+    # Even-interior should have weight 2 / (3(N-1)).
+    _check(
+        "simpson even-interior weight = 2/(3(N-1))",
+        torch.isclose(s.mean_weights[2], torch.tensor(2.0 / (3 * (Ns - 1)))),
+    )
+    # Even N must raise.
+    raised = False
+    try:
+        build_scheme("simpson", 50, device)
+    except ValueError:
+        raised = True
+    _check("simpson rejects even N", raised)
+
     s = build_scheme("midpoint", N, device, risk_type="cvar", risk_fraction=0.1, truncate_upper=True)
     _check("truncate_upper k = ceil(N*rf)", s.num_predicted == math.ceil(N * 0.1))
     _check("truncate_upper pred_w sum=1", torch.isclose(s.predictor_weights.sum(), one))
@@ -101,6 +131,12 @@ def test_integration_correctness() -> None:
     est = float(s.expectation(s.tau.unsqueeze(0)))
     _check("trapezoidal integrates tau", abs(est - 0.5) < 1e-5, f"got {est:.6f}")
 
+    # Simpson: exact for cubics, so trivially for tau (with the fixed
+    # endpoints 0 and 1 actually present in the assembled distribution).
+    s = build_scheme("simpson", 51, device, q_min=0.0, q_max=1.0)
+    est = float(s.expectation(s.tau.unsqueeze(0)))
+    _check("simpson integrates tau", abs(est - 0.5) < 1e-5, f"got {est:.6f}")
+
     # Quadratic: int_0^1 tau^2 dtau = 1/3
     # GL with N>=2 is exact for tau^2 mathematically; the residual error is
     # the float32 precision of the (tau, weight) tensors (~3e-8). Midpoint
@@ -110,13 +146,34 @@ def test_integration_correctness() -> None:
         est = float(s.expectation((s.tau ** 2).unsqueeze(0)))
         _check(f"{mode} integrates tau^2", abs(est - 1.0/3) < tol, f"got {est:.7f}")
 
+    # Simpson is mathematically exact for tau^2 and tau^3; residual is just
+    # float32 quantisation of the tau/weight tensors. Note: we pass tau^k of
+    # the INTERIOR nodes and the fixed endpoints 0 and 1 are auto-prepended
+    # via assemble_full -> 0^k and 1^k contribute correctly.
+    s = build_scheme("simpson", 51, device, q_min=0.0, q_max=1.0)
+    est_sq = float(s.expectation((s.tau ** 2).unsqueeze(0)))
+    _check(
+        "simpson integrates tau^2", abs(est_sq - 1.0/3) < 1e-5,
+        f"got {est_sq:.7f}",
+    )
+    est_cu = float(s.expectation((s.tau ** 3).unsqueeze(0)))
+    _check(
+        "simpson integrates tau^3", abs(est_cu - 0.25) < 1e-5,
+        f"got {est_cu:.7f}",
+    )
+
 
 def test_cvar_weights() -> None:
     print("test_cvar_weights")
     device = torch.device("cpu")
-    for mode in ("midpoint", "gauss_legendre", "trapezoidal"):
+    for mode, n in (
+        ("midpoint", 50),
+        ("gauss_legendre", 50),
+        ("trapezoidal", 50),
+        ("simpson", 51),
+    ):
         s = build_scheme(
-            mode, 50, device,
+            mode, n, device,
             q_min=0.0, q_max=1.0,
             risk_type="cvar", risk_fraction=0.1,
         )
