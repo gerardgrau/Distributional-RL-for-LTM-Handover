@@ -27,7 +27,7 @@ from src.distrl.utils.metrics import calculate_8_metrics
 
 METRIC_ORDER = [
     "ho_rate", "hof_rate", "pp_rate", "capacity_avg", "rlf_rate",
-    "reliability_pct", "prep_rate", "res_reservation_pct",
+    "reliability_pct", "prep_rate", "res_reservation_pct", "reward",
 ]
 # Diagnostic-only fields surfaced during the run but excluded from the saved
 # CSV so its schema matches `legacy_baseline_summary.csv`.
@@ -55,11 +55,15 @@ def verify_parity(ue_count: int) -> None:
         agent.reset()
         done = False
         info: dict = {}
+        episode_reward = 0.0
         while not done:
-            _, _, done, _, info = env.step(0, high_res_callback=agent.select_action)
+            _, r, done, _, info = env.step(
+                0, high_res_callback=agent.select_action
+            )
+            episode_reward += float(r)
 
         if "metrics" in info:
-            all_metrics.append(calculate_8_metrics(
+            m = calculate_8_metrics(
                 info["metrics"]["mcs"],
                 info["metrics"]["rlf"],
                 info["metrics"]["ho"],
@@ -69,7 +73,9 @@ def verify_parity(ue_count: int) -> None:
                 info["metrics"]["pl3"],
                 config,
                 reserved_history=info["metrics"].get("reserved"),
-            ))
+            )
+            m["reward"] = episode_reward
+            all_metrics.append(m)
 
     elapsed = time.time() - start_time
 

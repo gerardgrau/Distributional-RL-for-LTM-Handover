@@ -182,6 +182,41 @@ exploration moves to the quantile-positioning and risk axes — see
 `notes/quantile_mode_study.md` on the `feature/distributional-improvements`
 branch.
 
+## Reopened 2026-05-19 — kappa search + DQN baseline + new-physics re-validation
+
+Tutor's post-meeting fix changed the physics (`NoiseLevel` -174 raw → -101
+banded over 20 MHz, 16-step SINR table → 26-step, `MaxNumberPreparedBS`
+4 → 5). The precomputed cache was regenerated; the previous champion
+(`lr=1e-4` etc.) was validated only under the OLD physics. Two gaps remain:
+
+1. **kappa was never searched.** All Phase 1/2/Refresh runs used the
+   QRDQNAgent default `kappa=1.0` (Dabney et al. paper default). The
+   tutor flagged this as a missed parameter at the meeting.
+2. **DQN was never properly HP-searched.** All DQN runs to date used
+   `config.yaml` defaults (`lr=1e-3`). For a fair QR-DQN vs DQN
+   comparison we need DQN under at least the QR-DQN champion HPs.
+
+**Tonight's queue** (`scripts/run_overnight_2026-05-19.sh`, single seed × 2000 ep,
+XPU, sequential):
+
+| Order | ID                  | Config                                   | Purpose |
+|-------|---------------------|------------------------------------------|---------|
+| 1     | `kappa_10`          | `hp_search/kappa_10.yaml`                | Re-validate champion + kappa=1.0 reference under new physics. **Solid QR-DQN baseline.** |
+| 2     | `dqn_baseline_lr1e-4` | `hp_search/dqn_baseline_lr1e-4.yaml`   | DQN with QR-DQN champion HPs. **Solid DQN baseline.** |
+| 3     | `kappa_05`          | `hp_search/kappa_05.yaml`                | Sharper Huber threshold; tests sensitivity to small residuals. |
+| 4     | `kappa_20`          | `hp_search/kappa_20.yaml`                | Softer Huber threshold; closer to MSE for typical residuals. |
+| 5 (stretch) | `ablation_N{10,100,200}` | tmp configs derived from kappa_10  | Deferred Phase 3 num_quantiles ablation. N=50 skipped (kappa_10 already covers it). |
+
+Each step takes ~3h (extrapolated from `bmk_2026-05-16_9_p2_lr_1e-4` =
+7.7h for 3 seeds × 2000 ep on XPU = ~2.6h/seed). Total budget for
+steps 1-4: ~12h (won't all fit overnight). Steps 1-2 are the
+hard requirement; 3-4 are kappa search; 5 is stretch.
+
+**Decision rule (morning)**: if any kappa variant clearly beats
+`kappa_10` on reward, validate it at 3 seeds × 2000 ep before moving on.
+Otherwise lock `kappa=1.0` and proceed to either the quantile-mode
+re-run or the num_quantiles ablation.
+
 ## Update protocol
 
 When a run finishes:

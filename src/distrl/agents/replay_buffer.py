@@ -7,15 +7,20 @@ class ReplayBuffer:
     Experience Replay Buffer for storing and sampling transitions using PyTorch Tensors.
     """
     def __init__(
-        self, 
+        self,
         max_size: int,
-        state_shape: int | tuple[int, ...], 
+        state_shape: int | tuple[int, ...],
         action_shape: int | tuple[int, ...] = (1,),
-        device: str = "cpu"
+        device: str = "cpu",
+        state_dtype: torch.dtype = torch.float32,
     ) -> None:
         """
         Experience Replay Buffer for storing transitions on CPU.
         Uses pinned memory for faster transfers to GPU/XPU during sampling.
+
+        state_dtype lets callers opt into uint8 storage for image observations
+        (~4x memory saving for Atari). The agent's trunk is responsible for
+        casting/normalising uint8 inputs to float internally.
         """
         self.max_size = max_size
         self.ptr = 0
@@ -27,13 +32,23 @@ class ReplayBuffer:
             state_shape = (state_shape,)
         if isinstance(action_shape, int):
             action_shape = (action_shape,)
-            
-        # Allocate on CPU and pin
-        self.state = torch.zeros((max_size, *state_shape), dtype=torch.float32, device=self.storage_device).pin_memory()
-        self.action = torch.zeros((max_size, *action_shape), dtype=torch.long, device=self.storage_device).pin_memory()
-        self.reward = torch.zeros((max_size, 1), dtype=torch.float32, device=self.storage_device).pin_memory()
-        self.next_state = torch.zeros((max_size, *state_shape), dtype=torch.float32, device=self.storage_device).pin_memory()
-        self.done = torch.zeros((max_size, 1), dtype=torch.float32, device=self.storage_device).pin_memory()
+
+        # Pinning only buys speed when the target device is a non-CPU
+        # accelerator (cuda/xpu) AND the total pinned tensors stay under the
+        # OS memlock limit. Skip it for CPU targets — the copy is in-process
+        # so pinning is wasted, and large uint8 image buffers can segfault
+        # the process if they exceed RLIMIT_MEMLOCK.
+        pin = self.target_device.type != "cpu"
+
+        def alloc(shape: tuple[int, ...], dtype: torch.dtype) -> torch.Tensor:
+            t = torch.zeros(shape, dtype=dtype, device=self.storage_device)
+            return t.pin_memory() if pin else t
+
+        self.state = alloc((max_size, *state_shape), state_dtype)
+        self.action = alloc((max_size, *action_shape), torch.long)
+        self.reward = alloc((max_size, 1), torch.float32)
+        self.next_state = alloc((max_size, *state_shape), state_dtype)
+        self.done = alloc((max_size, 1), torch.float32)
 
     def push(
         self, 

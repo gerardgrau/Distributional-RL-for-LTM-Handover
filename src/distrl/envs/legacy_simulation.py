@@ -25,25 +25,29 @@ ReceiverSensitivity = -95
 System = {
     "TxPower": 25,  # dBm
     # Al paper està a 25
-    "NoiseLevel": -174,  # dBm
-    # "SINRThreshold": np.array([
-    #     -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
-    #     22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
-    # ]),
-    # "SpectralEff": np.array([
-    #     0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
-    #     2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
-    #     5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
-    # ])
+    "NoiseLevel": -174 + 10 * np.log10(20*1e6),  # dBm
+    # ! He afegit els 20 MHz de la bandwidth
+    
     "SINRThreshold": np.array([
-        -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
-        12.5, 14.5, 16.5, 19.0, 21.5, 24.0
+        -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
+        22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
     ]),
     "SpectralEff": np.array([
-        0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
-        2.73, 3.32, 3.90, 4.52, 5.12, 5.55
+        0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92, 
+        2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
+        5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
     ])
-    # ! Aquests últims són els bons
+    # ! Els bons són els primers
+
+    # "SINRThreshold": np.array([
+    #     -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
+    #     12.5, 14.5, 16.5, 19.0, 21.5, 24.0
+    # ]),
+    # "SpectralEff": np.array([
+    #     0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
+    #     2.73, 3.32, 3.90, 4.52, 5.12, 5.55
+    # ])
+    # ! Aquests últims NO són els bons
 }
 
 # Parámetros temporales
@@ -57,27 +61,28 @@ BS = {"Number": 7}  # 20 BS (CANVIAR A 7 SI ES FA SERVIR LES CEL·LES HEXAGONALS
 NBS = BS["Number"] * 3  # 3 sectores por BS
 HO = {}
 
+# HO["Prep"] = {
+#     "PeriodicityRSRPMeasurement": 20e-3,     # 20 ms
+#     "AverageRSRPMeasument_NL1": 10,          # FIR filter length
+#     "kL3": 8,                                 # L3 IIR constant
+#     "alphaIIRfilter": 2 ** (-8 / 4),          # 2^(-kL3/4)
+#     "PreparationPowerOffset": -3,             # dB
+#     "PreparationTime": 40e-3,                 # 40 ms
+#     "ExecPowerOffset": 3,                     # dB
+#     "MaxNumberPreparedBS": 4                  # Table II: predicted top-4 neighbors
+# }
+
 HO["Prep"] = {
-    "PeriodicityRSRPMeasurement": 20e-3,     # 20 ms
-    "AverageRSRPMeasument_NL1": 10,          # FIR filter length
+    "PeriodicityRSRPMeasurement": 20e-3,      # 20 ms
+    "AverageRSRPMeasument_NL1": 10,           # FIR filter length
     "kL3": 8,                                 # L3 IIR constant
-    "alphaIIRfilter": 2 ** (-8 / 4),          # 2^(-kL3/4)
     "PreparationPowerOffset": -3,             # dB
     "PreparationTime": 40e-3,                 # 40 ms
     "ExecPowerOffset": 3,                     # dB
-    "MaxNumberPreparedBS": 4                  # Table II: predicted top-4 neighbors
+    "MaxNumberPreparedBS": 5                  # Tutor explicit instruction (2026-05-19)
 }
-
-# HO["Prep"] = {
-#     "PeriodicityRSRPMeasurement": 20e-3,      # 20 ms
-#     "AverageRSRPMeasument_NL1": 10,           # FIR filter length
-#     "kL3": 8,                                 # L3 IIR constant
-#     "PreparationPowerOffset": -3,             # dB
-#     "PreparationTime": 40e-3,                 # 40 ms
-#     "ExecPowerOffset": 5,                     # dB
-#     "MaxNumberPreparedBS": 5                  # Max prepared cells
-# }
-# HO["Prep"]["alphaIIRfilter"] = 2 ** (-HO["Prep"]["kL3"] / 4)      # 2^(-kL3/4)
+HO["Prep"]["alphaIIRfilter"] = 2 ** (-HO["Prep"]["kL3"] / 4)      # 2^(-kL3/4)
+# ! Confirmat: aquests de baix també
 
 # Time variables
 Time_PingPong = 1 # Ping-pong event: HO is successful, but UE HO to previous cell within 1 second
@@ -160,10 +165,10 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
         Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
     # Temporary debug line
     # Inter_Noise = 10**(System["NoiseLevel"]/10)
-    
+
     # Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
     # print(f"Serving channel (dB): {serving_channel:.2f}, Interference+Noise (dB): {10*np.log10(Inter_Noise):.2f}, ICIC active: {icic_on}")
-    SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise) 
+    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
     idx = np.where(System["SINRThreshold"] <= SNIR)[0]
     MCS = System["SpectralEff"][idx[-1]] if len(idx) > 0 else 0
     # if MCS == 0:
@@ -226,11 +231,11 @@ def CheckHO_Failure(serving_sector, channels, System):
         Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
     # Temporary debug line
     # Inter_Noise = 10**(System["NoiseLevel"]/10)
-    
+
     # Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
-    
+
     # print(f"Serving channel (dB): {serving_channel:.2f}, Interference+Noise (dB): {10*np.log10(Inter_Noise):.2f}, ICIC active: {icic_on}")
-    SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)    
+    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
     idx = np.where(SNR_level <= SNIR)[0]
     Pe = BLER[idx[-1]]
 

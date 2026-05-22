@@ -1,115 +1,166 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-import numpy as np
-from typing import Any
+"""Quantile Regression DQN agent.
+
+The default configuration (quantile_mode='midpoint', risk_type='mean') is
+exactly vanilla QR-DQN. The agent additionally supports non-uniform quantile
+positioning (Gauss-Legendre, trapezoidal-with-fixed-endpoints) and a
+"truncated" CVaR variant that only learns the bottom-k quantiles. See
+`quantile_modes.py` for details.
+"""
+
 import os
+from typing import Any
+
+import numpy as np
+import torch
+import torch.optim as optim
 
 from src.distrl.agents.base import BaseAgent
-from src.distrl.agents.networks import MLPTrunk, QuantileHead, UnifiedQNet
+from src.distrl.agents.distributional.quantile_modes import (
+    QuantileScheme,
+    build_scheme,
+)
+from src.distrl.agents.networks import (
+    QuantileHead,
+    UnifiedQNet,
+    build_trunk,
+)
+
 
 class QRDQNAgent(BaseAgent):
-    """
-    Quantile Regression DQN Agent.
-    """
+    """Quantile Regression DQN with pluggable quantile-positioning schemes."""
+
     def __init__(
-        self, 
-        config: dict[str, Any], 
-        observation_space: Any, 
-        action_space: Any, 
-        device: str = "cpu"
+        self,
+        config: dict[str, Any],
+        observation_space: Any,
+        action_space: Any,
+        device: str = "cpu",
     ) -> None:
         super().__init__(config, observation_space, action_space, device)
 
-        input_dim = observation_space.shape[0]
         action_dim = action_space.n
-        
+
         self.num_quantiles = int(config.get("num_quantiles", 50))
-        self.kappa = float(config.get("kappa", 1.0)) # Huber loss threshold
-        self.risk_type = config.get("risk_type", "mean") # "mean" or "cvar"
-        self.risk_fraction = float(config.get("risk_fraction", 0.1)) # For CVaR, bottom k
-        
-        trunk = MLPTrunk(input_dim, config.get("hidden_dims", [128, 128]))
-        head = QuantileHead(trunk.output_dim, action_dim, self.num_quantiles)
-        
-        self.q_net = UnifiedQNet(trunk, head).to(self.device)
-        self.target_net = UnifiedQNet(trunk, head).to(self.device)
+        self.kappa = float(config.get("kappa", 1.0))
+        self.risk_type = config.get("risk_type", "mean")
+        self.risk_fraction = float(config.get("risk_fraction", 0.1))
+        self.quantile_mode = config.get("quantile_mode", "midpoint")
+        self.truncate_upper = bool(
+            config.get("truncate_upper_quantiles", False)
+        )
+        self.q_min = float(config.get("q_min", 0.0))
+        self.q_max = float(config.get("q_max", 50.0))
+
+        self.scheme: QuantileScheme = build_scheme(
+            mode=self.quantile_mode,
+            num_quantiles=self.num_quantiles,
+            device=self.device,
+            q_min=self.q_min,
+            q_max=self.q_max,
+            risk_type=self.risk_type,
+            risk_fraction=self.risk_fraction,
+            truncate_upper=self.truncate_upper,
+        )
+
+        def make_qnet() -> UnifiedQNet:
+            trunk = build_trunk(config, observation_space)
+            head = QuantileHead(
+                trunk.output_dim, action_dim, self.scheme.num_predicted,
+            )
+            return UnifiedQNet(trunk, head).to(self.device)
+
+        # Build q_net and target_net as independent module instances so the
+        # soft-update copy is real (not a shared-reference no-op).
+        self.q_net = make_qnet()
+        self.target_net = make_qnet()
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
-        self.optimizer = optim.Adam(self.q_net.parameters(), lr=float(config.get("lr", 1e-4)))
-        
-        # Pre-calculate quantile weights for Huber Loss
-        self.tau_hat = torch.arange(0.5 / self.num_quantiles, 1, 1 / self.num_quantiles, device=self.device).view(1, -1)
+        self.optimizer = optim.Adam(
+            self.q_net.parameters(), lr=float(config.get("lr", 1e-4))
+        )
+
+    def _action_values(self, predicted: torch.Tensor) -> torch.Tensor:
+        """Aggregate predicted quantiles into per-action Q-values.
+
+        Args:
+            predicted: shape [..., A, num_predicted].
+        Returns:
+            Shape [..., A].
+        """
+        if self.risk_type == "cvar":
+            return self.scheme.cvar(predicted)
+        return self.scheme.expectation(predicted)
 
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
         if np.random.rand() < epsilon:
             return int(self.action_space.sample())
-        
-        state_t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+
+        state_t = torch.as_tensor(
+            state, dtype=torch.float32, device=self.device
+        ).unsqueeze(0)
         with torch.no_grad():
-            # [1, action_dim, num_quantiles]
-            quantiles = self.q_net(state_t)
-            
-            if self.risk_type == "cvar":
-                k = max(1, int(self.num_quantiles * self.risk_fraction))
-                q_values = quantiles[:, :, :k].mean(dim=2)
-            else:
-                q_values = quantiles.mean(dim=2)
-                
+            predicted = self.q_net(state_t)  # [1, A, num_predicted]
+            q_values = self._action_values(predicted)  # [1, A]
             return int(q_values.argmax(dim=1).item())
 
-    def train_step(self, batch: tuple[torch.Tensor, ...]) -> dict[str, float]:
+    def train_step(
+        self, batch: tuple[torch.Tensor, ...]
+    ) -> dict[str, float]:
         states, actions, rewards, next_states, dones = batch
         batch_size = states.size(0)
 
-        # 1. Compute target quantiles
         with torch.no_grad():
-            # [batch_size, action_dim, num_quantiles]
-            next_quantiles = self.target_net(next_states)
-            
-            # Select best action
-            if self.risk_type == "cvar":
-                k = max(1, int(self.num_quantiles * self.risk_fraction))
-                next_q_values = next_quantiles[:, :, :k].mean(dim=2)
-            else:
-                next_q_values = next_quantiles.mean(dim=2)
-                
-            best_next_actions = next_q_values.argmax(dim=1) # [batch_size]
-            
-            # Extract quantiles for best actions: [batch_size, num_quantiles]
-            best_next_quantiles = next_quantiles[range(batch_size), best_next_actions]
-            
-            # T_theta = r + gamma * theta_next
-            target_quantiles = rewards + (1 - dones) * self.gamma * best_next_quantiles
+            next_predicted = self.target_net(next_states)
+            next_q = self._action_values(next_predicted)
+            best_next_actions = next_q.argmax(dim=1)  # [B]
+            best_next_predicted = next_predicted[
+                range(batch_size), best_next_actions
+            ]  # [B, num_predicted]
+            # Assemble the full target distribution. For trapezoidal this
+            # prepends q_min and appends q_max; for other schemes it is a
+            # no-op.
+            best_next_assembled = self.scheme.assemble_full(
+                best_next_predicted
+            )  # [B, num_total]
+            target_quantiles = (
+                rewards
+                + (1 - dones) * self.gamma * best_next_assembled
+            )  # [B, num_total]
 
-        # 2. Compute current quantiles
-        # [batch_size, action_dim, num_quantiles]
-        current_all_quantiles = self.q_net(states)
-        # [batch_size, num_quantiles]
-        current_quantiles = current_all_quantiles[range(batch_size), actions.squeeze(1)]
+        current_all = self.q_net(states)
+        current_quantiles = current_all[
+            range(batch_size), actions.squeeze(1)
+        ]  # [B, num_predicted]
 
-        # 3. Compute Quantile Huber Loss
-        # target_quantiles: [batch_size, num_quantiles]
-        # current_quantiles: [batch_size, num_quantiles]
+        # Pinball matrix over (predictor i, target j).
+        # diff: [B, num_predicted, num_total]
         diff = target_quantiles.unsqueeze(1) - current_quantiles.unsqueeze(2)
-        
-        # Huber loss
         abs_diff = diff.abs()
-        huber_loss = torch.where(abs_diff <= self.kappa, 
-                                 0.5 * diff.pow(2), 
-                                 self.kappa * (abs_diff - 0.5 * self.kappa))
-        
-        # Quantile weights: Using pre-calculated tau_hat
-        # diff.detach() < 0 has shape [batch_size, num_quantiles (current), num_quantiles (target)]
-        # weight should match that shape. 
-        # tau_hat is [1, num_quantiles], we unsqueeze it to [1, num_quantiles, 1]
-        weight = torch.abs(self.tau_hat.unsqueeze(2) - (diff.detach() < 0).float())
-        
-        loss = (weight * huber_loss).mean()
+        huber_loss = torch.where(
+            abs_diff <= self.kappa,
+            0.5 * diff.pow(2),
+            self.kappa * (abs_diff - 0.5 * self.kappa),
+        )
+        tau = self.scheme.tau.view(1, -1, 1)
+        asymmetry = torch.abs(tau - (diff.detach() < 0).float())
+        pinball_loss = asymmetry * huber_loss  # [B, num_predicted, num_total]
 
-        # set_to_none=True is slightly faster
+        # Weighted aggregation. For non-uniform schemes (Gauss-Legendre,
+        # trapezoidal) a plain .mean() silently reverts to a uniform
+        # midpoint aggregator and discards the quadrature.
+        #   - target axis (dim=2) uses mean_weights, the probability mass
+        #     of each atom in the target distribution.
+        #   - predictor axis (dim=1) uses predictor_weights, the integration
+        #     weights for the loss across tau values.
+        # For midpoint these both reduce to uniform 1/N and the result is
+        # identical to .mean() — backward compatible.
+        target_w = self.scheme.mean_weights.view(1, 1, -1)
+        per_predictor_loss = (pinball_loss * target_w).sum(dim=2)  # [B, P]
+        pred_w = self.scheme.predictor_weights.view(1, -1)
+        per_sample_loss = (per_predictor_loss * pred_w).sum(dim=1)  # [B]
+        loss = per_sample_loss.mean()
+
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         self.optimizer.step()
@@ -121,13 +172,28 @@ class QRDQNAgent(BaseAgent):
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        torch.save({
-            'q_net_state_dict': self.q_net.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-        }, path)
+        torch.save(
+            {
+                "q_net_state_dict": self.q_net.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                # Stash the scheme settings so checkpoints are self-describing.
+                "scheme": {
+                    "mode": self.scheme.mode,
+                    "num_predicted": self.scheme.num_predicted,
+                    "quantile_mode": self.quantile_mode,
+                    "num_quantiles": self.num_quantiles,
+                    "risk_type": self.risk_type,
+                    "risk_fraction": self.risk_fraction,
+                    "truncate_upper": self.truncate_upper,
+                    "q_min": self.q_min,
+                    "q_max": self.q_max,
+                },
+            },
+            path,
+        )
 
     def load(self, path: str) -> None:
         checkpoint = torch.load(path, map_location=self.device)
-        self.q_net.load_state_dict(checkpoint['q_net_state_dict'])
-        self.target_net.load_state_dict(checkpoint['q_net_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.q_net.load_state_dict(checkpoint["q_net_state_dict"])
+        self.target_net.load_state_dict(checkpoint["q_net_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])

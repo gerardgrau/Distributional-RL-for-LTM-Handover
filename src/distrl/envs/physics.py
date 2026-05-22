@@ -2,21 +2,29 @@ import hashlib
 
 import numpy as np
 
+# Bumped whenever the SNIR/MCS/HOF formulas change in a way that invalidates
+# the on-disk precomputed cache (constants alone aren't enough — the cache
+# bakes in formula outputs, so a formula change must reject old .npz files).
+# v1: pre-2026-05-19. v2: M*Ps fix applied to MCSEvaluation, CheckHO_Failure,
+# and calculate_snir_matrix.
+FORMULA_VERSION = "v2_M_signal"
+
 # ============================================================
 # SYSTEM CONFIGURATIONS
 # ============================================================
 ReceiverSensitivity = -95
 
 System = {
-    "TxPower": 25,  # dBm (Table I)
-    "NoiseLevel": -174,  # dBm — raw linear floor (matches legacy_simulation)
+    "TxPower": 25,  # dBm
+    "NoiseLevel": -174 + 10 * np.log10(20 * 1e6),  # dBm (20 MHz bandwidth)
     "SINRThreshold": np.array([
-        -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5,
-        12.5, 14.5, 16.5, 19.0, 21.5, 24.0
+        -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20,
+        22, 24, 26, 28, 30, 32, 35, 38, 40, 42, 44, 46, 48
     ]),
     "SpectralEff": np.array([
-        0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41,
-        2.73, 3.32, 3.90, 4.52, 5.12, 5.55
+        0, 0.24, 0.38, 0.60, 0.88, 1.18, 1.46, 1.70, 1.92,
+        2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7,
+        5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
     ])
 }
 
@@ -37,7 +45,7 @@ HO = {
         "PreparationPowerOffset": -3,
         "PreparationTime": 40e-3,
         "ExecPowerOffset": 3.0,
-        "MaxNumberPreparedBS": 4
+        "MaxNumberPreparedBS": 5
     }
 }
 
@@ -67,6 +75,7 @@ def physics_hash() -> str:
     diverge silently.
     """
     h = hashlib.sha256()
+    h.update(FORMULA_VERSION.encode())
     h.update(str(System["TxPower"]).encode())
     h.update(str(System["NoiseLevel"]).encode())
     h.update(System["SINRThreshold"].tobytes())
@@ -95,8 +104,11 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
         Inter_Noise = M * AllInter + noise_linear
     else:
         Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
-    
-    SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise) 
+
+    # M*Ps in the numerator mirrors the M-fold scaling already applied to
+    # the interference term. Dropping it (a previous calibration accident)
+    # made SNIR ~4.77 dB pessimistic in noise-limited regimes.
+    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
     idx = np.where(System["SINRThreshold"] <= SNIR)[0]
     MCS = System["SpectralEff"][idx[-1]] if len(idx) > 0 else 0
 
@@ -151,7 +163,7 @@ def CheckHO_Failure(serving_sector, channels, System):
     else:
         Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
 
-    SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)
+    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
     idx = np.where(SNR_level <= SNIR)[0]
     Pe = BLER[idx[-1]]
 
@@ -192,8 +204,10 @@ def calculate_snir_matrix(channels_2d: np.ndarray, system_params: dict) -> np.nd
     low_inter_noise = (M * all_inter_linear * (10**(-1.5))) + noise_floor
     
     inter_noise = np.where(rand_mask, high_inter_noise, low_inter_noise)
-                           
-    return 10 * np.log10(ps_linear + 1e-15) - 10 * np.log10(inter_noise + 1e-15)
+
+    # M * ps_linear mirrors the M-fold scaling on the interference term.
+    # See the matching fix in MCSEvaluation / CheckHO_Failure above.
+    return 10 * np.log10(M * ps_linear + 1e-15) - 10 * np.log10(inter_noise + 1e-15)
 
 def vectorized_oracle(channels: np.ndarray, system_params: dict) -> tuple:
     input_ndim = channels.ndim

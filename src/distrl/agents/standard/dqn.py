@@ -1,39 +1,44 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-import numpy as np
-from typing import Any
 import os
+from typing import Any
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+import torch.optim as optim
 
 from src.distrl.agents.base import BaseAgent
-from src.distrl.agents.networks import MLPTrunk, QHead, UnifiedQNet
+from src.distrl.agents.networks import QHead, UnifiedQNet, build_trunk
+
 
 class DQNAgent(BaseAgent):
-    """
-    Standard Deep Q-Network Agent.
-    """
+    """Standard Deep Q-Network Agent."""
+
     def __init__(
-        self, 
-        config: dict[str, Any], 
-        observation_space: Any, 
-        action_space: Any, 
-        device: str = "cpu"
+        self,
+        config: dict[str, Any],
+        observation_space: Any,
+        action_space: Any,
+        device: str = "cpu",
     ) -> None:
         super().__init__(config, observation_space, action_space, device)
 
-        input_dim = observation_space.shape[0]
         action_dim = action_space.n
 
-        trunk = MLPTrunk(input_dim, config.get("hidden_dims", [128, 128]))
-        head = QHead(trunk.output_dim, action_dim)
-        
-        self.q_net = UnifiedQNet(trunk, head).to(self.device)
-        self.target_net = UnifiedQNet(trunk, head).to(self.device)
+        def make_qnet() -> UnifiedQNet:
+            trunk = build_trunk(config, observation_space)
+            head = QHead(trunk.output_dim, action_dim)
+            return UnifiedQNet(trunk, head).to(self.device)
+
+        # Build q_net and target_net as independent module instances so the
+        # soft-update copy is real (not a shared-reference no-op).
+        self.q_net = make_qnet()
+        self.target_net = make_qnet()
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
-        self.optimizer = optim.Adam(self.q_net.parameters(), lr=float(config.get("lr", 1e-4)))
+        self.optimizer = optim.Adam(
+            self.q_net.parameters(), lr=float(config.get("lr", 1e-4))
+        )
 
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
         if np.random.rand() < epsilon:
