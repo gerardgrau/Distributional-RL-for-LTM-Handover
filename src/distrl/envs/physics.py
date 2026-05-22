@@ -2,6 +2,13 @@ import hashlib
 
 import numpy as np
 
+# Bumped whenever the SNIR/MCS/HOF formulas change in a way that invalidates
+# the on-disk precomputed cache (constants alone aren't enough — the cache
+# bakes in formula outputs, so a formula change must reject old .npz files).
+# v1: pre-2026-05-19. v2: M*Ps fix applied to MCSEvaluation, CheckHO_Failure,
+# and calculate_snir_matrix.
+FORMULA_VERSION = "v2_M_signal"
+
 # ============================================================
 # SYSTEM CONFIGURATIONS
 # ============================================================
@@ -68,6 +75,7 @@ def physics_hash() -> str:
     diverge silently.
     """
     h = hashlib.sha256()
+    h.update(FORMULA_VERSION.encode())
     h.update(str(System["TxPower"]).encode())
     h.update(str(System["NoiseLevel"]).encode())
     h.update(System["SINRThreshold"].tobytes())
@@ -96,8 +104,11 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
         Inter_Noise = M * AllInter + noise_linear
     else:
         Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
-    
-    SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise) 
+
+    # M*Ps in the numerator mirrors the M-fold scaling already applied to
+    # the interference term. Dropping it (a previous calibration accident)
+    # made SNIR ~4.77 dB pessimistic in noise-limited regimes.
+    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
     idx = np.where(System["SINRThreshold"] <= SNIR)[0]
     MCS = System["SpectralEff"][idx[-1]] if len(idx) > 0 else 0
 
@@ -152,7 +163,7 @@ def CheckHO_Failure(serving_sector, channels, System):
     else:
         Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
 
-    SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)
+    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
     idx = np.where(SNR_level <= SNIR)[0]
     Pe = BLER[idx[-1]]
 
@@ -193,8 +204,10 @@ def calculate_snir_matrix(channels_2d: np.ndarray, system_params: dict) -> np.nd
     low_inter_noise = (M * all_inter_linear * (10**(-1.5))) + noise_floor
     
     inter_noise = np.where(rand_mask, high_inter_noise, low_inter_noise)
-                           
-    return 10 * np.log10(ps_linear + 1e-15) - 10 * np.log10(inter_noise + 1e-15)
+
+    # M * ps_linear mirrors the M-fold scaling on the interference term.
+    # See the matching fix in MCSEvaluation / CheckHO_Failure above.
+    return 10 * np.log10(M * ps_linear + 1e-15) - 10 * np.log10(inter_noise + 1e-15)
 
 def vectorized_oracle(channels: np.ndarray, system_params: dict) -> tuple:
     input_ndim = channels.ndim

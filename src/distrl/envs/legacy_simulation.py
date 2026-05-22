@@ -79,7 +79,7 @@ HO["Prep"] = {
     "PreparationPowerOffset": -3,             # dB
     "PreparationTime": 40e-3,                 # 40 ms
     "ExecPowerOffset": 3,                     # dB
-    "MaxNumberPreparedBS": 5                  # Max prepared cells
+    "MaxNumberPreparedBS": 5                  # Tutor explicit instruction (2026-05-19)
 }
 HO["Prep"]["alphaIIRfilter"] = 2 ** (-HO["Prep"]["kL3"] / 4)      # 2^(-kL3/4)
 # ! Confirmat: aquests de baix també
@@ -165,10 +165,10 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
         Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
     # Temporary debug line
     # Inter_Noise = 10**(System["NoiseLevel"]/10)
-    
+
     # Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
     # print(f"Serving channel (dB): {serving_channel:.2f}, Interference+Noise (dB): {10*np.log10(Inter_Noise):.2f}, ICIC active: {icic_on}")
-    SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise) 
+    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
     idx = np.where(System["SINRThreshold"] <= SNIR)[0]
     MCS = System["SpectralEff"][idx[-1]] if len(idx) > 0 else 0
     # if MCS == 0:
@@ -231,11 +231,11 @@ def CheckHO_Failure(serving_sector, channels, System):
         Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
     # Temporary debug line
     # Inter_Noise = 10**(System["NoiseLevel"]/10)
-    
+
     # Inter_Noise, icic_on = get_realistic_interference(channels, serving_sector, AllInter, System)
-    
+
     # print(f"Serving channel (dB): {serving_channel:.2f}, Interference+Noise (dB): {10*np.log10(Inter_Noise):.2f}, ICIC active: {icic_on}")
-    SNIR = 10 * np.log10(Ps) - 10 * np.log10(Inter_Noise)    
+    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
     idx = np.where(SNR_level <= SNIR)[0]
     Pe = BLER[idx[-1]]
 
