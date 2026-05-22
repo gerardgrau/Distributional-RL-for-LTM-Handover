@@ -33,7 +33,7 @@ agent:
   num_episodes: 2000
 
 benchmark:
-  num_seeds: 1
+  num_seeds: 3
   results_dir: "results/benchmarks"
   env_type: "ltm"
 
