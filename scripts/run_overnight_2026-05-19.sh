@@ -60,7 +60,8 @@ run_step kappa_05 configs/hp_search/kappa_05.yaml qrdqn
 run_step kappa_20 configs/hp_search/kappa_20.yaml qrdqn
 
 # 5. Stretch: num_quantiles ablation. Build temp configs from kappa_10
-#    (the champion) and run N in {10, 100, 200}.
+#    (the champion) and run N in {10, 100, 200}. N=50 is skipped because
+#    kappa_10 already covers it (same seed, same HPs).
 log "STRETCH quantile ablation starting"
 for N in 10 100 200; do
     desc="ablation_N${N}"

@@ -205,7 +205,7 @@ XPU, sequential):
 | 2     | `dqn_baseline_lr1e-4` | `hp_search/dqn_baseline_lr1e-4.yaml`   | DQN with QR-DQN champion HPs. **Solid DQN baseline.** |
 | 3     | `kappa_05`          | `hp_search/kappa_05.yaml`                | Sharper Huber threshold; tests sensitivity to small residuals. |
 | 4     | `kappa_20`          | `hp_search/kappa_20.yaml`                | Softer Huber threshold; closer to MSE for typical residuals. |
-| 5 (stretch) | `ablation_N{10,100,200}` | tmp configs derived from kappa_10  | Deferred Phase 3 num_quantiles ablation; will likely not start. |
+| 5 (stretch) | `ablation_N{10,100,200}` | tmp configs derived from kappa_10  | Deferred Phase 3 num_quantiles ablation. N=50 skipped (kappa_10 already covers it). |
 
 Each step takes ~3h (extrapolated from `bmk_2026-05-16_9_p2_lr_1e-4` =
 7.7h for 3 seeds × 2000 ep on XPU = ~2.6h/seed). Total budget for
