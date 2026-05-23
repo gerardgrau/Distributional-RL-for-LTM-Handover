@@ -1,4 +1,5 @@
 import hashlib
+import math
 
 import numpy as np
 
@@ -108,14 +109,22 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
     RLF = 0
     tx_power = System["TxPower"]
     serving_channel = channels[serving_sector]
-    # Reuse-group 1:3 stride — equivalent to building the boolean mask
-    # `(arange(N) % 3) == (serving_sector % 3)` but returns a numpy view
-    # with no allocation.
-    relevant_channels = channels[serving_sector % 3 :: 3]
     Ps = 10 ** ((serving_channel + tx_power) / 10)
-    Inter = (relevant_channels + tx_power) / 10.0
 
-    AllInter = np.sum(10**Inter) - Ps
+    # Reuse-group 1:3 stride scalar reduction. For NBS=21 the inner
+    # loop iterates 7 times; on tiny arrays Python+libm beats numpy
+    # whose per-call dispatch overhead (alloc + vectorised reduce on a
+    # length-7 buffer) is much larger than 7 scalar pow+add. The
+    # left-to-right accumulation matches numpy.sum's reduce order on a
+    # length-7 array bit-for-bit, so AllInter is identical to the prior
+    # `np.sum(10**Inter) - Ps`.
+    group = serving_sector % 3
+    n = channels.shape[0]
+    AllInter = 0.0
+    for k in range(group, n, 3):
+        AllInter += 10 ** ((channels[k] + tx_power) / 10.0)
+    AllInter -= Ps
+
     M = 3
     noise_linear = 10**(System["NoiseLevel"] / 10.0)
 
@@ -127,7 +136,10 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
     # M*Ps in the numerator mirrors the M-fold scaling already applied to
     # the interference term. Dropping it (a previous calibration accident)
     # made SNIR ~4.77 dB pessimistic in noise-limited regimes.
-    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
+    # math.log10 of a Python/numpy scalar resolves to the same libm
+    # log10 as np.log10's scalar dispatch, but skips the numpy wrapper
+    # overhead — meaningful at 130k+ calls per episode.
+    SNIR = 10 * math.log10(M * Ps) - 10 * math.log10(Inter_Noise)
     # searchsorted(side='right') gives the insertion point such that all
     # entries to the left are <= SNIR; subtract 1 to get the largest index
     # satisfying SINRThreshold[i] <= SNIR. SINRThreshold[0] = -inf so the
@@ -158,11 +170,17 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
 def CheckHO_Failure(serving_sector, channels, System):
     tx_power = System["TxPower"]
     serving_channel = channels[serving_sector]
-    relevant_channels = channels[serving_sector % 3 :: 3]
     Ps = 10 ** ((serving_channel + tx_power) / 10)
 
-    Inter = (relevant_channels + tx_power) / 10.0
-    AllInter = np.sum(10**Inter) - Ps
+    # Same scalar reduction + math.log10 path as MCSEvaluation; see the
+    # rationale comment there.
+    group = serving_sector % 3
+    n = channels.shape[0]
+    AllInter = 0.0
+    for k in range(group, n, 3):
+        AllInter += 10 ** ((channels[k] + tx_power) / 10.0)
+    AllInter -= Ps
+
     M = 3
     noise_linear = 10**(System["NoiseLevel"] / 10.0)
 
@@ -171,7 +189,7 @@ def CheckHO_Failure(serving_sector, channels, System):
     else:
         Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
 
-    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
+    SNIR = 10 * math.log10(M * Ps) - 10 * math.log10(Inter_Noise)
     i = int(np.searchsorted(_SNR_LEVEL, SNIR, side="right")) - 1
     Pe = _BLER[i] if i >= 0 else _BLER[0]
 

@@ -84,10 +84,17 @@ class QRDQNAgent(BaseAgent):
         gc = config.get("grad_clip", None)
         self.grad_clip = float(gc) if gc is not None else None
 
+        # Fused Adam runs the entire update in a single kernel per param
+        # group rather than the per-tensor Python loop. Big win on
+        # accelerators (CUDA/XPU); CPU's foreach path is already
+        # competitive so we leave it off there. Verified to work on
+        # PyTorch 2.11 + XPU.
+        use_fused = self.device.type != "cpu"
         self.optimizer = optim.Adam(
             self.q_net.parameters(),
             lr=float(config.get("lr", 1e-4)),
             eps=self.adam_eps,
+            fused=use_fused,
         )
 
     def _action_values(self, predicted: torch.Tensor) -> torch.Tensor:

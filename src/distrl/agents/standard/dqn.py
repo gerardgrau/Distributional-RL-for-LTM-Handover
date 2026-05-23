@@ -36,8 +36,13 @@ class DQNAgent(BaseAgent):
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
+        # Fused Adam: single-kernel update on accelerators. See QR-DQN
+        # agent for the rationale; CPU stays on the default foreach path.
+        use_fused = self.device.type != "cpu"
         self.optimizer = optim.Adam(
-            self.q_net.parameters(), lr=float(config.get("lr", 1e-4))
+            self.q_net.parameters(),
+            lr=float(config.get("lr", 1e-4)),
+            fused=use_fused,
         )
 
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
