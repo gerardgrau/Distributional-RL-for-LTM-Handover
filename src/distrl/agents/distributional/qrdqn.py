@@ -50,6 +50,8 @@ class QRDQNAgent(BaseAgent):
         )
         self.q_min = float(config.get("q_min", 0.0))
         self.q_max = float(config.get("q_max", 50.0))
+        self.beta_alpha = float(config.get("beta_alpha", 2.0))
+        self.beta_beta = float(config.get("beta_beta", 2.0))
 
         self.scheme: QuantileScheme = build_scheme(
             mode=self.quantile_mode,
@@ -60,6 +62,8 @@ class QRDQNAgent(BaseAgent):
             risk_type=self.risk_type,
             risk_fraction=self.risk_fraction,
             truncate_upper=self.truncate_upper,
+            beta_alpha=self.beta_alpha,
+            beta_beta=self.beta_beta,
         )
 
         def make_qnet() -> UnifiedQNet:
@@ -187,6 +191,8 @@ class QRDQNAgent(BaseAgent):
                     "truncate_upper": self.truncate_upper,
                     "q_min": self.q_min,
                     "q_max": self.q_max,
+                    "beta_alpha": self.beta_alpha,
+                    "beta_beta": self.beta_beta,
                 },
             },
             path,
