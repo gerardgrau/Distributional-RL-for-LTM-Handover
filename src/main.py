@@ -197,6 +197,12 @@ def run_benchmark():
     parser.add_argument("--device", type=str, default="cpu", help="Execution device (cpu, cuda, xpu)")
     parser.add_argument("--description", type=str, default="benchmark", help="Short description for the benchmark")
     parser.add_argument("--agents", type=str, default="dqn,qrdqn", help="Comma-separated list of agents to run")
+    parser.add_argument(
+        "--seeds", type=str, default=None,
+        help="Comma-separated explicit seeds to run (e.g. '42,43,44'). "
+             "Overrides benchmark.num_seeds. Used by the XPU+CPU parallel "
+             "orchestrator so each process trains one specific seed.",
+    )
     args = parser.parse_args()
 
     Config.set_config_path(args.config)
@@ -212,6 +218,10 @@ def run_benchmark():
 
     bench_cfg = config['benchmark']
     agent_types = [a.strip().lower() for a in args.agents.split(",")]
+    if args.seeds:
+        seeds = [int(s) for s in args.seeds.split(",")]
+    else:
+        seeds = [42 + s for s in range(bench_cfg['num_seeds'])]
     
     # --- PERFORMANCE OPTIMIZATION: Unique Naming Convention ---
     # Format: bmk_YYYY-MM-DD_num_description
@@ -249,24 +259,23 @@ def run_benchmark():
         print(f"  Agents:    {args.agents}")
         print(f"  Device:    {args.device}")
         print(f"  Episodes:  {num_episodes}")
-        print(f"  Seeds:     {bench_cfg['num_seeds']}")
+        print(f"  Seeds:     {seeds}")
         print(f"  Config:    {args.config}")
         print(f"======================================")
     else:
         print("=== Starting Profiling Run (No artifacts will be saved) ===")
     
     bench_start_time = time.time()
-    total_runs = len(agent_types) * bench_cfg['num_seeds']
+    total_runs = len(agent_types) * len(seeds)
     num_episodes = config['agent'].get('num_episodes', 20)
     total_eps_overall = total_runs * num_episodes
-    
+
     with tqdm(total=total_eps_overall, desc="Benchmark Overall") as pbar:
         for agent_type in agent_types:
             best_reward = -np.inf
             best_seed_path = ""
-            
-            for s in range(bench_cfg['num_seeds']):
-                seed = 42 + s
+
+            for seed in seeds:
                 final_reward = run_seed(agent_type, bench_cfg['env_type'], seed, config, experiment_dir,
                                         pbar, device=device, save_results=not args.no_save)
                 if final_reward > best_reward:
