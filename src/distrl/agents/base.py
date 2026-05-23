@@ -25,6 +25,11 @@ class BaseAgent(ABC):
         self.tau = float(config.get("tau", 0.005))
         self.target_update_freq = int(config.get("target_update_freq", 1000))
         self.update_counter = 0
+        # n-step return: training-loop pre-bootstraps reward over n
+        # transitions, so the Q-target discounts the bootstrap by
+        # gamma**n instead of gamma. n_step=1 keeps standard 1-step TD.
+        self.n_step = max(1, int(config.get("n_step", 1)))
+        self.gamma_n = self.gamma ** self.n_step
 
     def _update_target(self, q_net: torch.nn.Module, target_net: torch.nn.Module) -> None:
         """Soft (tau<1) or hard (tau==1, every `target_update_freq`) update."""

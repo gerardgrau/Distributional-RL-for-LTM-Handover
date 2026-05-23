@@ -136,7 +136,7 @@ class QRDQNAgent(BaseAgent):
                 best_next_predicted
             )  # [B, T]
             target_quantiles = (
-                rewards + (1 - dones) * self.gamma * best_next_assembled
+                rewards + (1 - dones) * self.gamma_n * best_next_assembled
             )  # [B, T]
 
         current_quantiles = self.q_net(states).gather(
