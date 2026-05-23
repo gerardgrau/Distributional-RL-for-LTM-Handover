@@ -120,9 +120,8 @@ Training and final evaluation both use **all 1,000 trajectories** (no train/test
 
 ## Conventions
 
-- **Code style**: Google Python Style Guide (`conductor/code_styleguides/python.md`). 80-char lines, 4-space indent, snake_case modules/functions, PascalCase classes, ALL_CAPS constants. Type hints required on all function signatures; use modern Python 3.10+ syntax (`int | None`, `list[str]`, `dict[str, Any]`).
+- **Code style**: Google Python Style Guide. 80-char lines, 4-space indent, snake_case modules/functions, PascalCase classes, ALL_CAPS constants. Type hints required on all function signatures; use modern Python 3.10+ syntax (`int | None`, `list[str]`, `dict[str, Any]`). Docstrings on public functions/classes use the Args/Returns/Raises format. Never use mutable defaults (`= []`, `= {}`) or bare `except:`. Use a leading underscore for module-private symbols.
 - **Imports inside `src/`**: always import via the full `src.distrl....` path (mirrors what `main.py` sets up via `sys.path`).
-- **Track management**: Project tracks live under `conductor/tracks/` and are indexed in `conductor/tracks.md` (one line per track). Use the Conductor extension for planning new tracks rather than ad-hoc TODO files.
 - **`.gitignore`**: prefer distributed `.gitignore` files inside data/result subfolders with relative patterns (`/pattern`) over global rules — these double as documentation of expected directory contents.
 - **Commits**: atomic, one logical change each; task summaries belong in the commit body.
 
