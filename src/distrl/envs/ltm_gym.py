@@ -101,6 +101,43 @@ class LTMEnv(gym.Env):
         self._mcs_sum = np.zeros(self.NBS)
         self._snir_sum = np.zeros(self.NBS)
 
+        # Per-episode bookkeeping arrays. Sized to the canonical
+        # TotalSimTime / TimeStep from the active config — every .npz
+        # in the dataset has the same Max_iter (verified across the
+        # 1000 UE files). Reused across episodes via in-place .fill()
+        # in reset() instead of re-allocating ~1.7 MB of float arrays
+        # every episode. The reset path reallocates iff a loaded file
+        # has an unexpected shape.
+        self._allocate_episode_buffers(self.Max_iter)
+
+    def _allocate_episode_buffers(self, max_iter: int) -> None:
+        """Allocate (or re-allocate) the per-episode bookkeeping arrays."""
+        self.ServingBSSector = np.full(max_iter, -1, dtype=int)
+        self.MCS = np.zeros(max_iter)
+        self.HOF = np.zeros(max_iter)
+        self.RLF = np.zeros(max_iter)
+        self.HO_event = np.zeros(max_iter)
+        self.ping_pong = np.zeros(max_iter)
+        self.ReservedBSSectors = np.zeros((self.NBS, max_iter))
+        self.ListBSPrepared = np.zeros(self.NBS, dtype=int)
+        self.TimerEntering = np.zeros(self.NBS)
+        self.TimerLeaving = np.zeros(self.NBS)
+
+    def _reset_episode_buffers(self) -> None:
+        """Zero / re-init the per-episode arrays in-place. Skips the
+        ~1.7 MB of allocations that np.zeros/np.full would otherwise do
+        every reset."""
+        self.ServingBSSector.fill(-1)
+        self.MCS.fill(0)
+        self.HOF.fill(0)
+        self.RLF.fill(0)
+        self.HO_event.fill(0)
+        self.ping_pong.fill(0)
+        self.ReservedBSSectors.fill(0)
+        self.ListBSPrepared.fill(0)
+        self.TimerEntering.fill(0)
+        self.TimerLeaving.fill(0)
+
     def _get_obs_dict(self, t, state_type='NORMAL_STEP', HO_condition=None, PL1_report=None):
         """Build the per-tick observation dict yielded by the simulation
         generator.
@@ -230,28 +267,25 @@ class LTMEnv(gym.Env):
             self.ue_positions = data['ue_positions']
             self.PL1 = data['pl1']
             self.PL3 = data['pl3']
-        self.Max_iter = self.ChBS2UE.shape[1]
-        
-        self.ue_speeds = np.full(self.Max_iter, 10.0) 
-        
-        # Initialize trackers
-        self.ServingBSSector = np.full(self.Max_iter, -1, dtype=int)
-        self.MCS = np.zeros(self.Max_iter)
-        self.HOF = np.zeros(self.Max_iter)
-        self.RLF = np.zeros(self.Max_iter)
-        self.HO_event = np.zeros(self.Max_iter)
-        self.ping_pong = np.zeros(self.Max_iter)
-        self.ReservedBSSectors = np.zeros((self.NBS, self.Max_iter))
+        loaded_max = self.ChBS2UE.shape[1]
+        if loaded_max != self.Max_iter:
+            # Hot-loaded episode has a different length than what we
+            # preallocated — re-size the bookkeeping buffers. Slow path,
+            # not expected for the canonical 1000-UE dataset where every
+            # file is (NBS, 30000).
+            self.Max_iter = loaded_max
+            self._allocate_episode_buffers(loaded_max)
+        else:
+            # Re-use the preallocated arrays in place.
+            self._reset_episode_buffers()
+
+        self.ue_speeds = np.full(self.Max_iter, 10.0)
 
         self.Sync = {
             "N310": 4, "N311": 2, "T310": 50,
             "out_sync_count": 0, "in_sync_count": 0,
             "t310_running": False, "t310_counter": np.inf
         }
-
-        self.ListBSPrepared = np.zeros(self.NBS, dtype=int)
-        self.TimerEntering = np.zeros(self.NBS)
-        self.TimerLeaving = np.zeros(self.NBS)
         
         self.t = 0
         self.serving_tenure = 0
