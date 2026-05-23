@@ -1,6 +1,6 @@
 # Extra: x_eps_end_001
 # Base: p2_lr_1e-4. Override: agent.epsilon_end 0.05 -> 0.01.
-# Budget: 1 seed x 2000 episodes.
+# Budget: 1 seed x 1000 episodes.
 
 system:
   tx_power: 25

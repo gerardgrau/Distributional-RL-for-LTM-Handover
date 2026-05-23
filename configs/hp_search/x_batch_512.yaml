@@ -1,6 +1,6 @@
 # Extra: x_batch_512
 # Base: p2_lr_1e-4. Override: agent.batch_size 256 -> 512.
-# Budget: 1 seed x 2000 episodes.
+# Budget: 1 seed x 1000 episodes.
 
 system:
   tx_power: 25

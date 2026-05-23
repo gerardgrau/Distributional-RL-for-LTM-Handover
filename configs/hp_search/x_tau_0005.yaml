@@ -1,6 +1,6 @@
 # Extra: x_tau_0005
 # Base: p2_lr_1e-4. Override: agent.tau 0.01 -> 0.005.
-# Budget: 1 seed x 2000 episodes.
+# Budget: 1 seed x 1000 episodes.
 
 system:
   tx_power: 25

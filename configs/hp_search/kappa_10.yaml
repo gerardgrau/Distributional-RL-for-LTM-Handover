@@ -1,7 +1,7 @@
 # Overnight kappa search (2026-05-19), variant A: re-validate champion
 # under the corrected physics. Champion = the previous Phase 2 winner
 # (lr=1e-4, gamma=0.9, hidden=[128,128], eps_mult=0.995, num_quantiles=50,
-# kappa=1.0 default). Single seed × 2000 ep — establishes the kappa=1.0
+# kappa=1.0 default). Single seed × 1000 ep — establishes the kappa=1.0
 # reference point under the new physics and is the solid QR-DQN baseline.
 
 system:

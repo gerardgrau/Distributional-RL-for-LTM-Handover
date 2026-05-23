@@ -4,7 +4,7 @@
 # learned (it would be discarded anyway by the CVaR(0.1) action rule), so
 # all the network capacity goes into modeling the part that matters for
 # the risk policy.
-# Budget: 1 seed x 2000 episodes.
+# Budget: 3 seeds x 1000 episodes.
 
 system:
   tx_power: 25

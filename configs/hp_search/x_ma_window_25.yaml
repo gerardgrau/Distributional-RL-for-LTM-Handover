@@ -1,6 +1,6 @@
 # Extra: x_ma_window_25
 # Base: p2_lr_1e-4. Override: ho_state.moving_average_window 50 -> 25.
-# Budget: 1 seed x 2000 episodes (tighter state smoothing -> faster reaction).
+# Budget: 1 seed x 1000 episodes (tighter state smoothing -> faster reaction).
 
 system:
   tx_power: 25

@@ -22,7 +22,7 @@ agent:
   num_quantiles: 50
   epsilon_start: 1.0
   epsilon_end: 0.05
-  epsilon_mult: 0.998        # Adjusted for 2000 episodes
+  epsilon_mult: 0.998        # Originally tuned for 2000 ep; now capped at 1000 ep (curves plateau earlier)
   num_episodes: 1000
 
 benchmark:

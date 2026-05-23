@@ -64,7 +64,7 @@ def _emit_nstep(buf: Any, q: deque, gamma: float) -> None:
     The discounted return is summed until either the queue is exhausted
     or a terminal flag is hit (whichever comes first). next_state/done
     come from the last transition included, so a (1-done)*gamma_n
-    bootstrap in the agent zeros out correctly on truncated rollouts.
+    bootstrap in the agent zeros out correctly at episode end.
     """
     s0, a0, _, _, _ = q[0]
     R = 0.0

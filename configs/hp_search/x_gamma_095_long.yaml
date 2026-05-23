@@ -1,6 +1,6 @@
 # Extra: x_gamma_095_long
 # Base: p2_lr_1e-4. Override: agent.gamma 0.9 -> 0.95.
-# Budget: 1 seed x 2000 episodes (gamma may need longer training to shine).
+# Budget: 1 seed x 1000 episodes (gamma may need longer training to shine).
 
 system:
   tx_power: 25
