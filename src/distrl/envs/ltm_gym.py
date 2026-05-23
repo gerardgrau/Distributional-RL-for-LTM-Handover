@@ -48,6 +48,11 @@ _TICK_RA = int(np.ceil(Time_RA_10 / Time["TimeStep"]))
 _TICK_CTX_RELEASE = int(np.ceil(Time_ContextRelease_11 / Time["TimeStep"]))
 _TICK_PINGPONG = int(np.floor(Time_PingPong / Time["TimeStep"]))
 
+# state_type string -> int code consumed by env.step. Hoisted out of
+# _get_obs_dict so we are not rebuilding a 3-key Python dict on every
+# yield (~30k per episode).
+_STATE_MAP = {'NORMAL_STEP': 0, 'FIND_CELL': 1, 'HO_DECISION': 2}
+
 
 class LTMEnv(gym.Env):
     def __init__(self, config=None):
@@ -97,15 +102,34 @@ class LTMEnv(gym.Env):
         self._snir_sum = np.zeros(self.NBS)
 
     def _get_obs_dict(self, t, state_type='NORMAL_STEP', HO_condition=None, PL1_report=None):
-        state_map = {'NORMAL_STEP': 0, 'FIND_CELL': 1, 'HO_DECISION': 2}
+        """Build the per-tick observation dict yielded by the simulation
+        generator.
+
+        Lazy: only the fields actually consumed for `state_type` are
+        included. `env.step` reads `state_type` and `t` for every yield,
+        `ChBS2UE_t` only in FIND_CELL, and `PL1_report` / `HO_condition`
+        only in HO_DECISION. `t` is passed through as a Python int — the
+        previous np.array([t], dtype=np.int32) allocated 1 array per
+        yield and was always unpacked back to an int by callers.
+
+        NORMAL_STEP (the common case) returns a 3-field dict with no
+        numpy allocations; FIND_CELL adds the 21-channel view; HO_DECISION
+        passes the producer-side arrays straight through. The previous
+        eager version allocated 4 numpy arrays per yield regardless of
+        state_type.
+        """
         obs = {
-            "state_type": state_map[state_type],
+            "state_type": _STATE_MAP[state_type],
             "state_str": state_type,
-            "t": np.array([t], dtype=np.int32),
-            "ChBS2UE_t": self.ChBS2UE[:, t].astype(np.float32),
-            "PL1_report": PL1_report if PL1_report is not None else np.zeros(self.NBS, dtype=np.float32),
-            "HO_condition": HO_condition.astype(np.int8) if HO_condition is not None else np.zeros(self.NBS, dtype=np.int8)
+            "t": t,
         }
+        if state_type == 'FIND_CELL':
+            # View into the precomputed channel matrix (no copy/cast — the
+            # downstream max/argmax operate fine in the source dtype).
+            obs["ChBS2UE_t"] = self.ChBS2UE[:, t]
+        elif state_type == 'HO_DECISION':
+            obs["PL1_report"] = PL1_report
+            obs["HO_condition"] = HO_condition
         return obs
 
     def _advance_ma(self, t: int) -> tuple[np.ndarray, np.ndarray]:
@@ -258,7 +282,7 @@ class LTMEnv(gym.Env):
             # Computes the same pure-Ainna reward as RL mode (range-aggregated over
             # the actual tick range covered by these sends) so the LTM baseline gets
             # a meaningful reward signal comparable to DQN / QR-DQN.
-            t_start = int(self._last_obs_dict['t'][0])
+            t_start = self._last_obs_dict['t']
 
             for _ in range(10):
                 try:
@@ -269,7 +293,7 @@ class LTMEnv(gym.Env):
                     break
 
             if not terminated:
-                t_end = min(int(self._last_obs_dict['t'][0]), self.Max_iter)
+                t_end = min(self._last_obs_dict['t'], self.Max_iter)
                 if t_end > t_start:
                     mcs_slice = self.MCS[t_start:t_end]
                     avg_mcs = float(mcs_slice.mean())
@@ -299,7 +323,7 @@ class LTMEnv(gym.Env):
             # AFTER this step() has returned. To get the correct values
             # for the reward we therefore aggregate over the actual range
             # [t_start, t_end) covered by this step's sends.
-            t_start = int(self._last_obs_dict['t'][0])
+            t_start = self._last_obs_dict['t']
 
             for _ in range(10):
                 try:
@@ -326,7 +350,7 @@ class LTMEnv(gym.Env):
                     break
 
             if not terminated:
-                t_end = min(int(self._last_obs_dict['t'][0]), self.Max_iter)
+                t_end = min(self._last_obs_dict['t'], self.Max_iter)
                 if t_end > t_start:
                     mcs_slice = self.MCS[t_start:t_end]
                     avg_mcs = float(mcs_slice.mean())

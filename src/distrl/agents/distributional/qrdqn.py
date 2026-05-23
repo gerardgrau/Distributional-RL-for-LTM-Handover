@@ -120,13 +120,24 @@ class QRDQNAgent(BaseAgent):
         states, actions, rewards, next_states, dones = batch
         batch_size = states.size(0)
 
+        # Per-quantile slot count of the network head.
+        num_predicted = self.scheme.num_predicted
+
         with torch.no_grad():
             next_predicted = self.target_net(next_states)
             next_q = self._action_values(next_predicted)
             best_next_actions = next_q.argmax(dim=1)  # [B]
-            best_next_predicted = next_predicted[
-                range(batch_size), best_next_actions
-            ]  # [B, num_predicted]
+            # torch.gather along the action axis. Equivalent to
+            # next_predicted[range(B), best_next_actions] but stays
+            # device-native — the previous form built a Python range,
+            # converted to a tensor, and shipped it to the agent device
+            # on every train step.
+            best_next_predicted = next_predicted.gather(
+                1,
+                best_next_actions.view(-1, 1, 1).expand(
+                    -1, 1, num_predicted,
+                ),
+            ).squeeze(1)  # [B, num_predicted]
             # Assemble the full target distribution. For trapezoidal this
             # prepends q_min and appends q_max; for other schemes it is a
             # no-op.
@@ -139,9 +150,11 @@ class QRDQNAgent(BaseAgent):
             )  # [B, num_total]
 
         current_all = self.q_net(states)
-        current_quantiles = current_all[
-            range(batch_size), actions.squeeze(1)
-        ]  # [B, num_predicted]
+        # Same gather pattern for the action the agent actually took.
+        # actions has shape [B, 1]; expand to [B, 1, num_predicted].
+        current_quantiles = current_all.gather(
+            1, actions.unsqueeze(-1).expand(-1, -1, num_predicted),
+        ).squeeze(1)  # [B, num_predicted]
 
         # Pinball matrix over (predictor i, target j).
         # diff: [B, num_predicted, num_total]
@@ -182,7 +195,11 @@ class QRDQNAgent(BaseAgent):
         self.update_counter += 1
         self._update_target(self.q_net, self.target_net)
 
-        return {"loss": float(loss.item())}
+        # Return loss as a detached 0-d tensor instead of forcing a D2H
+        # sync via .item(). The caller is expected to accumulate these and
+        # materialise once per logging interval — every .item() during
+        # training is an XPU pipeline stall.
+        return {"loss": loss.detach()}
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)

@@ -74,7 +74,10 @@ class DQNAgent(BaseAgent):
         self.update_counter += 1
         self._update_target(self.q_net, self.target_net)
 
-        return {"loss": float(loss.item())}
+        # Return loss as a detached 0-d tensor; the caller materialises
+        # (e.g. via torch.stack(losses).mean().item()) at episode end so
+        # the training loop is not paying a D2H sync per train step.
+        return {"loss": loss.detach()}
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)

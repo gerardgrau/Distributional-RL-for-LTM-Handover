@@ -31,14 +31,15 @@ class BaseAgent(ABC):
         Standard Target Network Update (Soft or Hard).
         """
         if self.tau < 1.0:
-            # Soft Update via in-place lerp_:
-            #   target.lerp_(q, tau) == target = (1 - tau)*target + tau*q
-            # Equivalent to the prior `target.copy_(tau*q + (1-tau)*target)`
-            # but allocates no temporary tensors — called once per
-            # parameter per train step.
+            # Soft Update via torch._foreach_lerp_ — a single C++ kernel
+            # that applies in-place lerp over the full parameter list,
+            # versus the Python loop calling lerp_ once per tensor.
+            # Same math as `target = (1 - tau)*target + tau*q`, no temp
+            # allocations.
             with torch.no_grad():
-                for target_param, q_param in zip(target_net.parameters(), q_net.parameters()):
-                    target_param.lerp_(q_param, self.tau)
+                target_params = list(target_net.parameters())
+                q_params = list(q_net.parameters())
+                torch._foreach_lerp_(target_params, q_params, self.tau)
         elif self.update_counter % self.target_update_freq == 0:
             # Hard Update
             target_net.load_state_dict(q_net.state_dict())

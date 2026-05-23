@@ -33,14 +33,34 @@ class CSVLogger:
         self.filepath = filepath
         self.headers = headers
         os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
-        with open(self.filepath, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(self.headers)
+        # Open once and keep the handle open across log() calls. The
+        # previous implementation re-opened the file on every log row,
+        # which is ~1000x per benchmark seed; trivial change for cleaner
+        # I/O.
+        self._fh = open(self.filepath, 'w', newline='')
+        self._writer = csv.writer(self._fh)
+        self._writer.writerow(self.headers)
+        self._fh.flush()
 
     def log(self, row: list[Any]):
-        with open(self.filepath, 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(row)
+        self._writer.writerow(row)
+        # Flush so partial logs are still visible if the process is
+        # killed mid-run (matches the prior open(append)+close behaviour
+        # which implicitly flushed).
+        self._fh.flush()
+
+    def close(self) -> None:
+        if self._fh is not None and not self._fh.closed:
+            self._fh.close()
+
+    def __del__(self) -> None:
+        # Defensive: ensure the file is flushed/closed if the owner
+        # forgets to call close(). Python's interpreter shutdown may
+        # already have closed it — guard via the closed check.
+        try:
+            self.close()
+        except Exception:
+            pass
 
 def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment_dir: str, 
              pbar: tqdm, device: str = "cpu", save_results: bool = True) -> float:
@@ -129,7 +149,13 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         )
         
         epsilon = max(eps_end, epsilon * eps_mult)
-        avg_loss = np.mean(episode_loss) if episode_loss else 0.0
+        # Materialise the per-step loss tensors with a single sync at
+        # episode end. train_step returns loss.detach() (a 0-d tensor on
+        # the agent's device) precisely to defer this to here.
+        if episode_loss:
+            avg_loss = float(torch.stack(episode_loss).mean().item())
+        else:
+            avg_loss = 0.0
         if save_results:
             logger.log([
                 ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time,
@@ -151,6 +177,11 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             "seed": seed,
             "reward": f"{np.mean(rewards_history[-10:]):.1f}"
         })
+
+    # Flush + close the per-episode CSV log explicitly (we kept the
+    # handle open across episodes for performance).
+    if save_results:
+        logger.close()
 
     # SAVE MODEL FOR THIS SEED in experiment_dir/models/
     if save_results:
