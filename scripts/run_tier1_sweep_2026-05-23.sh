@@ -11,7 +11,7 @@
 # results/final_metrics/tier1_sweep_v2.csv with the 3-seed champion row at
 # the top for direct comparison.
 
-cd /home/gerard/Documents/UPC/42_4t-Q2/I2R/Distributional-RL-for-LTM-Handover
+cd "$(git rev-parse --show-toplevel)" || exit 1
 export PYTHONPATH="${PYTHONPATH:-}:$(pwd)/src"
 
 DATESTAMP="2026-05-23"

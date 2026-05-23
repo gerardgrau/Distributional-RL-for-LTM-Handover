@@ -29,8 +29,9 @@ from src.distrl.utils.metrics import calculate_8_metrics
 from src.distrl.utils.evaluation import run_evaluation
 
 class CSVLogger:
-    """Append-mode CSV writer that flushes after every row (so logs
-    survive a killed training run)."""
+    """CSV writer that flushes after every row (so logs survive a
+    killed training run). Opens the file in overwrite mode, so reusing
+    the same path between runs starts fresh."""
 
     def __init__(self, filepath: str, headers: list[str]):
         self.filepath = filepath
@@ -81,13 +82,14 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
     
     # Save CSV logs in experiment_dir/train/
+    logger: CSVLogger | None = None
     if save_results:
         log_file = os.path.join(experiment_dir, "train", f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
-        headers = ["episode", "reward", "loss", "steps", "wall_time", 
-                   "capacity", "rlf_rate", "ho_rate", "pp_rate", 
+        headers = ["episode", "reward", "loss", "steps", "wall_time",
+                   "capacity", "rlf_rate", "ho_rate", "pp_rate",
                    "reliability", "prep_rate", "res_reservation", "hof_rate"]
         logger = CSVLogger(log_file, headers)
-    
+
     num_episodes = agent_config.get('num_episodes', 20)
     epsilon = agent_config.get('epsilon_start', 1.0)
     eps_end = agent_config.get('epsilon_end', 0.05)
@@ -98,80 +100,81 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     start_time = time.time()
     rewards_history = []
     global_step = 0
-    
-    for ep in range(num_episodes):
-        state, _ = env.reset(seed=seed)
-        agent.reset()
-        episode_reward = 0
-        episode_loss = []
-        done = False
-        last_info = {}
-        
-        is_baseline = agent_type.lower() == "ltm_baseline"
-        while not done:
-            if is_baseline:
-                # Hardcoded baseline: drive the env in high-resolution callback
-                # mode so the agent sees every FIND_CELL / HO_DECISION yield.
-                next_state, reward, done, _, info = env.step(
-                    0, high_res_callback=agent.select_action
-                )
-            else:
-                action = agent.select_action(state, epsilon)
-                next_state, reward, done, _, info = env.step(action)
-                if buffer is not None:
-                    buffer.push(state, action, reward, next_state, done)
-                if buffer is not None and len(buffer) > batch_size and global_step % train_freq == 0:
-                    metrics = agent.train_step(buffer.sample(batch_size, device=device))
-                    episode_loss.append(metrics['loss'])
-            state = next_state
-            episode_reward += reward
-            global_step += 1
-            if done:
-                last_info = info
-        
-        # Calculate LTM metrics at end of episode (Tracking during training)
-        metrics_8 = calculate_8_metrics(
-            mcs_history=last_info["metrics"]["mcs"],
-            rlf_history=last_info["metrics"]["rlf"],
-            ho_history=last_info["metrics"]["ho"],
-            hof_history=last_info["metrics"]["hof"],
-            pp_history=last_info["metrics"]["pp"],
-            serving_history=last_info["metrics"]["serving"],
-            pl3_history=last_info["metrics"]["pl3"],
-            config=config
-        )
-        
-        epsilon = max(eps_end, epsilon * eps_mult)
-        # train_step returns a detached 0-d tensor; materialise with a
-        # single device sync at episode end.
-        if episode_loss:
-            avg_loss = float(torch.stack(episode_loss).mean().item())
-        else:
-            avg_loss = 0.0
-        if save_results:
-            logger.log([
-                ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time,
-                metrics_8["capacity_avg"],
-                metrics_8["rlf_rate"],
-                metrics_8["ho_rate"],
-                metrics_8["pp_rate"],
-                metrics_8["reliability_pct"],
-                metrics_8["prep_rate"],
-                metrics_8["res_reservation_pct"],
-                metrics_8["hof_rate"]
-            ])
-        rewards_history.append(episode_reward)
-        
-        # Update progress bar
-        pbar.update(1)
-        pbar.set_postfix({
-            "agent": agent_type,
-            "seed": seed,
-            "reward": f"{np.mean(rewards_history[-10:]):.1f}"
-        })
 
-    if save_results:
-        logger.close()
+    try:
+        for ep in range(num_episodes):
+            state, _ = env.reset(seed=seed)
+            agent.reset()
+            episode_reward = 0
+            episode_loss = []
+            done = False
+            last_info = {}
+
+            is_baseline = agent_type.lower() == "ltm_baseline"
+            while not done:
+                if is_baseline:
+                    # Hardcoded baseline: drive the env in high-resolution callback
+                    # mode so the agent sees every FIND_CELL / HO_DECISION yield.
+                    next_state, reward, done, _, info = env.step(
+                        0, high_res_callback=agent.select_action
+                    )
+                else:
+                    action = agent.select_action(state, epsilon)
+                    next_state, reward, done, _, info = env.step(action)
+                    if buffer is not None:
+                        buffer.push(state, action, reward, next_state, done)
+                    if buffer is not None and len(buffer) > batch_size and global_step % train_freq == 0:
+                        metrics = agent.train_step(buffer.sample(batch_size, device=device))
+                        episode_loss.append(metrics['loss'])
+                state = next_state
+                episode_reward += reward
+                global_step += 1
+                if done:
+                    last_info = info
+
+            # Calculate LTM metrics at end of episode (Tracking during training)
+            metrics_8 = calculate_8_metrics(
+                mcs_history=last_info["metrics"]["mcs"],
+                rlf_history=last_info["metrics"]["rlf"],
+                ho_history=last_info["metrics"]["ho"],
+                hof_history=last_info["metrics"]["hof"],
+                pp_history=last_info["metrics"]["pp"],
+                serving_history=last_info["metrics"]["serving"],
+                pl3_history=last_info["metrics"]["pl3"],
+                config=config
+            )
+
+            epsilon = max(eps_end, epsilon * eps_mult)
+            # train_step returns a detached 0-d tensor; materialise with a
+            # single device sync at episode end.
+            if episode_loss:
+                avg_loss = float(torch.stack(episode_loss).mean().item())
+            else:
+                avg_loss = 0.0
+            if logger is not None:
+                logger.log([
+                    ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time,
+                    metrics_8["capacity_avg"],
+                    metrics_8["rlf_rate"],
+                    metrics_8["ho_rate"],
+                    metrics_8["pp_rate"],
+                    metrics_8["reliability_pct"],
+                    metrics_8["prep_rate"],
+                    metrics_8["res_reservation_pct"],
+                    metrics_8["hof_rate"]
+                ])
+            rewards_history.append(episode_reward)
+
+            # Update progress bar
+            pbar.update(1)
+            pbar.set_postfix({
+                "agent": agent_type,
+                "seed": seed,
+                "reward": f"{np.mean(rewards_history[-10:]):.1f}"
+            })
+    finally:
+        if logger is not None:
+            logger.close()
 
     # SAVE MODEL FOR THIS SEED in experiment_dir/models/
     if save_results:
