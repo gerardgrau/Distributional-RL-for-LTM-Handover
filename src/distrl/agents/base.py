@@ -27,21 +27,15 @@ class BaseAgent(ABC):
         self.update_counter = 0
 
     def _update_target(self, q_net: torch.nn.Module, target_net: torch.nn.Module) -> None:
-        """
-        Standard Target Network Update (Soft or Hard).
-        """
+        """Soft (tau<1) or hard (tau==1, every `target_update_freq`) update."""
         if self.tau < 1.0:
-            # Soft Update via torch._foreach_lerp_ — a single C++ kernel
-            # that applies in-place lerp over the full parameter list,
-            # versus the Python loop calling lerp_ once per tensor.
-            # Same math as `target = (1 - tau)*target + tau*q`, no temp
-            # allocations.
             with torch.no_grad():
-                target_params = list(target_net.parameters())
-                q_params = list(q_net.parameters())
-                torch._foreach_lerp_(target_params, q_params, self.tau)
+                torch._foreach_lerp_(
+                    list(target_net.parameters()),
+                    list(q_net.parameters()),
+                    self.tau,
+                )
         elif self.update_counter % self.target_update_freq == 0:
-            # Hard Update
             target_net.load_state_dict(q_net.state_dict())
 
     @abstractmethod

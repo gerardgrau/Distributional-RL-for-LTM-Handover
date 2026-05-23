@@ -150,8 +150,8 @@ def train(
             last_pbar = frame
 
         if done:
-            # train_step now returns loss.detach() (0-d tensor) — stack +
-            # one .item() per episode beats a D2H sync per train step.
+            # train_step returns a detached 0-d tensor; one sync per
+            # episode beats a sync per train step.
             if episode_losses:
                 mean_loss = float(
                     torch.stack(episode_losses).mean().item()
@@ -197,11 +197,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Smart default: explicit --threads wins; otherwise the LTM-side
-    # benchmark shows the library's default (cpu_count, ~16 on a
-    # 12-core box with HT) loses 30%+ to intra-op coordination on
-    # small batches. XPU only needs 2 threads (heavy work on-device);
-    # CPU benefits from 4 (matmul-bound).
+    # Cap intra-op threads — the library default (~cpu_count) loses
+    # 30%+ on small-batch RL. CPU does its own matmuls so it benefits
+    # from more threads than XPU (where the heavy work runs on-device).
     if args.threads > 0:
         torch.set_num_threads(args.threads)
     else:

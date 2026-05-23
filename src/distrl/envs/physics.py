@@ -87,20 +87,14 @@ def physics_hash() -> str:
 # ============================================================
 # PHYSICS FUNCTIONS
 # ============================================================
-# Hot-path scalar constants for MCSEvaluation / CheckHO_Failure. The
-# values are derived from the module-level `System` dict and the fixed
-# M-fold interference model; they are immutable for the lifetime of the
-# process. Hoisting them avoids a dict lookup + 10**(...) per tick
-# (~130k ticks per training episode).
+# Hot-path constants reused by every MCSEvaluation / CheckHO_Failure
+# call (~130k per episode). Derived from the module-level `System`
+# dict and the fixed M-fold interference model.
 _M_INTERFERENCE = 3
-_INV_M = 1.0 / _M_INTERFERENCE          # gates the high-vs-low branch
-_LOW_INTER_FACTOR = 10 ** (-1.5)        # 15 dB attenuation in low-inter case
+_INV_M = 1.0 / _M_INTERFERENCE
+_LOW_INTER_FACTOR = 10 ** (-1.5)
 _NOISE_LINEAR = 10 ** (System["NoiseLevel"] / 10.0)
 
-# Module-level BLER + SNR tables consumed by CheckHO_Failure. Hoisted out
-# of the function body so they are allocated once at import (the previous
-# in-body np.array calls were rebuilding both arrays on every per-tick
-# call).
 _BLER = np.array([
     1, 0.2617, 0.2370, 0.2103, 0.1828, 0.1558, 0.1302, 0.1067, 0.0859,
     0.0678, 0.0526, 0.0401, 0.0301, 0.0221, 0.0160, 0.0114, 0.0080,
@@ -115,90 +109,64 @@ _SNR_LEVEL = np.array([
 ])
 
 
-def MCSEvaluation(serving_sector, channels, System, Sync):
-    RLF = 0
-    tx_power = System["TxPower"]
-    serving_channel = channels[serving_sector]
-    Ps = 10 ** ((serving_channel + tx_power) / 10)
+def _aggregate_signal_and_interference(serving_sector, channels, tx_power):
+    """Return (Ps, AllInter) in linear power for the reuse-group at this tick.
 
-    # Reuse-group 1:3 stride scalar reduction. For NBS=21 the inner
-    # loop iterates 7 times; on tiny arrays Python+libm beats numpy
-    # whose per-call dispatch overhead (alloc + vectorised reduce on a
-    # length-7 buffer) is much larger than 7 scalar pow+add. The
-    # left-to-right accumulation matches numpy.sum's reduce order on a
-    # length-7 array bit-for-bit, so AllInter is identical to the prior
-    # `np.sum(10**Inter) - Ps`.
-    group = serving_sector % 3
-    n = channels.shape[0]
+    The reuse-group is the 1:3 stride starting at `serving_sector % 3`
+    (7 sectors for NBS=21). The Python loop beats a numpy reduce on
+    such a short array (numpy dispatch overhead dominates) and matches
+    its bit-for-bit summation order.
+    """
+    Ps = 10 ** ((channels[serving_sector] + tx_power) / 10)
     AllInter = 0.0
-    for k in range(group, n, 3):
+    for k in range(serving_sector % 3, channels.shape[0], 3):
         AllInter += 10 ** ((channels[k] + tx_power) / 10.0)
     AllInter -= Ps
+    return Ps, AllInter
 
-    # Use module-level constants instead of recomputing per call. M=3 is
-    # fixed by the interference model; noise_linear depends only on
-    # System["NoiseLevel"] which is invariant across the run.
+
+def MCSEvaluation(serving_sector, channels, System, Sync):
+    Ps, AllInter = _aggregate_signal_and_interference(
+        serving_sector, channels, System["TxPower"],
+    )
     M = _M_INTERFERENCE
     M_AllInter = M * AllInter
-
     if np.random.rand() < _INV_M:
         Inter_Noise = M_AllInter + _NOISE_LINEAR
     else:
         Inter_Noise = M_AllInter * _LOW_INTER_FACTOR + _NOISE_LINEAR
 
-    # M*Ps in the numerator mirrors the M-fold scaling already applied to
-    # the interference term. Dropping it (a previous calibration accident)
-    # made SNIR ~4.77 dB pessimistic in noise-limited regimes.
-    # math.log10 of a Python/numpy scalar resolves to the same libm
-    # log10 as np.log10's scalar dispatch, but skips the numpy wrapper
-    # overhead — meaningful at 130k+ calls per episode.
+    # M*Ps in the numerator mirrors the M-fold scaling already applied
+    # to the interference term. Dropping it (a previous calibration
+    # accident) made SNIR ~4.77 dB pessimistic in noise-limited regimes.
     SNIR = 10 * math.log10(M * Ps) - 10 * math.log10(Inter_Noise)
-    # searchsorted(side='right') gives the insertion point such that all
-    # entries to the left are <= SNIR; subtract 1 to get the largest index
-    # satisfying SINRThreshold[i] <= SNIR. SINRThreshold[0] = -inf so the
-    # result is always >= 0 for any finite SNIR — the empty-idx fallback
-    # below is defensive only.
     i = int(np.searchsorted(System["SINRThreshold"], SNIR, side="right")) - 1
     MCS = System["SpectralEff"][i] if i >= 0 else 0
 
+    RLF = 0
     if SNIR <= 0:
         Sync["out_sync_count"] += 1
         Sync["in_sync_count"] = 0
         if Sync["out_sync_count"] >= Sync["N310"] and not Sync["t310_running"]:
             Sync["t310_running"] = True
             Sync["t310_counter"] = Sync["T310"]
-
     if SNIR > 2:
         Sync["in_sync_count"] += 1
         Sync["out_sync_count"] = 0
         if Sync["in_sync_count"] >= Sync["N311"]:
             Sync["t310_running"] = False
-
     if Sync["t310_running"]:
         Sync["t310_counter"] -= 1
         RLF = (Sync["t310_counter"] == 0)
-
     return MCS, RLF, Sync
 
+
 def CheckHO_Failure(serving_sector, channels, System):
-    tx_power = System["TxPower"]
-    serving_channel = channels[serving_sector]
-    Ps = 10 ** ((serving_channel + tx_power) / 10)
-
-    # Same scalar reduction + math.log10 path as MCSEvaluation; see the
-    # rationale comment there.
-    group = serving_sector % 3
-    n = channels.shape[0]
-    AllInter = 0.0
-    for k in range(group, n, 3):
-        AllInter += 10 ** ((channels[k] + tx_power) / 10.0)
-    AllInter -= Ps
-
-    # Same module-level constants as MCSEvaluation; see the rationale
-    # comment there.
+    Ps, AllInter = _aggregate_signal_and_interference(
+        serving_sector, channels, System["TxPower"],
+    )
     M = _M_INTERFERENCE
     M_AllInter = M * AllInter
-
     if np.random.rand() < _INV_M:
         Inter_Noise = M_AllInter + _NOISE_LINEAR
     else:
@@ -207,7 +175,6 @@ def CheckHO_Failure(serving_sector, channels, System):
     SNIR = 10 * math.log10(M * Ps) - 10 * math.log10(Inter_Noise)
     i = int(np.searchsorted(_SNR_LEVEL, SNIR, side="right")) - 1
     Pe = _BLER[i] if i >= 0 else _BLER[0]
-
     return np.random.rand() < Pe
 
 def PerformanceEvaluation(MCS, ServingCell_channel, ping_pong, ReservedBSSectors, HOF, HO_event, RLF, Time):

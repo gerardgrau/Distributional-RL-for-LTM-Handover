@@ -32,9 +32,8 @@ def natural_sort_key(s):
             for text in re.split('([0-9]+)', s)]
 
 
-# Tick counts derived from the physics time constants. Hoisted to module
-# scope so the simulation generator is not re-running int(np.ceil(...))
-# on every iteration (called O(ticks) times per episode).
+# Tick counts for each HO sub-phase. Precomputed so the simulation
+# generator avoids re-running int(np.ceil(...)) on every iteration.
 _TICK_MEAS_L3 = int(np.ceil(Time_MeasReportL3_1 / Time["TimeStep"]))
 _TICK_RRC_PREP = int(np.ceil(
     (Time_RRCTransfer2 + Time_RRCConf3) / Time["TimeStep"]
@@ -48,9 +47,6 @@ _TICK_RA = int(np.ceil(Time_RA_10 / Time["TimeStep"]))
 _TICK_CTX_RELEASE = int(np.ceil(Time_ContextRelease_11 / Time["TimeStep"]))
 _TICK_PINGPONG = int(np.floor(Time_PingPong / Time["TimeStep"]))
 
-# state_type string -> int code consumed by env.step. Hoisted out of
-# _get_obs_dict so we are not rebuilding a 3-key Python dict on every
-# yield (~30k per episode).
 _STATE_MAP = {'NORMAL_STEP': 0, 'FIND_CELL': 1, 'HO_DECISION': 2}
 
 
@@ -79,7 +75,7 @@ class LTMEnv(gym.Env):
         # Observation Space: 88-dim Markovian vector (Paper Aligned)
         self.observation_space = spaces.Box(low=-5, high=5, shape=(88,), dtype=np.float32)
 
-        # Cache config knobs that are read on every step / obs call.
+        # Cache per-step config lookups.
         self._p_window = int(self.config.get('ho_state', {}).get(
             'moving_average_window', 50,
         ))
@@ -88,30 +84,20 @@ class LTMEnv(gym.Env):
         self._alpha_pp = float(ho_reward_cfg.get('alpha_pp', 0.9))
         self._alpha_hof = float(ho_reward_cfg.get('alpha_hof', 0.1))
 
-        # Pre-allocated 88-dim observation buffer. _get_rl_obs fills slots
-        # in-place and returns .copy() to the caller. Replaces the prior
-        # 7 small allocations + np.concatenate + .astype path.
+        # Reusable buffer for _get_rl_obs (returned as .copy() each call).
         self._obs_buf = np.empty(88, dtype=np.float32)
 
-        # Running-sum state for the per-sector moving averages of MCS / SNIR
-        # (window = _p_window). Filled by _advance_ma; reset() invalidates
-        # it. The previous implementation re-sliced and re-meaned the
-        # episode arrays on every obs call — O(window * NBS) per tick.
+        # O(1) running sums for the per-sector MA used in the observation.
         self._ma_last_t: int | None = None
         self._mcs_sum = np.zeros(self.NBS)
         self._snir_sum = np.zeros(self.NBS)
 
-        # Per-episode bookkeeping arrays. Sized to the canonical
-        # TotalSimTime / TimeStep from the active config — every .npz
-        # in the dataset has the same Max_iter (verified across the
-        # 1000 UE files). Reused across episodes via in-place .fill()
-        # in reset() instead of re-allocating ~1.7 MB of float arrays
-        # every episode. The reset path reallocates iff a loaded file
-        # has an unexpected shape.
+        # Per-episode bookkeeping arrays — allocated once, zeroed in-place
+        # by reset(). The reset path reallocates iff a loaded .npz has a
+        # different Max_iter (not expected for the canonical dataset).
         self._allocate_episode_buffers(self.Max_iter)
 
     def _allocate_episode_buffers(self, max_iter: int) -> None:
-        """Allocate (or re-allocate) the per-episode bookkeeping arrays."""
         self.ServingBSSector = np.full(max_iter, -1, dtype=int)
         self.MCS = np.zeros(max_iter)
         self.HOF = np.zeros(max_iter)
@@ -124,9 +110,6 @@ class LTMEnv(gym.Env):
         self.TimerLeaving = np.zeros(self.NBS)
 
     def _reset_episode_buffers(self) -> None:
-        """Zero / re-init the per-episode arrays in-place. Skips the
-        ~1.7 MB of allocations that np.zeros/np.full would otherwise do
-        every reset."""
         self.ServingBSSector.fill(-1)
         self.MCS.fill(0)
         self.HOF.fill(0)
@@ -139,21 +122,11 @@ class LTMEnv(gym.Env):
         self.TimerLeaving.fill(0)
 
     def _get_obs_dict(self, t, state_type='NORMAL_STEP', HO_condition=None, PL1_report=None):
-        """Build the per-tick observation dict yielded by the simulation
-        generator.
+        """Per-yield observation dict consumed by env.step.
 
-        Lazy: only the fields actually consumed for `state_type` are
-        included. `env.step` reads `state_type` and `t` for every yield,
-        `ChBS2UE_t` only in FIND_CELL, and `PL1_report` / `HO_condition`
-        only in HO_DECISION. `t` is passed through as a Python int — the
-        previous np.array([t], dtype=np.int32) allocated 1 array per
-        yield and was always unpacked back to an int by callers.
-
-        NORMAL_STEP (the common case) returns a 3-field dict with no
-        numpy allocations; FIND_CELL adds the 21-channel view; HO_DECISION
-        passes the producer-side arrays straight through. The previous
-        eager version allocated 4 numpy arrays per yield regardless of
-        state_type.
+        Only the fields actually used for `state_type` are populated:
+        NORMAL_STEP reads only `state_type` + `t`; FIND_CELL adds the
+        channel snapshot; HO_DECISION adds the L1 report + HO mask.
         """
         obs = {
             "state_type": _STATE_MAP[state_type],
@@ -161,8 +134,6 @@ class LTMEnv(gym.Env):
             "t": t,
         }
         if state_type == 'FIND_CELL':
-            # View into the precomputed channel matrix (no copy/cast — the
-            # downstream max/argmax operate fine in the source dtype).
             obs["ChBS2UE_t"] = self.ChBS2UE[:, t]
         elif state_type == 'HO_DECISION':
             obs["PL1_report"] = PL1_report
@@ -170,25 +141,18 @@ class LTMEnv(gym.Env):
         return obs
 
     def _advance_ma(self, t: int) -> tuple[np.ndarray, np.ndarray]:
-        """Update the O(1) MCS/SNIR running sums to time `t` and return the
-        per-sector window averages.
+        """Per-sector window averages of MCS / SNIR up to time `t`.
 
-        Window definition matches the original `np.mean(arr[:, start:t+1])`
-        path: `start = max(0, t - p_window + 1)`. The legacy code re-sliced
-        and re-summed both episode arrays on every call; this version
-        maintains running totals and only touches the columns that enter
-        or leave the window between calls.
+        Maintains running sums over the trailing `_p_window` ticks
+        (slid forward in-place between consecutive calls) so the cost
+        per call is O(advance) rather than O(window).
         """
         p_window = self._p_window
         new_start = max(0, t - p_window + 1)
-        # `n` is the actual window length (smaller than p_window while the
-        # window still abuts t=0). Always >= 1 because we clamp t to the
-        # valid range upstream.
         n = (t + 1) - new_start
 
-        # First call after reset, or t walked backward (only possible if
-        # reset() didn't clear the cache): rebuild sums from scratch.
         if self._ma_last_t is None or t < self._ma_last_t:
+            # First call after reset (or t walked back) — rebuild from scratch.
             self._mcs_sum = self.all_mcs_episode[:, new_start:t + 1].sum(axis=1)
             self._snir_sum = self.all_snir_episode[:, new_start:t + 1].sum(axis=1)
             self._ma_last_t = t
@@ -197,13 +161,9 @@ class LTMEnv(gym.Env):
         if t == self._ma_last_t:
             return self._mcs_sum / n, self._snir_sum / n
 
-        # Add new columns (_ma_last_t + 1 .. t):
         add_lo = self._ma_last_t + 1
         self._mcs_sum += self.all_mcs_episode[:, add_lo:t + 1].sum(axis=1)
         self._snir_sum += self.all_snir_episode[:, add_lo:t + 1].sum(axis=1)
-        # Drop columns leaving the window. old_start was the previous
-        # window's left edge; new_start is the current one. Any columns
-        # in [old_start, new_start) are no longer in the window.
         old_start = max(0, self._ma_last_t - p_window + 1)
         if new_start > old_start:
             self._mcs_sum -= self.all_mcs_episode[:, old_start:new_start].sum(axis=1)
@@ -212,6 +172,8 @@ class LTMEnv(gym.Env):
         return self._mcs_sum / n, self._snir_sum / n
 
     def _get_rl_obs(self) -> np.ndarray:
+        """88-dim Markovian observation: speed, tenure, one-hot serving,
+        RSRP[NBS], MA(MCS)[NBS], MA(SNIR)[NBS], (x, y)."""
         t = min(self.t, self.Max_iter - 1)
         avg_mcs, avg_snir = self._advance_ma(t)
 
@@ -221,35 +183,28 @@ class LTMEnv(gym.Env):
         buf[0] = self.ue_speeds[t] / 30.0
         buf[1] = float(self.serving_tenure) / 1000.0
 
-        # Serving one-hot at [2, 2+nbs)
         buf[2:2 + nbs] = 0.0
         s = self.ServingBSSector[t]
         if s != -1:
             buf[2 + s] = 1.0
 
-        # RSRP at [2+nbs, 2+2*nbs)
         buf[2 + nbs:2 + 2 * nbs] = (self.PL3[:, t] + 75) / 45
-        # MA(MCS) normalised by max capacity
         buf[2 + 2 * nbs:2 + 3 * nbs] = avg_mcs / 9.3
-        # MA(SNIR) recentred and rescaled
         buf[2 + 3 * nbs:2 + 4 * nbs] = (avg_snir - 15) / 25.0
 
         buf[2 + 4 * nbs] = self.ue_positions[t, 0] / 500.0
         buf[2 + 4 * nbs + 1] = self.ue_positions[t, 1] / 500.0
 
-        # Return a fresh copy: callers (main.py training loop) hold both
-        # `state` and `next_state` simultaneously, so the buffer cannot be
-        # shared between consecutive returns.
+        # Caller holds `state` and `next_state` simultaneously — return a
+        # copy so consecutive env.step returns don't alias the buffer.
         return buf.copy()
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        
+
         filename = self.files[self.current_ue_idx % len(self.files)]
         self.current_ue_idx += 1
-        
-        # Fast loading from .npz — `with` ensures the file descriptor is
-        # released even though we materialize the arrays we need.
+
         with np.load(filename) as data:
             cached_hash = str(data['physics_hash'].item()) if 'physics_hash' in data.files else None
             current_hash = physics_hash()
@@ -267,103 +222,46 @@ class LTMEnv(gym.Env):
             self.ue_positions = data['ue_positions']
             self.PL1 = data['pl1']
             self.PL3 = data['pl3']
+
         loaded_max = self.ChBS2UE.shape[1]
         if loaded_max != self.Max_iter:
-            # Hot-loaded episode has a different length than what we
-            # preallocated — re-size the bookkeeping buffers. Slow path,
-            # not expected for the canonical 1000-UE dataset where every
-            # file is (NBS, 30000).
             self.Max_iter = loaded_max
             self._allocate_episode_buffers(loaded_max)
         else:
-            # Re-use the preallocated arrays in place.
             self._reset_episode_buffers()
 
         self.ue_speeds = np.full(self.Max_iter, 10.0)
-
         self.Sync = {
             "N310": 4, "N311": 2, "T310": 50,
             "out_sync_count": 0, "in_sync_count": 0,
             "t310_running": False, "t310_counter": np.inf
         }
-        
         self.t = 0
         self.serving_tenure = 0
-        # Invalidate the running-MA cache for the new episode. The
-        # underlying all_mcs_episode / all_snir_episode buffers were just
-        # reloaded above, so any prior running sums are nonsense.
-        self._ma_last_t = None
+        self._ma_last_t = None  # Invalidate the running-MA cache.
 
         self._sim_gen = self._simulation_generator()
         self._last_obs_dict = next(self._sim_gen)
-
         return self._get_rl_obs(), {"metrics": self._get_obs_dict(0)}
 
     def step(self, action, high_res_callback=None):
         reward = 0.0
         terminated = False
         truncated = False
+        t_start = self._last_obs_dict['t']
 
-        # Per-step config lookups were measurably hot. The values are
-        # cached on the env in __init__; mutate via re-init if you ever
-        # need to change them between episodes.
-        alpha_ho = self._alpha_ho
-        alpha_pp = self._alpha_pp
-        alpha_hof = self._alpha_hof
-
-        if high_res_callback:
-            # High-res mode for baseline parity (100ms block = 10 ticks, callback each tick).
-            # Computes the same pure-Ainna reward as RL mode (range-aggregated over
-            # the actual tick range covered by these sends) so the LTM baseline gets
-            # a meaningful reward signal comparable to DQN / QR-DQN.
-            t_start = self._last_obs_dict['t']
-
-            for _ in range(10):
-                try:
+        for _ in range(10):
+            try:
+                if high_res_callback is not None:
+                    # Baseline-parity mode: callback fires on every tick.
                     act = high_res_callback(self._last_obs_dict)
                     self._last_obs_dict = self._sim_gen.send(act)
-                except StopIteration:
-                    terminated = True
-                    break
-
-            if not terminated:
-                t_end = min(self._last_obs_dict['t'], self.Max_iter)
-                if t_end > t_start:
-                    mcs_slice = self.MCS[t_start:t_end]
-                    avg_mcs = float(mcs_slice.mean())
-                    has_ho = int(np.any(self.HO_event[t_start:t_end] > 0))
-                    has_pp = int(np.any(self.ping_pong[t_start:t_end] > 0))
-                    has_hof = int(np.any(self.HOF[t_start:t_end] > 0))
                 else:
-                    avg_mcs = 0.0
-                    has_ho = has_pp = has_hof = 0
-
-                multiplier = 1.0
-                if has_ho: multiplier *= alpha_ho
-                if has_pp: multiplier *= alpha_pp
-                if has_hof: multiplier *= alpha_hof
-                n_oos = self.Sync["out_sync_count"]
-                reliability_factor = 1.0 / (1.0 + np.exp(2 * (n_oos - 2)))
-                reward += avg_mcs * multiplier * reliability_factor
-        else:
-            # RL Mode — pure paper Ainna reward.
-            #
-            # MCS / HO_event / ping_pong / HOF are written by the simulation
-            # generator at the START of each outer iteration, but the
-            # generator yields AFTER the time-advance blocks have moved t
-            # forward. So the freshly-yielded `self._last_obs_dict['t']`
-            # points to a tick whose array slot is still the initialized
-            # zero — it will be filled at the top of the NEXT outer iter,
-            # AFTER this step() has returned. To get the correct values
-            # for the reward we therefore aggregate over the actual range
-            # [t_start, t_end) covered by this step's sends.
-            t_start = self._last_obs_dict['t']
-
-            for _ in range(10):
-                try:
+                    # RL mode: env handles FIND_CELL greedy recovery
+                    # automatically; agent's action is consumed at the
+                    # HO_DECISION yield; NORMAL_STEP yields ignore action.
                     current_state = self._last_obs_dict['state_type']
-
-                    if current_state == 1:  # FIND_CELL — force greedy recovery
+                    if current_state == 1:  # FIND_CELL
                         ChBS2UE = self._last_obs_dict['ChBS2UE_t']
                         Pbest = np.max(ChBS2UE)
                         if Pbest + System["TxPower"] > ReceiverSensitivity:
@@ -371,44 +269,44 @@ class LTMEnv(gym.Env):
                         else:
                             act = -1
                         self._last_obs_dict = self._sim_gen.send(act)
-
                     elif current_state == 2:  # HO_DECISION
                         self._last_obs_dict = self._sim_gen.send(action)
-                        action = -1  # Consume action
-
+                        action = -1
                     else:  # NORMAL_STEP
                         self._last_obs_dict = self._sim_gen.send(-1)
+            except StopIteration:
+                terminated = True
+                break
 
-                except StopIteration:
-                    terminated = True
-                    break
-
-            if not terminated:
-                t_end = min(self._last_obs_dict['t'], self.Max_iter)
-                if t_end > t_start:
-                    mcs_slice = self.MCS[t_start:t_end]
-                    avg_mcs = float(mcs_slice.mean())
-                    has_ho = int(np.any(self.HO_event[t_start:t_end] > 0))
-                    has_pp = int(np.any(self.ping_pong[t_start:t_end] > 0))
-                    has_hof = int(np.any(self.HOF[t_start:t_end] > 0))
-                else:
-                    avg_mcs = 0.0
-                    has_ho = has_pp = has_hof = 0
-
-                multiplier = 1.0
-                if has_ho: multiplier *= alpha_ho
-                if has_pp: multiplier *= alpha_pp
-                if has_hof: multiplier *= alpha_hof
-                n_oos = self.Sync["out_sync_count"]
-                reliability_factor = 1.0 / (1.0 + np.exp(2 * (n_oos - 2)))
-
-                reward += avg_mcs * multiplier * reliability_factor
+        if not terminated:
+            # Reward aggregates over [t_start, t_end) rather than the
+            # latest yielded tick — MCS/HO/PP/HOF for tick t are written
+            # at the TOP of the NEXT outer iter, so sampling at the
+            # just-yielded t would read a zero-initialised slot.
+            t_end = min(self._last_obs_dict['t'], self.Max_iter)
+            reward = self._compute_step_reward(t_start, t_end)
 
         info = {}
         if terminated:
             info["metrics"] = self._build_metrics_dict()
-            
         return self._get_rl_obs(), reward, terminated, truncated, info
+
+    def _compute_step_reward(self, t_start: int, t_end: int) -> float:
+        """Multiplicative-Ainna reward over the simulator tick range
+        [t_start, t_end)."""
+        if t_end <= t_start:
+            return 0.0
+        avg_mcs = float(self.MCS[t_start:t_end].mean())
+        multiplier = 1.0
+        if np.any(self.HO_event[t_start:t_end] > 0):
+            multiplier *= self._alpha_ho
+        if np.any(self.ping_pong[t_start:t_end] > 0):
+            multiplier *= self._alpha_pp
+        if np.any(self.HOF[t_start:t_end] > 0):
+            multiplier *= self._alpha_hof
+        n_oos = self.Sync["out_sync_count"]
+        reliability_factor = 1.0 / (1.0 + np.exp(2 * (n_oos - 2)))
+        return avg_mcs * multiplier * reliability_factor
 
     def _simulation_generator(self):
         t = 0

@@ -29,14 +29,13 @@ from src.distrl.utils.metrics import calculate_8_metrics
 from src.distrl.utils.evaluation import run_evaluation
 
 class CSVLogger:
+    """Append-mode CSV writer that flushes after every row (so logs
+    survive a killed training run)."""
+
     def __init__(self, filepath: str, headers: list[str]):
         self.filepath = filepath
         self.headers = headers
         os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
-        # Open once and keep the handle open across log() calls. The
-        # previous implementation re-opened the file on every log row,
-        # which is ~1000x per benchmark seed; trivial change for cleaner
-        # I/O.
         self._fh = open(self.filepath, 'w', newline='')
         self._writer = csv.writer(self._fh)
         self._writer.writerow(self.headers)
@@ -44,9 +43,6 @@ class CSVLogger:
 
     def log(self, row: list[Any]):
         self._writer.writerow(row)
-        # Flush so partial logs are still visible if the process is
-        # killed mid-run (matches the prior open(append)+close behaviour
-        # which implicitly flushed).
         self._fh.flush()
 
     def close(self) -> None:
@@ -54,9 +50,6 @@ class CSVLogger:
             self._fh.close()
 
     def __del__(self) -> None:
-        # Defensive: ensure the file is flushed/closed if the owner
-        # forgets to call close(). Python's interpreter shutdown may
-        # already have closed it — guard via the closed check.
         try:
             self.close()
         except Exception:
@@ -149,9 +142,8 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         )
         
         epsilon = max(eps_end, epsilon * eps_mult)
-        # Materialise the per-step loss tensors with a single sync at
-        # episode end. train_step returns loss.detach() (a 0-d tensor on
-        # the agent's device) precisely to defer this to here.
+        # train_step returns a detached 0-d tensor; materialise with a
+        # single device sync at episode end.
         if episode_loss:
             avg_loss = float(torch.stack(episode_loss).mean().item())
         else:
@@ -178,8 +170,6 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             "reward": f"{np.mean(rewards_history[-10:]):.1f}"
         })
 
-    # Flush + close the per-episode CSV log explicitly (we kept the
-    # handle open across episodes for performance).
     if save_results:
         logger.close()
 
@@ -211,16 +201,10 @@ def run_benchmark():
 
     device = args.device
 
-    # Cap PyTorch intra-op threads — the default (cpu_count, often 16
-    # with hyperthreading) is heavily sub-optimal for this RL workload.
-    # Most train_step kernels are small (batch=256 MLP) so the
-    # thread-distribute / re-gather overhead dwarfs the parallel
-    # compute. Benchmark on this box:
-    #     XPU: 16 thr -> 3.10 s/ep, 2 thr -> 2.10 s/ep (+30%)
-    #     CPU: 16 thr -> 4.70 s/ep, 4 thr -> 3.14 s/ep (+33%)
-    # XPU keeps the heavy work on-device, so CPU only handles env +
-    # dispatch — 2 threads is plenty. CPU has to do the matmuls itself,
-    # so 4 threads is the sweet spot before coordination cost dominates.
+    # Cap intra-op threads. PyTorch's default (~cpu_count) loses ~30%
+    # on small-batch RL because the coordination overhead dwarfs the
+    # parallel compute. CPU does the matmuls itself so it needs more
+    # threads than XPU (where the heavy work runs on-device).
     torch.set_num_threads(4 if device == "cpu" else 2)
 
     bench_cfg = config['benchmark']

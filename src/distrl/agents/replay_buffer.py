@@ -58,38 +58,23 @@ class ReplayBuffer:
         next_state: np.ndarray | torch.Tensor,
         done: bool | torch.Tensor,
     ) -> None:
-        """Adds a transition to the buffer.
-
-        Inlined fast path: numpy state/next_state get assigned directly to
-        a preallocated tensor row (PyTorch handles the dtype-aware copy via
-        the buffer protocol), and Python scalars get written into the
-        single-element action/reward/done slots. The previous version
-        wrapped each field in a `to_cpu_tensor(...)` helper that allocated
-        a fresh torch.Tensor per push — measurable per-step overhead.
-        """
+        """Add one transition. Writes directly into the preallocated rows."""
         p = self.ptr
         if isinstance(state, torch.Tensor):
-            # Tensor input — may be on a non-CPU device.
             self.state[p] = state.detach().to(self.storage_device, non_blocking=True)
             self.next_state[p] = next_state.detach().to(self.storage_device, non_blocking=True)
         else:
-            # numpy input: from_numpy shares memory (zero-copy wrap), and
-            # the assignment then copies into the preallocated buffer row.
-            # PyTorch will not accept a raw ndarray here, so the wrap is
-            # required even though it looks redundant.
+            # PyTorch __setitem__ rejects a raw ndarray, so wrap. The
+            # wrap is zero-copy; the row-assign is the actual write.
             self.state[p] = torch.from_numpy(state)
             self.next_state[p] = torch.from_numpy(next_state)
 
-        if isinstance(action, torch.Tensor):
-            self.action[p, 0] = int(action.item())
-        else:
-            self.action[p, 0] = action
-
-        if isinstance(reward, torch.Tensor):
-            self.reward[p, 0] = float(reward.item())
-        else:
-            self.reward[p, 0] = reward
-
+        self.action[p, 0] = (
+            int(action.item()) if isinstance(action, torch.Tensor) else action
+        )
+        self.reward[p, 0] = (
+            float(reward.item()) if isinstance(reward, torch.Tensor) else reward
+        )
         self.done[p, 0] = float(done)
 
         self.ptr = (p + 1) % self.max_size
