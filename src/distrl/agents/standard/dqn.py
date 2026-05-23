@@ -60,7 +60,7 @@ class DQNAgent(BaseAgent):
 
         with torch.no_grad():
             max_next_q = self.target_net(next_states).max(dim=1)[0]
-            target_q = rewards + (1 - dones) * self.gamma * max_next_q
+            target_q = rewards + (1 - dones) * self.gamma_n * max_next_q
 
         current_q = self.q_net(states).gather(1, actions).squeeze(1)
         loss = F.mse_loss(current_q, target_q)

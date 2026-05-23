@@ -40,7 +40,7 @@ class QRDQNAgent(BaseAgent):
 
         action_dim = action_space.n
 
-        self.num_quantiles = int(config.get("num_quantiles", 50))
+        self.num_quantiles = int(config.get("num_quantiles", 25))
         self.kappa = float(config.get("kappa", 1.0))
         self.risk_type = config.get("risk_type", "mean")
         self.risk_fraction = float(config.get("risk_fraction", 0.1))
@@ -136,7 +136,7 @@ class QRDQNAgent(BaseAgent):
                 best_next_predicted
             )  # [B, T]
             target_quantiles = (
-                rewards + (1 - dones) * self.gamma * best_next_assembled
+                rewards + (1 - dones) * self.gamma_n * best_next_assembled
             )  # [B, T]
 
         current_quantiles = self.q_net(states).gather(

@@ -1,6 +1,6 @@
 # HP Search Phase 2 candidate: p2_lr_3e-4
 # Sole change from baseline: agent.lr 1e-3 -> 3e-4 (Phase 1 alt-tie).
-# Full Phase 2 budget: 3 seeds x 2000 episodes.
+# Full Phase 2 budget: 3 seeds x 1000 episodes.
 
 system:
   tx_power: 25
@@ -26,7 +26,7 @@ agent:
   epsilon_start: 1.0
   epsilon_end: 0.05
   epsilon_mult: 0.995
-  num_episodes: 2000
+  num_episodes: 1000
 
 benchmark:
   num_seeds: 3

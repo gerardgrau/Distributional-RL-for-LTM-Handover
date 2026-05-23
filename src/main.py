@@ -6,6 +6,7 @@ import time
 import csv
 import shutil
 import json
+from collections import deque
 from tqdm import tqdm
 from datetime import datetime
 from typing import Any
@@ -56,7 +57,28 @@ class CSVLogger:
         except Exception:
             pass
 
-def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment_dir: str, 
+
+def _emit_nstep(buf: Any, q: deque, gamma: float) -> None:
+    """Pop the oldest transition in q and push its n-step bootstrap to buf.
+
+    The discounted return is summed until either the queue is exhausted
+    or a terminal flag is hit (whichever comes first). next_state/done
+    come from the last transition included, so a (1-done)*gamma_n
+    bootstrap in the agent zeros out correctly at episode end.
+    """
+    s0, a0, _, _, _ = q[0]
+    R = 0.0
+    i = 0
+    for i, (_, _, r, _, d) in enumerate(q):
+        R += (gamma ** i) * r
+        if d:
+            break
+    _, _, _, ns, dn = q[i]
+    buf.push(s0, a0, R, ns, dn)
+    q.popleft()
+
+
+def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment_dir: str,
              pbar: tqdm, device: str = "cpu", save_results: bool = True) -> float:
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -95,8 +117,10 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     eps_end = agent_config.get('epsilon_end', 0.05)
     eps_mult = agent_config.get('epsilon_mult', 0.99)
     batch_size = agent_config.get('batch_size', 64)
-    train_freq = max(1, int(agent_config.get('train_freq', 1)))
-    
+    train_freq = max(1, int(agent_config.get('train_freq', 4)))
+    n_step = max(1, int(agent_config.get('n_step', 1)))
+    gamma = float(agent_config.get('gamma', 0.99))
+
     start_time = time.time()
     rewards_history = []
     global_step = 0
@@ -109,6 +133,10 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             episode_loss = []
             done = False
             last_info = {}
+            # n_step>1 buffers the last n env transitions and pushes the
+            # discounted n-step return; n_step=1 falls through to the
+            # direct buffer.push fast path.
+            nstep_q: deque = deque() if n_step > 1 else None
 
             is_baseline = agent_type.lower() == "ltm_baseline"
             while not done:
@@ -122,7 +150,15 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
                     action = agent.select_action(state, epsilon)
                     next_state, reward, done, _, info = env.step(action)
                     if buffer is not None:
-                        buffer.push(state, action, reward, next_state, done)
+                        if nstep_q is None:
+                            buffer.push(state, action, reward, next_state, done)
+                        else:
+                            nstep_q.append((state, action, reward, next_state, done))
+                            if len(nstep_q) >= n_step:
+                                _emit_nstep(buffer, nstep_q, gamma)
+                            if done:
+                                while nstep_q:
+                                    _emit_nstep(buffer, nstep_q, gamma)
                     if buffer is not None and len(buffer) > batch_size and global_step % train_freq == 0:
                         metrics = agent.train_step(buffer.sample(batch_size, device=device))
                         episode_loss.append(metrics['loss'])
@@ -197,6 +233,12 @@ def run_benchmark():
     parser.add_argument("--device", type=str, default="cpu", help="Execution device (cpu, cuda, xpu)")
     parser.add_argument("--description", type=str, default="benchmark", help="Short description for the benchmark")
     parser.add_argument("--agents", type=str, default="dqn,qrdqn", help="Comma-separated list of agents to run")
+    parser.add_argument(
+        "--seeds", type=str, default=None,
+        help="Comma-separated explicit seeds to run (e.g. '42,43,44'). "
+             "Overrides benchmark.num_seeds. Used by the XPU+CPU parallel "
+             "orchestrator so each process trains one specific seed.",
+    )
     args = parser.parse_args()
 
     Config.set_config_path(args.config)
@@ -212,6 +254,10 @@ def run_benchmark():
 
     bench_cfg = config['benchmark']
     agent_types = [a.strip().lower() for a in args.agents.split(",")]
+    if args.seeds:
+        seeds = [int(s) for s in args.seeds.split(",")]
+    else:
+        seeds = [42 + s for s in range(bench_cfg['num_seeds'])]
     
     # --- PERFORMANCE OPTIMIZATION: Unique Naming Convention ---
     # Format: bmk_YYYY-MM-DD_num_description
@@ -249,24 +295,23 @@ def run_benchmark():
         print(f"  Agents:    {args.agents}")
         print(f"  Device:    {args.device}")
         print(f"  Episodes:  {num_episodes}")
-        print(f"  Seeds:     {bench_cfg['num_seeds']}")
+        print(f"  Seeds:     {seeds}")
         print(f"  Config:    {args.config}")
         print(f"======================================")
     else:
         print("=== Starting Profiling Run (No artifacts will be saved) ===")
     
     bench_start_time = time.time()
-    total_runs = len(agent_types) * bench_cfg['num_seeds']
+    total_runs = len(agent_types) * len(seeds)
     num_episodes = config['agent'].get('num_episodes', 20)
     total_eps_overall = total_runs * num_episodes
-    
+
     with tqdm(total=total_eps_overall, desc="Benchmark Overall") as pbar:
         for agent_type in agent_types:
             best_reward = -np.inf
             best_seed_path = ""
-            
-            for s in range(bench_cfg['num_seeds']):
-                seed = 42 + s
+
+            for seed in seeds:
                 final_reward = run_seed(agent_type, bench_cfg['env_type'], seed, config, experiment_dir,
                                         pbar, device=device, save_results=not args.no_save)
                 if final_reward > best_reward:
