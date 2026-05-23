@@ -298,13 +298,15 @@ def run_evaluation(
 
     # Worker auto-selection. Baseline + small datasets stay sequential
     # (multiproc startup would dominate). For everything else we cap at
-    # 6 workers: the LTM env's per-step CPU cost saturates ~6 cores and
-    # going beyond means competing for the same shared resources.
+    # 10 workers: a 200-UE sweep on a 12-core box showed throughput
+    # peaking at 10 workers (7.14x speedup vs sequential) and regressing
+    # at 12 (spawn / OS background contention). cpu_count - 2 leaves
+    # headroom for the OS + the main process.
     if num_workers is None:
         if is_baseline or num_eval < 48:
             num_workers = 1
         else:
-            num_workers = min(6, os.cpu_count() or 1)
+            num_workers = min(10, max(1, (os.cpu_count() or 1) - 2))
 
     if num_workers > 1:
         # Reuse the already-saved checkpoint if main.py saved one before

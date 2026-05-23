@@ -87,6 +87,16 @@ def physics_hash() -> str:
 # ============================================================
 # PHYSICS FUNCTIONS
 # ============================================================
+# Hot-path scalar constants for MCSEvaluation / CheckHO_Failure. The
+# values are derived from the module-level `System` dict and the fixed
+# M-fold interference model; they are immutable for the lifetime of the
+# process. Hoisting them avoids a dict lookup + 10**(...) per tick
+# (~130k ticks per training episode).
+_M_INTERFERENCE = 3
+_INV_M = 1.0 / _M_INTERFERENCE          # gates the high-vs-low branch
+_LOW_INTER_FACTOR = 10 ** (-1.5)        # 15 dB attenuation in low-inter case
+_NOISE_LINEAR = 10 ** (System["NoiseLevel"] / 10.0)
+
 # Module-level BLER + SNR tables consumed by CheckHO_Failure. Hoisted out
 # of the function body so they are allocated once at import (the previous
 # in-body np.array calls were rebuilding both arrays on every per-tick
@@ -125,13 +135,16 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
         AllInter += 10 ** ((channels[k] + tx_power) / 10.0)
     AllInter -= Ps
 
-    M = 3
-    noise_linear = 10**(System["NoiseLevel"] / 10.0)
+    # Use module-level constants instead of recomputing per call. M=3 is
+    # fixed by the interference model; noise_linear depends only on
+    # System["NoiseLevel"] which is invariant across the run.
+    M = _M_INTERFERENCE
+    M_AllInter = M * AllInter
 
-    if np.random.rand() < (1 / M):
-        Inter_Noise = M * AllInter + noise_linear
+    if np.random.rand() < _INV_M:
+        Inter_Noise = M_AllInter + _NOISE_LINEAR
     else:
-        Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
+        Inter_Noise = M_AllInter * _LOW_INTER_FACTOR + _NOISE_LINEAR
 
     # M*Ps in the numerator mirrors the M-fold scaling already applied to
     # the interference term. Dropping it (a previous calibration accident)
@@ -181,13 +194,15 @@ def CheckHO_Failure(serving_sector, channels, System):
         AllInter += 10 ** ((channels[k] + tx_power) / 10.0)
     AllInter -= Ps
 
-    M = 3
-    noise_linear = 10**(System["NoiseLevel"] / 10.0)
+    # Same module-level constants as MCSEvaluation; see the rationale
+    # comment there.
+    M = _M_INTERFERENCE
+    M_AllInter = M * AllInter
 
-    if np.random.rand() < (1 / M):
-        Inter_Noise = M * AllInter + noise_linear
+    if np.random.rand() < _INV_M:
+        Inter_Noise = M_AllInter + _NOISE_LINEAR
     else:
-        Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
+        Inter_Noise = M_AllInter * _LOW_INTER_FACTOR + _NOISE_LINEAR
 
     SNIR = 10 * math.log10(M * Ps) - 10 * math.log10(Inter_Noise)
     i = int(np.searchsorted(_SNR_LEVEL, SNIR, side="right")) - 1
