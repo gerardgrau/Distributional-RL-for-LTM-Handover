@@ -80,8 +80,14 @@ class QRDQNAgent(BaseAgent):
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
+        self.adam_eps = float(config.get("adam_eps", 1e-8))
+        gc = config.get("grad_clip", None)
+        self.grad_clip = float(gc) if gc is not None else None
+
         self.optimizer = optim.Adam(
-            self.q_net.parameters(), lr=float(config.get("lr", 1e-4))
+            self.q_net.parameters(),
+            lr=float(config.get("lr", 1e-4)),
+            eps=self.adam_eps,
         )
 
     def _action_values(self, predicted: torch.Tensor) -> torch.Tensor:
@@ -167,6 +173,10 @@ class QRDQNAgent(BaseAgent):
 
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
+        if self.grad_clip is not None:
+            torch.nn.utils.clip_grad_norm_(
+                self.q_net.parameters(), self.grad_clip,
+            )
         self.optimizer.step()
 
         self.update_counter += 1
