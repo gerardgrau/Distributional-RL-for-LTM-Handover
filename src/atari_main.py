@@ -197,8 +197,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Smart default: explicit --threads wins; otherwise the LTM-side
+    # benchmark shows the library's default (cpu_count, ~16 on a
+    # 12-core box with HT) loses 30%+ to intra-op coordination on
+    # small batches. XPU only needs 2 threads (heavy work on-device);
+    # CPU benefits from 4 (matmul-bound).
     if args.threads > 0:
         torch.set_num_threads(args.threads)
+    else:
+        torch.set_num_threads(4 if args.device == "cpu" else 2)
 
     with open(args.config) as f:
         config = yaml.safe_load(f)

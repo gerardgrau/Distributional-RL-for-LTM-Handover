@@ -208,9 +208,21 @@ def run_benchmark():
 
     Config.set_config_path(args.config)
     config = Config.get()
-    
+
     device = args.device
-    
+
+    # Cap PyTorch intra-op threads — the default (cpu_count, often 16
+    # with hyperthreading) is heavily sub-optimal for this RL workload.
+    # Most train_step kernels are small (batch=256 MLP) so the
+    # thread-distribute / re-gather overhead dwarfs the parallel
+    # compute. Benchmark on this box:
+    #     XPU: 16 thr -> 3.10 s/ep, 2 thr -> 2.10 s/ep (+30%)
+    #     CPU: 16 thr -> 4.70 s/ep, 4 thr -> 3.14 s/ep (+33%)
+    # XPU keeps the heavy work on-device, so CPU only handles env +
+    # dispatch — 2 threads is plenty. CPU has to do the matmuls itself,
+    # so 4 threads is the sweet spot before coordination cost dominates.
+    torch.set_num_threads(4 if device == "cpu" else 2)
+
     bench_cfg = config['benchmark']
     agent_types = [a.strip().lower() for a in args.agents.split(",")]
     
