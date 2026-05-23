@@ -117,7 +117,7 @@ def train(
     state, _ = env.reset()
     episode_reward = 0.0
     episode_idx = 0
-    episode_losses: list[float] = []
+    episode_losses: list[torch.Tensor] = []
     t0 = time.time()
 
     pbar = tqdm(total=frame_budget, desc="frames", smoothing=0.05)
@@ -150,7 +150,14 @@ def train(
             last_pbar = frame
 
         if done:
-            mean_loss = float(np.mean(episode_losses)) if episode_losses else 0.0
+            # train_step returns a detached 0-d tensor; one sync per
+            # episode beats a sync per train step.
+            if episode_losses:
+                mean_loss = float(
+                    torch.stack(episode_losses).mean().item()
+                )
+            else:
+                mean_loss = 0.0
             if train_csv:
                 with open(train_csv, "a", newline="") as f:
                     csv.writer(f).writerow([
@@ -190,8 +197,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Cap intra-op threads — the library default (~cpu_count) loses
+    # 30%+ on small-batch RL. CPU does its own matmuls so it benefits
+    # from more threads than XPU (where the heavy work runs on-device).
     if args.threads > 0:
         torch.set_num_threads(args.threads)
+    else:
+        torch.set_num_threads(4 if args.device == "cpu" else 2)
 
     with open(args.config) as f:
         config = yaml.safe_load(f)

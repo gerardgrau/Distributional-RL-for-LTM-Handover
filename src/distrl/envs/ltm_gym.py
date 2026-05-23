@@ -31,93 +31,180 @@ def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower()
             for text in re.split('([0-9]+)', s)]
 
+
+# Tick counts for each HO sub-phase. Precomputed so the simulation
+# generator avoids re-running int(np.ceil(...)) on every iteration.
+_TICK_MEAS_L3 = int(np.ceil(Time_MeasReportL3_1 / Time["TimeStep"]))
+_TICK_RRC_PREP = int(np.ceil(
+    (Time_RRCTransfer2 + Time_RRCConf3) / Time["TimeStep"]
+))
+_TICK_RRC_RECONF = int(np.ceil(Time_RRCReconf4_5 / Time["TimeStep"]))
+_TICK_MEAS_L1_HODEC = int(np.ceil(
+    (Time_MeasReportL1_67 + Time_HOdecision_8) / Time["TimeStep"]
+))
+_TICK_LL_HOCMD = int(np.ceil(Time_LLHOCommand_9 / Time["TimeStep"]))
+_TICK_RA = int(np.ceil(Time_RA_10 / Time["TimeStep"]))
+_TICK_CTX_RELEASE = int(np.ceil(Time_ContextRelease_11 / Time["TimeStep"]))
+_TICK_PINGPONG = int(np.floor(Time_PingPong / Time["TimeStep"]))
+
+_STATE_MAP = {'NORMAL_STEP': 0, 'FIND_CELL': 1, 'HO_DECISION': 2}
+
+
 class LTMEnv(gym.Env):
     def __init__(self, config=None):
         super(LTMEnv, self).__init__()
         self.config = config or {}
-        
+
         self.output_base = self.config.get('paths', {}).get('precomputed_data_directory', "data/Precomputed")
         self.subdir = self.config.get('paths', {}).get('dataset_subdir', "no_ris")
         self.data_dir = os.path.join(self.output_base, self.subdir)
-        
+
         all_files = sorted(glob.glob(os.path.join(self.data_dir, "User*_precomputed.npz")), key=natural_sort_key)
         ue_count = self.config.get('simulation', {}).get('ue_number', len(all_files))
         if ue_count == 0:
             ue_count = 1000 # Fallback
         self.files = all_files[:ue_count]
         self.current_ue_idx = 0
-        
+
         self.NBS = NBS
         self.Max_iter = int(Time["TotalSimTime"] / Time["TimeStep"])
-        
+
         # Action space: Target BS to HO to (or -1 for stay/none)
         self.action_space = spaces.Discrete(self.NBS)
-        
+
         # Observation Space: 88-dim Markovian vector (Paper Aligned)
         self.observation_space = spaces.Box(low=-5, high=5, shape=(88,), dtype=np.float32)
 
+        # Cache per-step config lookups.
+        self._p_window = int(self.config.get('ho_state', {}).get(
+            'moving_average_window', 50,
+        ))
+        ho_reward_cfg = self.config.get('ho_reward', {})
+        self._alpha_ho = float(ho_reward_cfg.get('alpha_ho', 0.8))
+        self._alpha_pp = float(ho_reward_cfg.get('alpha_pp', 0.9))
+        self._alpha_hof = float(ho_reward_cfg.get('alpha_hof', 0.1))
+
+        # Reusable buffer for _get_rl_obs (returned as .copy() each call).
+        self._obs_buf = np.empty(88, dtype=np.float32)
+
+        # O(1) running sums for the per-sector MA used in the observation.
+        self._ma_last_t: int | None = None
+        self._mcs_sum = np.zeros(self.NBS)
+        self._snir_sum = np.zeros(self.NBS)
+
+        # Per-episode bookkeeping arrays — allocated once, zeroed in-place
+        # by reset(). The reset path reallocates iff a loaded .npz has a
+        # different Max_iter (not expected for the canonical dataset).
+        self._allocate_episode_buffers(self.Max_iter)
+
+    def _allocate_episode_buffers(self, max_iter: int) -> None:
+        self.ServingBSSector = np.full(max_iter, -1, dtype=int)
+        self.MCS = np.zeros(max_iter)
+        self.HOF = np.zeros(max_iter)
+        self.RLF = np.zeros(max_iter)
+        self.HO_event = np.zeros(max_iter)
+        self.ping_pong = np.zeros(max_iter)
+        self.ReservedBSSectors = np.zeros((self.NBS, max_iter))
+        self.ListBSPrepared = np.zeros(self.NBS, dtype=int)
+        self.TimerEntering = np.zeros(self.NBS)
+        self.TimerLeaving = np.zeros(self.NBS)
+
+    def _reset_episode_buffers(self) -> None:
+        self.ServingBSSector.fill(-1)
+        self.MCS.fill(0)
+        self.HOF.fill(0)
+        self.RLF.fill(0)
+        self.HO_event.fill(0)
+        self.ping_pong.fill(0)
+        self.ReservedBSSectors.fill(0)
+        self.ListBSPrepared.fill(0)
+        self.TimerEntering.fill(0)
+        self.TimerLeaving.fill(0)
+
     def _get_obs_dict(self, t, state_type='NORMAL_STEP', HO_condition=None, PL1_report=None):
-        state_map = {'NORMAL_STEP': 0, 'FIND_CELL': 1, 'HO_DECISION': 2}
+        """Per-yield observation dict consumed by env.step.
+
+        Only the fields actually used for `state_type` are populated:
+        NORMAL_STEP reads only `state_type` + `t`; FIND_CELL adds the
+        channel snapshot; HO_DECISION adds the L1 report + HO mask.
+        """
         obs = {
-            "state_type": state_map[state_type],
+            "state_type": _STATE_MAP[state_type],
             "state_str": state_type,
-            "t": np.array([t], dtype=np.int32),
-            "ChBS2UE_t": self.ChBS2UE[:, t].astype(np.float32),
-            "PL1_report": PL1_report if PL1_report is not None else np.zeros(self.NBS, dtype=np.float32),
-            "HO_condition": HO_condition.astype(np.int8) if HO_condition is not None else np.zeros(self.NBS, dtype=np.int8)
+            "t": t,
         }
+        if state_type == 'FIND_CELL':
+            obs["ChBS2UE_t"] = self.ChBS2UE[:, t]
+        elif state_type == 'HO_DECISION':
+            obs["PL1_report"] = PL1_report
+            obs["HO_condition"] = HO_condition
         return obs
 
+    def _advance_ma(self, t: int) -> tuple[np.ndarray, np.ndarray]:
+        """Per-sector window averages of MCS / SNIR up to time `t`.
+
+        Maintains running sums over the trailing `_p_window` ticks
+        (slid forward in-place between consecutive calls) so the cost
+        per call is O(advance) rather than O(window).
+        """
+        p_window = self._p_window
+        new_start = max(0, t - p_window + 1)
+        n = (t + 1) - new_start
+
+        if self._ma_last_t is None or t < self._ma_last_t:
+            # First call after reset (or t walked back) — rebuild from scratch.
+            self._mcs_sum = self.all_mcs_episode[:, new_start:t + 1].sum(axis=1)
+            self._snir_sum = self.all_snir_episode[:, new_start:t + 1].sum(axis=1)
+            self._ma_last_t = t
+            return self._mcs_sum / n, self._snir_sum / n
+
+        if t == self._ma_last_t:
+            return self._mcs_sum / n, self._snir_sum / n
+
+        add_lo = self._ma_last_t + 1
+        self._mcs_sum += self.all_mcs_episode[:, add_lo:t + 1].sum(axis=1)
+        self._snir_sum += self.all_snir_episode[:, add_lo:t + 1].sum(axis=1)
+        old_start = max(0, self._ma_last_t - p_window + 1)
+        if new_start > old_start:
+            self._mcs_sum -= self.all_mcs_episode[:, old_start:new_start].sum(axis=1)
+            self._snir_sum -= self.all_snir_episode[:, old_start:new_start].sum(axis=1)
+        self._ma_last_t = t
+        return self._mcs_sum / n, self._snir_sum / n
+
     def _get_rl_obs(self) -> np.ndarray:
+        """88-dim Markovian observation: speed, tenure, one-hot serving,
+        RSRP[NBS], MA(MCS)[NBS], MA(SNIR)[NBS], (x, y)."""
         t = min(self.t, self.Max_iter - 1)
-        curr_rsrp = self.PL3[:, t]
-        
-        norm_rsrp = (curr_rsrp + 75) / 45
-        norm_tenure = float(self.serving_tenure) / 1000.0
-        norm_speed = self.ue_speeds[t] / 30.0
+        avg_mcs, avg_snir = self._advance_ma(t)
 
-        # Calculate Moving Average over ALL sectors
-        p_window = self.config.get('ho_state', {}).get('moving_average_window', 50)
-        start_idx = max(0, t - p_window + 1)
-        
-        if t >= 0:
-            avg_mcs = np.mean(self.all_mcs_episode[:, start_idx:t+1], axis=1)
-            avg_snir = np.mean(self.all_snir_episode[:, start_idx:t+1], axis=1)
-        else:
-            avg_mcs = np.zeros(self.NBS)
-            avg_snir = np.full(self.NBS, -100.0)
+        nbs = self.NBS
+        buf = self._obs_buf
 
-        # Normalization (Ainna-specific)
-        norm_mcs = avg_mcs / 9.3 # Normalized by max capacity
-        norm_snir = (avg_snir - 15) / 25.0
+        buf[0] = self.ue_speeds[t] / 30.0
+        buf[1] = float(self.serving_tenure) / 1000.0
 
-        serving_one_hot = np.zeros(self.NBS)
-        if self.ServingBSSector[t] != -1:
-            serving_one_hot[self.ServingBSSector[t]] = 1.0
+        buf[2:2 + nbs] = 0.0
+        s = self.ServingBSSector[t]
+        if s != -1:
+            buf[2 + s] = 1.0
 
-        norm_x = self.ue_positions[t, 0] / 500.0
-        norm_y = self.ue_positions[t, 1] / 500.0
-            
-        obs = np.concatenate([
-            [norm_speed],
-            [norm_tenure],
-            serving_one_hot,
-            norm_rsrp,
-            norm_mcs,
-            norm_snir,
-            [norm_x],
-            [norm_y]
-        ])
-        return obs.astype(np.float32)
+        buf[2 + nbs:2 + 2 * nbs] = (self.PL3[:, t] + 75) / 45
+        buf[2 + 2 * nbs:2 + 3 * nbs] = avg_mcs / 9.3
+        buf[2 + 3 * nbs:2 + 4 * nbs] = (avg_snir - 15) / 25.0
+
+        buf[2 + 4 * nbs] = self.ue_positions[t, 0] / 500.0
+        buf[2 + 4 * nbs + 1] = self.ue_positions[t, 1] / 500.0
+
+        # Caller holds `state` and `next_state` simultaneously — return a
+        # copy so consecutive env.step returns don't alias the buffer.
+        return buf.copy()
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        
+
         filename = self.files[self.current_ue_idx % len(self.files)]
         self.current_ue_idx += 1
-        
-        # Fast loading from .npz — `with` ensures the file descriptor is
-        # released even though we materialize the arrays we need.
+
         with np.load(filename) as data:
             cached_hash = str(data['physics_hash'].item()) if 'physics_hash' in data.files else None
             current_hash = physics_hash()
@@ -135,102 +222,46 @@ class LTMEnv(gym.Env):
             self.ue_positions = data['ue_positions']
             self.PL1 = data['pl1']
             self.PL3 = data['pl3']
-        self.Max_iter = self.ChBS2UE.shape[1]
-        
-        self.ue_speeds = np.full(self.Max_iter, 10.0) 
-        
-        # Initialize trackers
-        self.ServingBSSector = np.full(self.Max_iter, -1, dtype=int)
-        self.MCS = np.zeros(self.Max_iter)
-        self.HOF = np.zeros(self.Max_iter)
-        self.RLF = np.zeros(self.Max_iter)
-        self.HO_event = np.zeros(self.Max_iter)
-        self.ping_pong = np.zeros(self.Max_iter)
-        self.ReservedBSSectors = np.zeros((self.NBS, self.Max_iter))
 
+        loaded_max = self.ChBS2UE.shape[1]
+        if loaded_max != self.Max_iter:
+            self.Max_iter = loaded_max
+            self._allocate_episode_buffers(loaded_max)
+        else:
+            self._reset_episode_buffers()
+
+        self.ue_speeds = np.full(self.Max_iter, 10.0)
         self.Sync = {
             "N310": 4, "N311": 2, "T310": 50,
             "out_sync_count": 0, "in_sync_count": 0,
             "t310_running": False, "t310_counter": np.inf
         }
-
-        self.ListBSPrepared = np.zeros(self.NBS, dtype=int)
-        self.TimerEntering = np.zeros(self.NBS)
-        self.TimerLeaving = np.zeros(self.NBS)
-        
         self.t = 0
         self.serving_tenure = 0
+        self._ma_last_t = None  # Invalidate the running-MA cache.
+
         self._sim_gen = self._simulation_generator()
         self._last_obs_dict = next(self._sim_gen)
-        
         return self._get_rl_obs(), {"metrics": self._get_obs_dict(0)}
 
     def step(self, action, high_res_callback=None):
         reward = 0.0
         terminated = False
         truncated = False
+        t_start = self._last_obs_dict['t']
 
-        # Read the multiplicative-Ainna alpha penalties from the active
-        # config so ablations / experiments can adjust them without
-        # touching the env source. Defaults match the paper.
-        ho_reward_cfg = self.config.get('ho_reward', {})
-        alpha_ho = ho_reward_cfg.get('alpha_ho', 0.8)
-        alpha_pp = ho_reward_cfg.get('alpha_pp', 0.9)
-        alpha_hof = ho_reward_cfg.get('alpha_hof', 0.1)
-
-        if high_res_callback:
-            # High-res mode for baseline parity (100ms block = 10 ticks, callback each tick).
-            # Computes the same pure-Ainna reward as RL mode (range-aggregated over
-            # the actual tick range covered by these sends) so the LTM baseline gets
-            # a meaningful reward signal comparable to DQN / QR-DQN.
-            t_start = int(self._last_obs_dict['t'][0])
-
-            for _ in range(10):
-                try:
+        for _ in range(10):
+            try:
+                if high_res_callback is not None:
+                    # Baseline-parity mode: callback fires on every tick.
                     act = high_res_callback(self._last_obs_dict)
                     self._last_obs_dict = self._sim_gen.send(act)
-                except StopIteration:
-                    terminated = True
-                    break
-
-            if not terminated:
-                t_end = min(int(self._last_obs_dict['t'][0]), self.Max_iter)
-                if t_end > t_start:
-                    mcs_slice = self.MCS[t_start:t_end]
-                    avg_mcs = float(mcs_slice.mean())
-                    has_ho = int(np.any(self.HO_event[t_start:t_end] > 0))
-                    has_pp = int(np.any(self.ping_pong[t_start:t_end] > 0))
-                    has_hof = int(np.any(self.HOF[t_start:t_end] > 0))
                 else:
-                    avg_mcs = 0.0
-                    has_ho = has_pp = has_hof = 0
-
-                multiplier = 1.0
-                if has_ho: multiplier *= alpha_ho
-                if has_pp: multiplier *= alpha_pp
-                if has_hof: multiplier *= alpha_hof
-                n_oos = self.Sync["out_sync_count"]
-                reliability_factor = 1.0 / (1.0 + np.exp(2 * (n_oos - 2)))
-                reward += avg_mcs * multiplier * reliability_factor
-        else:
-            # RL Mode — pure paper Ainna reward.
-            #
-            # MCS / HO_event / ping_pong / HOF are written by the simulation
-            # generator at the START of each outer iteration, but the
-            # generator yields AFTER the time-advance blocks have moved t
-            # forward. So the freshly-yielded `self._last_obs_dict['t']`
-            # points to a tick whose array slot is still the initialized
-            # zero — it will be filled at the top of the NEXT outer iter,
-            # AFTER this step() has returned. To get the correct values
-            # for the reward we therefore aggregate over the actual range
-            # [t_start, t_end) covered by this step's sends.
-            t_start = int(self._last_obs_dict['t'][0])
-
-            for _ in range(10):
-                try:
+                    # RL mode: env handles FIND_CELL greedy recovery
+                    # automatically; agent's action is consumed at the
+                    # HO_DECISION yield; NORMAL_STEP yields ignore action.
                     current_state = self._last_obs_dict['state_type']
-
-                    if current_state == 1:  # FIND_CELL — force greedy recovery
+                    if current_state == 1:  # FIND_CELL
                         ChBS2UE = self._last_obs_dict['ChBS2UE_t']
                         Pbest = np.max(ChBS2UE)
                         if Pbest + System["TxPower"] > ReceiverSensitivity:
@@ -238,44 +269,44 @@ class LTMEnv(gym.Env):
                         else:
                             act = -1
                         self._last_obs_dict = self._sim_gen.send(act)
-
                     elif current_state == 2:  # HO_DECISION
                         self._last_obs_dict = self._sim_gen.send(action)
-                        action = -1  # Consume action
-
+                        action = -1
                     else:  # NORMAL_STEP
                         self._last_obs_dict = self._sim_gen.send(-1)
+            except StopIteration:
+                terminated = True
+                break
 
-                except StopIteration:
-                    terminated = True
-                    break
-
-            if not terminated:
-                t_end = min(int(self._last_obs_dict['t'][0]), self.Max_iter)
-                if t_end > t_start:
-                    mcs_slice = self.MCS[t_start:t_end]
-                    avg_mcs = float(mcs_slice.mean())
-                    has_ho = int(np.any(self.HO_event[t_start:t_end] > 0))
-                    has_pp = int(np.any(self.ping_pong[t_start:t_end] > 0))
-                    has_hof = int(np.any(self.HOF[t_start:t_end] > 0))
-                else:
-                    avg_mcs = 0.0
-                    has_ho = has_pp = has_hof = 0
-
-                multiplier = 1.0
-                if has_ho: multiplier *= alpha_ho
-                if has_pp: multiplier *= alpha_pp
-                if has_hof: multiplier *= alpha_hof
-                n_oos = self.Sync["out_sync_count"]
-                reliability_factor = 1.0 / (1.0 + np.exp(2 * (n_oos - 2)))
-
-                reward += avg_mcs * multiplier * reliability_factor
+        if not terminated:
+            # Reward aggregates over [t_start, t_end) rather than the
+            # latest yielded tick — MCS/HO/PP/HOF for tick t are written
+            # at the TOP of the NEXT outer iter, so sampling at the
+            # just-yielded t would read a zero-initialised slot.
+            t_end = min(self._last_obs_dict['t'], self.Max_iter)
+            reward = self._compute_step_reward(t_start, t_end)
 
         info = {}
         if terminated:
             info["metrics"] = self._build_metrics_dict()
-            
         return self._get_rl_obs(), reward, terminated, truncated, info
+
+    def _compute_step_reward(self, t_start: int, t_end: int) -> float:
+        """Multiplicative-Ainna reward over the simulator tick range
+        [t_start, t_end)."""
+        if t_end <= t_start:
+            return 0.0
+        avg_mcs = float(self.MCS[t_start:t_end].mean())
+        multiplier = 1.0
+        if np.any(self.HO_event[t_start:t_end] > 0):
+            multiplier *= self._alpha_ho
+        if np.any(self.ping_pong[t_start:t_end] > 0):
+            multiplier *= self._alpha_pp
+        if np.any(self.HOF[t_start:t_end] > 0):
+            multiplier *= self._alpha_hof
+        n_oos = self.Sync["out_sync_count"]
+        reliability_factor = 1.0 / (1.0 + np.exp(2 * (n_oos - 2)))
+        return avg_mcs * multiplier * reliability_factor
 
     def _simulation_generator(self):
         t = 0
@@ -327,7 +358,7 @@ class LTMEnv(gym.Env):
 
             # 1. L3 Measurement report
             PL3_report = self.PL3[:, t]
-            Tf = min(t + int(np.ceil(Time_MeasReportL3_1 / Time["TimeStep"])), self.Max_iter-1)
+            Tf = min(t + _TICK_MEAS_L3, self.Max_iter-1)
             while t < Tf:
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
@@ -340,7 +371,7 @@ class LTMEnv(gym.Env):
             if self.RLF[t]: NextBSSector = -1; continue
 
             # 2 & 3. Preparation (RRC transfer + config)
-            Tf = min(t + int(np.ceil((Time_RRCTransfer2 + Time_RRCConf3) / Time["TimeStep"])), self.Max_iter-1)
+            Tf = min(t + _TICK_RRC_PREP, self.Max_iter-1)
             while t < Tf:
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
@@ -367,7 +398,7 @@ class LTMEnv(gym.Env):
                 self.ListBSPrepared[I_sorted[HO["Prep"]["MaxNumberPreparedBS"]:]] = 0
 
             # 4 & 5. RRC reconfiguration
-            Tf = min(t + int(np.ceil(Time_RRCReconf4_5 / Time["TimeStep"])), self.Max_iter-1)
+            Tf = min(t + _TICK_RRC_RECONF, self.Max_iter-1)
             while t < Tf:
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
@@ -383,7 +414,7 @@ class LTMEnv(gym.Env):
             PL1_report = self.PL1[:, t]
             HO_condition = np.logical_and(self.ListBSPrepared, PL1_report > (PL1_report[self.ServingBSSector[t]] + HO["Prep"]["ExecPowerOffset"]))
 
-            Tf = min(t + int(np.ceil((Time_MeasReportL1_67 + Time_HOdecision_8) / Time["TimeStep"])), self.Max_iter-1)
+            Tf = min(t + _TICK_MEAS_L1_HODEC, self.Max_iter-1)
             while t < Tf:
                 self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
                 self.ReservedBSSectors[:, t] = self.ListBSPrepared
@@ -402,7 +433,7 @@ class LTMEnv(gym.Env):
                     self.HO_event[t0] = 1
                     I = action
                     
-                    Tf = min(t + int(np.ceil(Time_LLHOCommand_9 / Time["TimeStep"])), self.Max_iter-1)
+                    Tf = min(t + _TICK_LL_HOCMD, self.Max_iter-1)
                     while t < Tf:
                         self.ReservedBSSectors[:, t] = self.ListBSPrepared
                         self.MCS[t], self.RLF[t], self.Sync = MCSEvaluation(self.ServingBSSector[t], self.ChBS2UE[:, t], System, self.Sync)
@@ -414,14 +445,14 @@ class LTMEnv(gym.Env):
                         self.ServingBSSector[t] = self.ServingBSSector[t - 1]
                     if self.RLF[t]: NextBSSector = -1; continue
 
-                    t = min(t + int(np.ceil(Time_RA_10 / Time["TimeStep"])), self.Max_iter-1)
+                    t = min(t + _TICK_RA, self.Max_iter-1)
                     self.t = t
                     self.serving_tenure += 1
                     self.HOF[t] = CheckHO_Failure(I, self.ChBS2UE[:, t], System)
 
                     if self.HOF[t] == 0:
                         NextBSSector = I
-                        t = min(t + int(np.ceil(Time_ContextRelease_11 / Time["TimeStep"])), self.Max_iter-1)
+                        t = min(t + _TICK_CTX_RELEASE, self.Max_iter-1)
                         self.t = t
                         self.serving_tenure += 1
 
@@ -431,7 +462,7 @@ class LTMEnv(gym.Env):
                     else:
                         NextBSSector = -1
 
-                    self.ping_pong[t0] = (NextBSSector == former_BS) and ((t0 - former_HO_time) < int(np.floor(Time_PingPong / Time["TimeStep"])))
+                    self.ping_pong[t0] = (NextBSSector == former_BS) and ((t0 - former_HO_time) < _TICK_PINGPONG)
                     former_BS = self.ServingBSSector[t0]
                     former_HO_time = t0
             else:

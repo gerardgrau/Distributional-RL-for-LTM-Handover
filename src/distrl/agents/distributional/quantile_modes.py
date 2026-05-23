@@ -22,6 +22,23 @@ This module also supports:
                      than Gauss-Legendre, which may help when the integrand
                      (a ReLU-network quantile function) is piecewise-linear
                      rather than smooth.
+  - beta_equal     : "Risk-sensitive / outlier-blind". tau_i = Beta_icdf(u_i),
+                     u_i uniform midpoints (so the tau_i are quantiles of
+                     Beta(alpha, beta) -- center-clustered for alpha=beta=2).
+                     Mean_weights and predictor_weights stay uniform 1/N on
+                     purpose: the expectation is a plain mean over the
+                     densely-central quantiles, so tail outcomes get the
+                     same voting power as the many central ones -- breaking
+                     the true expected value. The distorted tau still
+                     enters the QR Huber asymmetry, so the loss "knows"
+                     about the new placement.
+  - beta_weighted  : "High-resolution". Same Beta-distorted tau, but
+                     mean_weights = predictor_weights = F^{-1}(u_{i+1}) -
+                     F^{-1}(u_i) (cell widths in tau-space, summing to 1).
+                     This is the mathematically faithful midpoint quadrature
+                     under the distorted grid: the network spends more
+                     capacity at the center while action selection and loss
+                     remain unbiased.
 
 Risk-aware truncation (truncate_upper_quantiles): when used with the CVaR
 risk policy, the network only predicts the bottom k = ceil(N * risk_fraction)
@@ -37,6 +54,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+from scipy.special import betaincinv
 
 
 @dataclass
@@ -163,11 +181,14 @@ def build_scheme(
     risk_type: str = "mean",
     risk_fraction: float = 0.1,
     truncate_upper: bool = False,
+    beta_alpha: float = 2.0,
+    beta_beta: float = 2.0,
 ) -> QuantileScheme:
     """Construct a QuantileScheme from config knobs.
 
     Args:
-        mode: 'midpoint' | 'gauss_legendre' | 'trapezoidal'.
+        mode: 'midpoint' | 'gauss_legendre' | 'trapezoidal' | 'simpson' |
+            'beta_equal' | 'beta_weighted'.
         num_quantiles: Total grid size N. For trapezoidal the network only
             predicts N-2 of these (the interior).
         device: Torch device for the returned tensors.
@@ -179,6 +200,9 @@ def build_scheme(
             risk_type='cvar'), drop the upper (1 - risk_fraction) of the
             quantile grid and place the remaining k = ceil(N * risk_fraction)
             quantiles uniformly in [0, risk_fraction].
+        beta_alpha, beta_beta: Shape parameters of the Beta distribution used
+            to distort tau in 'beta_equal' / 'beta_weighted'. alpha=beta=2.0
+            gives a symmetric center-clustered grid (mode at tau=0.5).
     """
     if truncate_upper:
         if risk_type != "cvar":
@@ -347,6 +371,50 @@ def build_scheme(
             fixed_lo=float(q_min),
             fixed_hi=float(q_max),
             mode="trapezoidal",
+        )
+
+    if mode in ("beta_equal", "beta_weighted"):
+        n = num_quantiles
+        if n < 2:
+            raise ValueError(f"{mode} requires num_quantiles >= 2")
+        if beta_alpha <= 0.0 or beta_beta <= 0.0:
+            raise ValueError(
+                "Beta shape parameters must be > 0 "
+                f"(got alpha={beta_alpha}, beta={beta_beta})"
+            )
+        # tau_i = F^{-1}(u_i), the Beta(alpha, beta) quantile function at
+        # uniform midpoints u_i = (i + 0.5)/n. The tau_i are themselves
+        # samples from Beta(alpha, beta), so they cluster around the mode
+        # (0.5 when alpha=beta=2). scipy.special.betaincinv is the inverse
+        # regularized incomplete beta function.
+        u_mid_np = (np.arange(n) + 0.5) / n
+        tau_np = betaincinv(beta_alpha, beta_beta, u_mid_np)
+        tau = torch.tensor(tau_np, dtype=torch.float32, device=device)
+        if mode == "beta_equal":
+            # Variant 1: keep weights uniform on purpose.
+            w_np = np.full(n, 1.0 / n, dtype=np.float64)
+        else:
+            # Variant 2: cell widths in tau-space, F^{-1}(u_{i+1}) -
+            # F^{-1}(u_i) with u_i = i/n. They sum to F^{-1}(1) - F^{-1}(0)
+            # = 1 - 0 = 1 exactly, regardless of (alpha, beta).
+            u_edge_np = np.arange(n + 1) / n
+            tau_edges = betaincinv(beta_alpha, beta_beta, u_edge_np)
+            w_np = np.diff(tau_edges)
+        weights = torch.tensor(w_np, dtype=torch.float32, device=device)
+        cvar_w = (
+            _compute_cvar_weights(tau, weights, risk_fraction)
+            if risk_type == "cvar"
+            else None
+        )
+        return QuantileScheme(
+            tau=tau,
+            mean_weights=weights,
+            cvar_weights=cvar_w,
+            predictor_weights=weights,
+            num_predicted=n,
+            fixed_lo=None,
+            fixed_hi=None,
+            mode=mode,
         )
 
     raise ValueError(f"Unknown quantile_mode: {mode!r}")

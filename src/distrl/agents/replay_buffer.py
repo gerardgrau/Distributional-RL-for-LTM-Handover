@@ -51,28 +51,33 @@ class ReplayBuffer:
         self.done = alloc((max_size, 1), torch.float32)
 
     def push(
-        self, 
-        state: np.ndarray | torch.Tensor, 
-        action: int | torch.Tensor, 
-        reward: float | torch.Tensor, 
-        next_state: np.ndarray | torch.Tensor, 
-        done: bool | torch.Tensor
+        self,
+        state: np.ndarray | torch.Tensor,
+        action: int | torch.Tensor,
+        reward: float | torch.Tensor,
+        next_state: np.ndarray | torch.Tensor,
+        done: bool | torch.Tensor,
     ) -> None:
-        """
-        Adds a transition to the buffer. Inputs are moved to CPU if necessary.
-        """
-        def to_cpu_tensor(x, dtype):
-            if isinstance(x, torch.Tensor):
-                return x.detach().to(self.storage_device, non_blocking=True).to(dtype)
-            return torch.as_tensor(x, dtype=dtype, device=self.storage_device)
+        """Add one transition. Writes directly into the preallocated rows."""
+        p = self.ptr
+        if isinstance(state, torch.Tensor):
+            self.state[p] = state.detach().to(self.storage_device, non_blocking=True)
+            self.next_state[p] = next_state.detach().to(self.storage_device, non_blocking=True)
+        else:
+            # PyTorch __setitem__ rejects a raw ndarray, so wrap. The
+            # wrap is zero-copy; the row-assign is the actual write.
+            self.state[p] = torch.from_numpy(state)
+            self.next_state[p] = torch.from_numpy(next_state)
 
-        self.state[self.ptr] = to_cpu_tensor(state, self.state.dtype)
-        self.action[self.ptr] = to_cpu_tensor(action, self.action.dtype)
-        self.reward[self.ptr] = to_cpu_tensor(reward, self.reward.dtype)
-        self.next_state[self.ptr] = to_cpu_tensor(next_state, self.next_state.dtype)
-        self.done[self.ptr] = to_cpu_tensor(float(done), self.done.dtype)
+        self.action[p, 0] = (
+            int(action.item()) if isinstance(action, torch.Tensor) else action
+        )
+        self.reward[p, 0] = (
+            float(reward.item()) if isinstance(reward, torch.Tensor) else reward
+        )
+        self.done[p, 0] = float(done)
 
-        self.ptr = (self.ptr + 1) % self.max_size
+        self.ptr = (p + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
 
     def add(self, *args: Any, **kwargs: Any) -> None:

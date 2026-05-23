@@ -29,15 +29,19 @@ class DQNAgent(BaseAgent):
             head = QHead(trunk.output_dim, action_dim)
             return UnifiedQNet(trunk, head).to(self.device)
 
-        # Build q_net and target_net as independent module instances so the
-        # soft-update copy is real (not a shared-reference no-op).
+        # Independent module instances so the soft-update copy is real
+        # (not a shared-reference no-op).
         self.q_net = make_qnet()
         self.target_net = make_qnet()
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
+        # Fused Adam fuses the param update into a single kernel — big
+        # win on accelerators, CPU's foreach path is already competitive.
         self.optimizer = optim.Adam(
-            self.q_net.parameters(), lr=float(config.get("lr", 1e-4))
+            self.q_net.parameters(),
+            lr=float(config.get("lr", 1e-4)),
+            fused=self.device.type != "cpu",
         )
 
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
@@ -49,24 +53,18 @@ class DQNAgent(BaseAgent):
             q_values = self.q_net(state_t)
             return int(q_values.argmax(dim=1).item())
 
-    def train_step(self, batch: tuple[torch.Tensor, ...]) -> dict[str, float]:
+    def train_step(self, batch: tuple[torch.Tensor, ...]) -> dict[str, torch.Tensor]:
         states, actions, rewards, next_states, dones = batch
-        
-        # Squeeze tensors for standard Q-learning
         rewards = rewards.squeeze(1)
         dones = dones.squeeze(1)
 
-        # Compute Target Q-values
         with torch.no_grad():
-            next_q_values = self.target_net(next_states)
-            max_next_q_values = next_q_values.max(dim=1)[0]
-            target_q_values = rewards + (1 - dones) * self.gamma * max_next_q_values
+            max_next_q = self.target_net(next_states).max(dim=1)[0]
+            target_q = rewards + (1 - dones) * self.gamma * max_next_q
 
-        # Compute Current Q-values
-        current_q_values = self.q_net(states).gather(1, actions).squeeze(1)
+        current_q = self.q_net(states).gather(1, actions).squeeze(1)
+        loss = F.mse_loss(current_q, target_q)
 
-        # Loss and Optimization
-        loss = F.mse_loss(current_q_values, target_q_values)
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         self.optimizer.step()
@@ -74,7 +72,9 @@ class DQNAgent(BaseAgent):
         self.update_counter += 1
         self._update_target(self.q_net, self.target_net)
 
-        return {"loss": float(loss.item())}
+        # Detached 0-d tensor — caller materialises once per logging
+        # interval to avoid a D2H sync per train step.
+        return {"loss": loss.detach()}
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)

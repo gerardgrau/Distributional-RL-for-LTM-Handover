@@ -50,6 +50,8 @@ class QRDQNAgent(BaseAgent):
         )
         self.q_min = float(config.get("q_min", 0.0))
         self.q_max = float(config.get("q_max", 50.0))
+        self.beta_alpha = float(config.get("beta_alpha", 2.0))
+        self.beta_beta = float(config.get("beta_beta", 2.0))
 
         self.scheme: QuantileScheme = build_scheme(
             mode=self.quantile_mode,
@@ -60,6 +62,8 @@ class QRDQNAgent(BaseAgent):
             risk_type=self.risk_type,
             risk_fraction=self.risk_fraction,
             truncate_upper=self.truncate_upper,
+            beta_alpha=self.beta_alpha,
+            beta_beta=self.beta_beta,
         )
 
         def make_qnet() -> UnifiedQNet:
@@ -69,15 +73,24 @@ class QRDQNAgent(BaseAgent):
             )
             return UnifiedQNet(trunk, head).to(self.device)
 
-        # Build q_net and target_net as independent module instances so the
-        # soft-update copy is real (not a shared-reference no-op).
+        # Independent module instances so the soft-update copy is real
+        # (not a shared-reference no-op).
         self.q_net = make_qnet()
         self.target_net = make_qnet()
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
+        self.adam_eps = float(config.get("adam_eps", 1e-8))
+        gc = config.get("grad_clip", None)
+        self.grad_clip = float(gc) if gc is not None else None
+
+        # Fused Adam fuses the param update into a single kernel — big
+        # win on accelerators, CPU's foreach path is already competitive.
         self.optimizer = optim.Adam(
-            self.q_net.parameters(), lr=float(config.get("lr", 1e-4))
+            self.q_net.parameters(),
+            lr=float(config.get("lr", 1e-4)),
+            eps=self.adam_eps,
+            fused=self.device.type != "cpu",
         )
 
     def _action_values(self, predicted: torch.Tensor) -> torch.Tensor:
@@ -106,35 +119,31 @@ class QRDQNAgent(BaseAgent):
 
     def train_step(
         self, batch: tuple[torch.Tensor, ...]
-    ) -> dict[str, float]:
+    ) -> dict[str, torch.Tensor]:
         states, actions, rewards, next_states, dones = batch
-        batch_size = states.size(0)
+        num_predicted = self.scheme.num_predicted
 
         with torch.no_grad():
-            next_predicted = self.target_net(next_states)
-            next_q = self._action_values(next_predicted)
-            best_next_actions = next_q.argmax(dim=1)  # [B]
-            best_next_predicted = next_predicted[
-                range(batch_size), best_next_actions
-            ]  # [B, num_predicted]
-            # Assemble the full target distribution. For trapezoidal this
-            # prepends q_min and appends q_max; for other schemes it is a
-            # no-op.
+            next_predicted = self.target_net(next_states)  # [B, A, P]
+            best_next_actions = self._action_values(next_predicted).argmax(dim=1)
+            best_next_predicted = next_predicted.gather(
+                1,
+                best_next_actions.view(-1, 1, 1).expand(-1, 1, num_predicted),
+            ).squeeze(1)  # [B, P]
+            # assemble_full prepends q_min / appends q_max for trapezoidal;
+            # no-op for other schemes.
             best_next_assembled = self.scheme.assemble_full(
                 best_next_predicted
-            )  # [B, num_total]
+            )  # [B, T]
             target_quantiles = (
-                rewards
-                + (1 - dones) * self.gamma * best_next_assembled
-            )  # [B, num_total]
+                rewards + (1 - dones) * self.gamma * best_next_assembled
+            )  # [B, T]
 
-        current_all = self.q_net(states)
-        current_quantiles = current_all[
-            range(batch_size), actions.squeeze(1)
-        ]  # [B, num_predicted]
+        current_quantiles = self.q_net(states).gather(
+            1, actions.unsqueeze(-1).expand(-1, -1, num_predicted),
+        ).squeeze(1)  # [B, P]
 
-        # Pinball matrix over (predictor i, target j).
-        # diff: [B, num_predicted, num_total]
+        # Pinball-Huber matrix over (predictor i, target j).
         diff = target_quantiles.unsqueeze(1) - current_quantiles.unsqueeze(2)
         abs_diff = diff.abs()
         huber_loss = torch.where(
@@ -144,31 +153,31 @@ class QRDQNAgent(BaseAgent):
         )
         tau = self.scheme.tau.view(1, -1, 1)
         asymmetry = torch.abs(tau - (diff.detach() < 0).float())
-        pinball_loss = asymmetry * huber_loss  # [B, num_predicted, num_total]
+        pinball_loss = asymmetry * huber_loss  # [B, P, T]
 
-        # Weighted aggregation. For non-uniform schemes (Gauss-Legendre,
-        # trapezoidal) a plain .mean() silently reverts to a uniform
-        # midpoint aggregator and discards the quadrature.
-        #   - target axis (dim=2) uses mean_weights, the probability mass
-        #     of each atom in the target distribution.
-        #   - predictor axis (dim=1) uses predictor_weights, the integration
-        #     weights for the loss across tau values.
-        # For midpoint these both reduce to uniform 1/N and the result is
-        # identical to .mean() — backward compatible.
+        # Quadrature-weighted reduction. For midpoint both weight vectors
+        # are uniform 1/N and this reduces to a plain .mean(); for non-
+        # uniform schemes (Gauss-Legendre, trapezoidal) the weights ARE
+        # the integration rule — using .mean() would silently discard it.
         target_w = self.scheme.mean_weights.view(1, 1, -1)
         per_predictor_loss = (pinball_loss * target_w).sum(dim=2)  # [B, P]
         pred_w = self.scheme.predictor_weights.view(1, -1)
-        per_sample_loss = (per_predictor_loss * pred_w).sum(dim=1)  # [B]
-        loss = per_sample_loss.mean()
+        loss = (per_predictor_loss * pred_w).sum(dim=1).mean()
 
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
+        if self.grad_clip is not None:
+            torch.nn.utils.clip_grad_norm_(
+                self.q_net.parameters(), self.grad_clip,
+            )
         self.optimizer.step()
 
         self.update_counter += 1
         self._update_target(self.q_net, self.target_net)
 
-        return {"loss": float(loss.item())}
+        # Detached 0-d tensor — caller materialises once per logging
+        # interval to avoid a D2H sync per train step.
+        return {"loss": loss.detach()}
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -187,6 +196,8 @@ class QRDQNAgent(BaseAgent):
                     "truncate_upper": self.truncate_upper,
                     "q_min": self.q_min,
                     "q_max": self.q_max,
+                    "beta_alpha": self.beta_alpha,
+                    "beta_beta": self.beta_beta,
                 },
             },
             path,

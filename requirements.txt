@@ -1,6 +1,9 @@
 gymnasium[atari,accept-rom-license]
 numpy
-torch
+# >= 2.5 is required: Adam(fused=...) on CPU landed in 2.4 and stabilised
+# in 2.5, and torch._foreach_lerp_ (used by the soft target update) is
+# documented from 2.5 onwards.
+torch>=2.5
 scipy
 PyYAML
 sumolib

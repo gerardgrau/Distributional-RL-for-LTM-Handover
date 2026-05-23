@@ -27,16 +27,15 @@ class BaseAgent(ABC):
         self.update_counter = 0
 
     def _update_target(self, q_net: torch.nn.Module, target_net: torch.nn.Module) -> None:
-        """
-        Standard Target Network Update (Soft or Hard).
-        """
+        """Soft (tau<1) or hard (tau==1, every `target_update_freq`) update."""
         if self.tau < 1.0:
-            # Soft Update: theta_target = tau * theta + (1 - tau) * theta_target
             with torch.no_grad():
-                for target_param, q_param in zip(target_net.parameters(), q_net.parameters()):
-                    target_param.copy_(self.tau * q_param + (1.0 - self.tau) * target_param)
+                torch._foreach_lerp_(
+                    list(target_net.parameters()),
+                    list(q_net.parameters()),
+                    self.tau,
+                )
         elif self.update_counter % self.target_update_freq == 0:
-            # Hard Update
             target_net.load_state_dict(q_net.state_dict())
 
     @abstractmethod

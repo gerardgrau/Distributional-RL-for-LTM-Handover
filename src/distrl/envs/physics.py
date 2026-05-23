@@ -1,4 +1,5 @@
 import hashlib
+import math
 
 import numpy as np
 
@@ -86,87 +87,94 @@ def physics_hash() -> str:
 # ============================================================
 # PHYSICS FUNCTIONS
 # ============================================================
+# Hot-path constants reused by every MCSEvaluation / CheckHO_Failure
+# call (~130k per episode). Derived from the module-level `System`
+# dict and the fixed M-fold interference model.
+_M_INTERFERENCE = 3
+_INV_M = 1.0 / _M_INTERFERENCE
+_LOW_INTER_FACTOR = 10 ** (-1.5)
+_NOISE_LINEAR = 10 ** (System["NoiseLevel"] / 10.0)
+
+_BLER = np.array([
+    1, 0.2617, 0.2370, 0.2103, 0.1828, 0.1558, 0.1302, 0.1067, 0.0859,
+    0.0678, 0.0526, 0.0401, 0.0301, 0.0221, 0.0160, 0.0114, 0.0080,
+    0.0056, 0.0038, 0.0025, 0.0017, 0.0011, 0.0007, 0.0004, 0.0003,
+    0.0002, 0.0001
+])
+_SNR_LEVEL = np.array([
+    -np.inf, -1.7609, -1.6609, -1.5609, -1.4609, -1.3609, -1.2609,
+    -1.1609, -1.0609, -0.9609, -0.8609, -0.7609, -0.6609, -0.5609,
+    -0.4609, -0.3609, -0.2609, -0.1609, -0.0609, 0.0391, 0.1391,
+    0.2391, 0.3391, 0.4391, 0.5391, 0.6391, 0.7391
+])
+
+
+def _aggregate_signal_and_interference(serving_sector, channels, tx_power):
+    """Return (Ps, AllInter) in linear power for the reuse-group at this tick.
+
+    The reuse-group is the 1:3 stride starting at `serving_sector % 3`
+    (7 sectors for NBS=21). The Python loop beats a numpy reduce on
+    such a short array (numpy dispatch overhead dominates) and matches
+    its bit-for-bit summation order.
+    """
+    Ps = 10 ** ((channels[serving_sector] + tx_power) / 10)
+    AllInter = 0.0
+    for k in range(serving_sector % 3, channels.shape[0], 3):
+        AllInter += 10 ** ((channels[k] + tx_power) / 10.0)
+    AllInter -= Ps
+    return Ps, AllInter
+
+
 def MCSEvaluation(serving_sector, channels, System, Sync):
-    RLF = 0
-    serving_channel = channels[serving_sector]
-    reuse_factor = 3
-    all_sectors = np.arange(len(channels)) 
-    target_mask = (all_sectors % reuse_factor) == (serving_sector % reuse_factor)
-    Ps = 10 ** ((serving_channel + System["TxPower"]) / 10)
-    relevant_channels = channels[target_mask]
-    Inter = (relevant_channels + System["TxPower"]) / 10.0
-
-    AllInter = np.sum(10**Inter) - Ps
-    M = 3
-    noise_linear = 10**(System["NoiseLevel"] / 10.0)
-
-    if np.random.rand() < (1 / M):
-        Inter_Noise = M * AllInter + noise_linear
+    Ps, AllInter = _aggregate_signal_and_interference(
+        serving_sector, channels, System["TxPower"],
+    )
+    M = _M_INTERFERENCE
+    M_AllInter = M * AllInter
+    if np.random.rand() < _INV_M:
+        Inter_Noise = M_AllInter + _NOISE_LINEAR
     else:
-        Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
+        Inter_Noise = M_AllInter * _LOW_INTER_FACTOR + _NOISE_LINEAR
 
-    # M*Ps in the numerator mirrors the M-fold scaling already applied to
-    # the interference term. Dropping it (a previous calibration accident)
-    # made SNIR ~4.77 dB pessimistic in noise-limited regimes.
-    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
-    idx = np.where(System["SINRThreshold"] <= SNIR)[0]
-    MCS = System["SpectralEff"][idx[-1]] if len(idx) > 0 else 0
+    # M*Ps in the numerator mirrors the M-fold scaling already applied
+    # to the interference term. Dropping it (a previous calibration
+    # accident) made SNIR ~4.77 dB pessimistic in noise-limited regimes.
+    SNIR = 10 * math.log10(M * Ps) - 10 * math.log10(Inter_Noise)
+    i = int(np.searchsorted(System["SINRThreshold"], SNIR, side="right")) - 1
+    MCS = System["SpectralEff"][i] if i >= 0 else 0
 
+    RLF = 0
     if SNIR <= 0:
         Sync["out_sync_count"] += 1
         Sync["in_sync_count"] = 0
         if Sync["out_sync_count"] >= Sync["N310"] and not Sync["t310_running"]:
             Sync["t310_running"] = True
             Sync["t310_counter"] = Sync["T310"]
-
     if SNIR > 2:
         Sync["in_sync_count"] += 1
         Sync["out_sync_count"] = 0
         if Sync["in_sync_count"] >= Sync["N311"]:
             Sync["t310_running"] = False
-
     if Sync["t310_running"]:
         Sync["t310_counter"] -= 1
         RLF = (Sync["t310_counter"] == 0)
-
     return MCS, RLF, Sync
 
+
 def CheckHO_Failure(serving_sector, channels, System):
-    BLER = np.array([
-        1, 0.2617, 0.2370, 0.2103, 0.1828, 0.1558, 0.1302, 0.1067, 0.0859,
-        0.0678, 0.0526, 0.0401, 0.0301, 0.0221, 0.0160, 0.0114, 0.0080,
-        0.0056, 0.0038, 0.0025, 0.0017, 0.0011, 0.0007, 0.0004, 0.0003,
-        0.0002, 0.0001
-    ])
-
-    SNR_level = np.array([
-        -np.inf, -1.7609, -1.6609, -1.5609, -1.4609, -1.3609, -1.2609,
-        -1.1609, -1.0609, -0.9609, -0.8609, -0.7609, -0.6609, -0.5609,
-        -0.4609, -0.3609, -0.2609, -0.1609, -0.0609, 0.0391, 0.1391,
-        0.2391, 0.3391, 0.4391, 0.5391, 0.6391, 0.7391
-    ])
-
-    serving_channel = channels[serving_sector]
-    reuse_factor = 3
-    all_sectors = np.arange(len(channels))
-    target_mask = (all_sectors % reuse_factor) == (serving_sector % reuse_factor)
-    Ps = 10 ** ((serving_channel + System["TxPower"]) / 10)
-
-    relevant_channels = channels[target_mask]
-    Inter = (relevant_channels + System["TxPower"]) / 10.0
-    AllInter = np.sum(10**Inter) - Ps
-    M = 3
-    noise_linear = 10**(System["NoiseLevel"] / 10.0)
-
-    if np.random.rand() < (1 / M):
-        Inter_Noise = M * AllInter + noise_linear
+    Ps, AllInter = _aggregate_signal_and_interference(
+        serving_sector, channels, System["TxPower"],
+    )
+    M = _M_INTERFERENCE
+    M_AllInter = M * AllInter
+    if np.random.rand() < _INV_M:
+        Inter_Noise = M_AllInter + _NOISE_LINEAR
     else:
-        Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
+        Inter_Noise = M_AllInter * _LOW_INTER_FACTOR + _NOISE_LINEAR
 
-    SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
-    idx = np.where(SNR_level <= SNIR)[0]
-    Pe = BLER[idx[-1]]
-
+    SNIR = 10 * math.log10(M * Ps) - 10 * math.log10(Inter_Noise)
+    i = int(np.searchsorted(_SNR_LEVEL, SNIR, side="right")) - 1
+    Pe = _BLER[i] if i >= 0 else _BLER[0]
     return np.random.rand() < Pe
 
 def PerformanceEvaluation(MCS, ServingCell_channel, ping_pong, ReservedBSSectors, HOF, HO_event, RLF, Time):

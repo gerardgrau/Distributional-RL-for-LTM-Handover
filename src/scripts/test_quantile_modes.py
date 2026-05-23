@@ -182,6 +182,114 @@ def test_cvar_weights() -> None:
                torch.isclose(s.cvar_weights.sum(), torch.tensor(1.0)))
 
 
+def test_beta_modes() -> None:
+    """Beta-prior tau distortion -- variants 1 (equal w) and 2 (cell-width w)."""
+    print("test_beta_modes")
+    device = torch.device("cpu")
+    N = 50
+    one = torch.tensor(1.0)
+
+    # Variant 1 (beta_equal): distorted tau, uniform weights.
+    s1 = build_scheme(
+        "beta_equal", N, device, beta_alpha=2.0, beta_beta=2.0,
+    )
+    _check("beta_equal num_predicted=N", s1.num_predicted == N)
+    _check("beta_equal tau in (0, 1)",
+           float(s1.tau.min()) > 0.0 and float(s1.tau.max()) < 1.0)
+    _check("beta_equal tau monotonic",
+           bool((s1.tau[1:] > s1.tau[:-1]).all()))
+    # alpha=beta=2 is symmetric around 0.5, so the median tau is ~0.5.
+    median = float(s1.tau[N // 2 - 1: N // 2 + 1].mean())
+    _check("beta_equal median ~= 0.5", abs(median - 0.5) < 0.05,
+           f"median={median:.4f}")
+    _check("beta_equal mean_w sum=1",
+           torch.isclose(s1.mean_weights.sum(), one))
+    _check("beta_equal weights uniform 1/N",
+           torch.allclose(s1.mean_weights, torch.full((N,), 1.0 / N)))
+    _check("beta_equal pred_w == mean_w",
+           torch.allclose(s1.predictor_weights, s1.mean_weights))
+    # Tau IS distorted (i.e. not the uniform midpoint).
+    midpoint = (torch.arange(N, dtype=torch.float32) + 0.5) / N
+    _check("beta_equal tau != uniform midpoint",
+           not torch.allclose(s1.tau, midpoint, atol=1e-4))
+
+    # Variant 2 (beta_weighted): distorted tau AND cell-width weights.
+    s2 = build_scheme(
+        "beta_weighted", N, device, beta_alpha=2.0, beta_beta=2.0,
+    )
+    _check("beta_weighted shares tau with beta_equal",
+           torch.allclose(s2.tau, s1.tau))
+    _check("beta_weighted mean_w sum=1",
+           torch.isclose(s2.mean_weights.sum(), one))
+    _check("beta_weighted weights non-uniform",
+           not torch.allclose(s2.mean_weights, torch.full((N,), 1.0 / N)))
+    # alpha=beta=2 has its mode at tau=0.5. Because F^{-1} is FLAT where
+    # the PDF is high, cell widths w_i = F^{-1}(u_{i+1}) - F^{-1}(u_i) are
+    # SMALLEST at the center (the tau_i are densely packed there) and
+    # LARGEST at the tails. Per-point, each central tau_i carries less
+    # probability mass than each tail tau_i.
+    _check("beta_weighted small per-point mass at center",
+           float(s2.mean_weights[N // 2]) < float(s2.mean_weights[0]))
+    # Total mass in [0.4, 0.6] should still be ~0.2 -- the cells in tau-space
+    # tile [0, 1] exactly, so summing widths of cells whose CENTER is in
+    # [0.4, 0.6] recovers 0.2 up to ~one half-cell-width on each boundary.
+    central = (s2.tau >= 0.4) & (s2.tau <= 0.6)
+    mass_central = float(s2.mean_weights[central].sum())
+    _check(
+        "beta_weighted total mass in [0.4, 0.6] ~ 0.2",
+        abs(mass_central - 0.2) < 0.02,
+        f"got {mass_central:.4f}",
+    )
+    _check("beta_weighted pred_w == mean_w",
+           torch.allclose(s2.predictor_weights, s2.mean_weights))
+
+    # Both should integrate the identity correctly:
+    # variant 2 because the weights are a faithful quadrature, variant 1
+    # because the *uniform* mean of Beta-distorted samples is still ~ 0.5 by
+    # symmetry (alpha=beta=2).
+    est1 = float(s1.expectation(s1.tau.unsqueeze(0)))
+    _check("beta_equal mean(tau) ~= 0.5 (symmetric Beta)",
+           abs(est1 - 0.5) < 1e-5, f"got {est1:.6f}")
+    est2 = float(s2.expectation(s2.tau.unsqueeze(0)))
+    _check("beta_weighted integrates tau",
+           abs(est2 - 0.5) < 5e-4, f"got {est2:.6f}")
+
+    # An ASYMMETRIC Beta (alpha=2, beta=5) has its mode at 0.2. The
+    # distorted tau cluster around the mode, so variant 1's plain mean of
+    # these distorted tau equals the midpoint estimate of the Beta(2,5)
+    # mean = alpha/(alpha+beta) = 2/7 ~ 0.286, NOT 0.5. Variant 2's
+    # properly-weighted estimate still recovers the true integral 0.5
+    # because the cell widths are exactly the change-of-variable factor.
+    s1_skew = build_scheme(
+        "beta_equal", N, device, beta_alpha=2.0, beta_beta=5.0,
+    )
+    s2_skew = build_scheme(
+        "beta_weighted", N, device, beta_alpha=2.0, beta_beta=5.0,
+    )
+    bias1 = float(s1_skew.expectation(s1_skew.tau.unsqueeze(0)))
+    bias2 = float(s2_skew.expectation(s2_skew.tau.unsqueeze(0)))
+    _check(
+        "beta_equal(2,5) plain mean of tau ~= Beta mean 2/7",
+        abs(bias1 - 2.0 / 7.0) < 5e-3,
+        f"plain mean of distorted tau = {bias1:.4f}",
+    )
+    # For asymmetric Beta, the change-of-variable midpoint quadrature has
+    # O(1/N) error because tau_i sits at the midpoint of its U-cell, not its
+    # tau-cell. With N=50 the error is ~4% (vs ~30% for the unweighted
+    # variant 1 above). What matters is that the weighting recovers MOST of
+    # the bias and converges as N grows.
+    _check(
+        "beta_weighted(2,5) closer to 0.5 than beta_equal(2,5)",
+        abs(bias2 - 0.5) < abs(bias1 - 0.5),
+        f"weighted={bias2:.4f} vs equal={bias1:.4f}",
+    )
+    _check(
+        "beta_weighted(2,5) within 5% of 0.5",
+        abs(bias2 - 0.5) < 0.05,
+        f"got {bias2:.6f}",
+    )
+
+
 def test_assemble_full_trapezoidal() -> None:
     print("test_assemble_full_trapezoidal")
     device = torch.device("cpu")
@@ -204,6 +312,7 @@ def main() -> None:
     test_cvar_weights()
     test_assemble_full_trapezoidal()
     test_loss_backward_compat()
+    test_beta_modes()
     print("\nAll quantile_modes smoke tests passed.")
 
 
