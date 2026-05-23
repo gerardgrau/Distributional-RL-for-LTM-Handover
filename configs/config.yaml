@@ -20,6 +20,7 @@ agent:
   target_update_freq: 1000
   buffer_size: 100000
   batch_size: 256
+  train_freq: 4               # 1 gradient step per 4 env steps (Nature-DQN convention)
   num_quantiles: 50           # Only for qrdqn
   epsilon_start: 1.0
   epsilon_end: 0.05
