@@ -51,28 +51,48 @@ class ReplayBuffer:
         self.done = alloc((max_size, 1), torch.float32)
 
     def push(
-        self, 
-        state: np.ndarray | torch.Tensor, 
-        action: int | torch.Tensor, 
-        reward: float | torch.Tensor, 
-        next_state: np.ndarray | torch.Tensor, 
-        done: bool | torch.Tensor
+        self,
+        state: np.ndarray | torch.Tensor,
+        action: int | torch.Tensor,
+        reward: float | torch.Tensor,
+        next_state: np.ndarray | torch.Tensor,
+        done: bool | torch.Tensor,
     ) -> None:
-        """
-        Adds a transition to the buffer. Inputs are moved to CPU if necessary.
-        """
-        def to_cpu_tensor(x, dtype):
-            if isinstance(x, torch.Tensor):
-                return x.detach().to(self.storage_device, non_blocking=True).to(dtype)
-            return torch.as_tensor(x, dtype=dtype, device=self.storage_device)
+        """Adds a transition to the buffer.
 
-        self.state[self.ptr] = to_cpu_tensor(state, self.state.dtype)
-        self.action[self.ptr] = to_cpu_tensor(action, self.action.dtype)
-        self.reward[self.ptr] = to_cpu_tensor(reward, self.reward.dtype)
-        self.next_state[self.ptr] = to_cpu_tensor(next_state, self.next_state.dtype)
-        self.done[self.ptr] = to_cpu_tensor(float(done), self.done.dtype)
+        Inlined fast path: numpy state/next_state get assigned directly to
+        a preallocated tensor row (PyTorch handles the dtype-aware copy via
+        the buffer protocol), and Python scalars get written into the
+        single-element action/reward/done slots. The previous version
+        wrapped each field in a `to_cpu_tensor(...)` helper that allocated
+        a fresh torch.Tensor per push — measurable per-step overhead.
+        """
+        p = self.ptr
+        if isinstance(state, torch.Tensor):
+            # Tensor input — may be on a non-CPU device.
+            self.state[p] = state.detach().to(self.storage_device, non_blocking=True)
+            self.next_state[p] = next_state.detach().to(self.storage_device, non_blocking=True)
+        else:
+            # numpy input: from_numpy shares memory (zero-copy wrap), and
+            # the assignment then copies into the preallocated buffer row.
+            # PyTorch will not accept a raw ndarray here, so the wrap is
+            # required even though it looks redundant.
+            self.state[p] = torch.from_numpy(state)
+            self.next_state[p] = torch.from_numpy(next_state)
 
-        self.ptr = (self.ptr + 1) % self.max_size
+        if isinstance(action, torch.Tensor):
+            self.action[p, 0] = int(action.item())
+        else:
+            self.action[p, 0] = action
+
+        if isinstance(reward, torch.Tensor):
+            self.reward[p, 0] = float(reward.item())
+        else:
+            self.reward[p, 0] = reward
+
+        self.done[p, 0] = float(done)
+
+        self.ptr = (p + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
 
     def add(self, *args: Any, **kwargs: Any) -> None:

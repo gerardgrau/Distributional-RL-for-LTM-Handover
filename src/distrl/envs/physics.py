@@ -86,15 +86,34 @@ def physics_hash() -> str:
 # ============================================================
 # PHYSICS FUNCTIONS
 # ============================================================
+# Module-level BLER + SNR tables consumed by CheckHO_Failure. Hoisted out
+# of the function body so they are allocated once at import (the previous
+# in-body np.array calls were rebuilding both arrays on every per-tick
+# call).
+_BLER = np.array([
+    1, 0.2617, 0.2370, 0.2103, 0.1828, 0.1558, 0.1302, 0.1067, 0.0859,
+    0.0678, 0.0526, 0.0401, 0.0301, 0.0221, 0.0160, 0.0114, 0.0080,
+    0.0056, 0.0038, 0.0025, 0.0017, 0.0011, 0.0007, 0.0004, 0.0003,
+    0.0002, 0.0001
+])
+_SNR_LEVEL = np.array([
+    -np.inf, -1.7609, -1.6609, -1.5609, -1.4609, -1.3609, -1.2609,
+    -1.1609, -1.0609, -0.9609, -0.8609, -0.7609, -0.6609, -0.5609,
+    -0.4609, -0.3609, -0.2609, -0.1609, -0.0609, 0.0391, 0.1391,
+    0.2391, 0.3391, 0.4391, 0.5391, 0.6391, 0.7391
+])
+
+
 def MCSEvaluation(serving_sector, channels, System, Sync):
     RLF = 0
+    tx_power = System["TxPower"]
     serving_channel = channels[serving_sector]
-    reuse_factor = 3
-    all_sectors = np.arange(len(channels)) 
-    target_mask = (all_sectors % reuse_factor) == (serving_sector % reuse_factor)
-    Ps = 10 ** ((serving_channel + System["TxPower"]) / 10)
-    relevant_channels = channels[target_mask]
-    Inter = (relevant_channels + System["TxPower"]) / 10.0
+    # Reuse-group 1:3 stride — equivalent to building the boolean mask
+    # `(arange(N) % 3) == (serving_sector % 3)` but returns a numpy view
+    # with no allocation.
+    relevant_channels = channels[serving_sector % 3 :: 3]
+    Ps = 10 ** ((serving_channel + tx_power) / 10)
+    Inter = (relevant_channels + tx_power) / 10.0
 
     AllInter = np.sum(10**Inter) - Ps
     M = 3
@@ -109,8 +128,13 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
     # the interference term. Dropping it (a previous calibration accident)
     # made SNIR ~4.77 dB pessimistic in noise-limited regimes.
     SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
-    idx = np.where(System["SINRThreshold"] <= SNIR)[0]
-    MCS = System["SpectralEff"][idx[-1]] if len(idx) > 0 else 0
+    # searchsorted(side='right') gives the insertion point such that all
+    # entries to the left are <= SNIR; subtract 1 to get the largest index
+    # satisfying SINRThreshold[i] <= SNIR. SINRThreshold[0] = -inf so the
+    # result is always >= 0 for any finite SNIR — the empty-idx fallback
+    # below is defensive only.
+    i = int(np.searchsorted(System["SINRThreshold"], SNIR, side="right")) - 1
+    MCS = System["SpectralEff"][i] if i >= 0 else 0
 
     if SNIR <= 0:
         Sync["out_sync_count"] += 1
@@ -132,28 +156,12 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
     return MCS, RLF, Sync
 
 def CheckHO_Failure(serving_sector, channels, System):
-    BLER = np.array([
-        1, 0.2617, 0.2370, 0.2103, 0.1828, 0.1558, 0.1302, 0.1067, 0.0859,
-        0.0678, 0.0526, 0.0401, 0.0301, 0.0221, 0.0160, 0.0114, 0.0080,
-        0.0056, 0.0038, 0.0025, 0.0017, 0.0011, 0.0007, 0.0004, 0.0003,
-        0.0002, 0.0001
-    ])
-
-    SNR_level = np.array([
-        -np.inf, -1.7609, -1.6609, -1.5609, -1.4609, -1.3609, -1.2609,
-        -1.1609, -1.0609, -0.9609, -0.8609, -0.7609, -0.6609, -0.5609,
-        -0.4609, -0.3609, -0.2609, -0.1609, -0.0609, 0.0391, 0.1391,
-        0.2391, 0.3391, 0.4391, 0.5391, 0.6391, 0.7391
-    ])
-
+    tx_power = System["TxPower"]
     serving_channel = channels[serving_sector]
-    reuse_factor = 3
-    all_sectors = np.arange(len(channels))
-    target_mask = (all_sectors % reuse_factor) == (serving_sector % reuse_factor)
-    Ps = 10 ** ((serving_channel + System["TxPower"]) / 10)
+    relevant_channels = channels[serving_sector % 3 :: 3]
+    Ps = 10 ** ((serving_channel + tx_power) / 10)
 
-    relevant_channels = channels[target_mask]
-    Inter = (relevant_channels + System["TxPower"]) / 10.0
+    Inter = (relevant_channels + tx_power) / 10.0
     AllInter = np.sum(10**Inter) - Ps
     M = 3
     noise_linear = 10**(System["NoiseLevel"] / 10.0)
@@ -164,8 +172,8 @@ def CheckHO_Failure(serving_sector, channels, System):
         Inter_Noise = M * AllInter * 10**(-1.5) + noise_linear
 
     SNIR = 10 * np.log10(M * Ps) - 10 * np.log10(Inter_Noise)
-    idx = np.where(SNR_level <= SNIR)[0]
-    Pe = BLER[idx[-1]]
+    i = int(np.searchsorted(_SNR_LEVEL, SNIR, side="right")) - 1
+    Pe = _BLER[i] if i >= 0 else _BLER[0]
 
     return np.random.rand() < Pe
 
