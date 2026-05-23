@@ -23,7 +23,7 @@ agent:
   epsilon_start: 1.0
   epsilon_end: 0.05
   epsilon_mult: 0.9995        # Slower decay for 5000 episodes
-  num_episodes: 5000
+  num_episodes: 1000
   risk_type: "cvar"
   risk_fraction: 0.1
 

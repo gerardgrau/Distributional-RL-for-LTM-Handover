@@ -23,7 +23,7 @@ agent:
   epsilon_start: 1.0
   epsilon_end: 0.05
   epsilon_mult: 0.998        # Adjusted for 2000 episodes
-  num_episodes: 2000
+  num_episodes: 1000
 
 benchmark:
   num_seeds: 2
