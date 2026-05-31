@@ -26,12 +26,15 @@ def generate_plots():
         "legacy_baseline_summary": "Baseline (Legacy)",
         "baseline_summary": "Baseline (Ours)",
         "dqn_summary": "DQN (Ours)",
-        "qrdqn_summary": "QR-DQN (Ours)"
+        "qrdqn_riskneutral_summary": "QR-DQN-RN (Ours)",
+        "qrdqn_ra_k1_summary": "QR-DQN-RA-1q (Ours)",
+        "qrdqn_summary": "QR-DQN-RA (Ours)"
     }
-    
+
     desired_order = [
         "LTM", "LMMSE", "LTM-CMAB", "LMMSE-CMAB",
-        "Baseline (Legacy)", "Baseline (Ours)", "DQN (Ours)", "QR-DQN (Ours)"
+        "Baseline (Legacy)", "Baseline (Ours)", "DQN (Ours)",
+        "QR-DQN-RN (Ours)", "QR-DQN-RA-1q (Ours)", "QR-DQN-RA (Ours)"
     ]
 
     # Paper references get a striped hatch so they are visually distinct from
@@ -91,6 +94,7 @@ def generate_plots():
 
     # Broken-y-axis configuration: (ymin, ymax). NaN ymax = autoscale upper.
     broken_ylim = {
+        "reward": (800.0, None),
         "capacity_avg": (2.0, None),
         "reliability_pct": (80.0, 100.0),
     }

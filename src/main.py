@@ -1,33 +1,54 @@
-import torch
-import numpy as np
+"""Benchmark entry point.
+
+Single CLI that handles both the canonical multi-seed parallel workflow
+and one-off single-seed runs. By default, given `--seeds A,B,C` it forks
+one subprocess per seed (all writing to a shared experiment directory),
+waits for them, then runs the aggregator. With a single seed (or
+`--no-parallel`), runs inline in the same process.
+
+Internal: subprocesses are launched with `--worker-seed N --experiment-dir
+PATH` and skip the orchestration / aggregation logic.
+
+Live progress: each subprocess writes its tqdm to
+`<expdir>/logs/seed<N>.log`. Use `tail -f` on those for per-seed bars;
+the orchestrator only prints start/finish lines.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import glob
+import json
 import os
+import shutil
+import signal
+import subprocess
 import sys
 import time
-import csv
-import shutil
-import json
 from collections import deque
-from tqdm import tqdm
 from datetime import datetime
 from typing import Any
 
-# Ensure src is in PYTHONPATH
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
+import numpy as np
+import torch
+from tqdm import tqdm
 
-from src.distrl.utils.config import Config
-from src.distrl.envs.ltm_gym import LTMEnv
-from src.distrl.agents.standard.dqn import DQNAgent
-from src.distrl.agents.distributional.qrdqn import QRDQNAgent
-from src.distrl.agents.standard.ltm_baseline import LTMBaselineAgent
-from src.distrl.agents.replay_buffer import ReplayBuffer
-from src.distrl.viz.plot import (
-    plot_efficiency,
-    plot_learning_curves,
-    plot_metrics_grid,
-    plot_quantiles,
+# Ensure src is in PYTHONPATH for absolute imports.
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 )
-from src.distrl.utils.metrics import calculate_8_metrics
+
+from src.distrl.agents.distributional.qrdqn import QRDQNAgent
+from src.distrl.agents.replay_buffer import ReplayBuffer
+from src.distrl.agents.standard.dqn import DQNAgent
+from src.distrl.agents.standard.ltm_baseline import LTMBaselineAgent
+from src.distrl.envs.ltm_gym import LTMEnv
+from src.distrl.utils.config import Config
 from src.distrl.utils.evaluation import run_evaluation
+from src.distrl.utils.metrics import calculate_8_metrics
+from src.tools.aggregate import aggregate
+
 
 class CSVLogger:
     """CSV writer that flushes after every row (so logs survive a
@@ -78,18 +99,20 @@ def _emit_nstep(buf: Any, q: deque, gamma: float) -> None:
     q.popleft()
 
 
-def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment_dir: str,
-             pbar: tqdm, device: str = "cpu", save_results: bool = True) -> float:
+def run_seed(
+    agent_type: str, env_name: str, seed: int, config: dict,
+    experiment_dir: str, pbar: tqdm, device: str = "cpu",
+    save_results: bool = True, eval_workers: int | None = None,
+) -> float:
     torch.manual_seed(seed)
     np.random.seed(seed)
-    
+
     if env_name != "ltm":
         raise ValueError(f"Only 'ltm' environment is supported. Received: {env_name}")
-    
+
     env = LTMEnv(config=config)
-    
     agent_config = config['agent']
-    
+
     if agent_type.lower() == "dqn":
         agent = DQNAgent(agent_config, env.observation_space, env.action_space, device=device)
     elif agent_type.lower() == "qrdqn":
@@ -98,18 +121,22 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
         agent = LTMBaselineAgent(config, env.observation_space, env.action_space, device=device)
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
-    
+
     buffer = None
     if agent_type.lower() in ["dqn", "qrdqn"]:
         buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
-    
-    # Save CSV logs in experiment_dir/train/
+
     logger: CSVLogger | None = None
     if save_results:
-        log_file = os.path.join(experiment_dir, "train", f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv")
-        headers = ["episode", "reward", "loss", "steps", "wall_time",
-                   "capacity", "rlf_rate", "ho_rate", "pp_rate",
-                   "reliability", "prep_rate", "res_reservation", "hof_rate"]
+        log_file = os.path.join(
+            experiment_dir, "train",
+            f"{agent_type}_{env_name.replace('/', '_')}_seed{seed}.csv",
+        )
+        headers = [
+            "episode", "reward", "loss", "steps", "wall_time",
+            "capacity", "rlf_rate", "ho_rate", "pp_rate",
+            "reliability", "prep_rate", "res_reservation", "hof_rate",
+        ]
         logger = CSVLogger(log_file, headers)
 
     num_episodes = agent_config.get('num_episodes', 20)
@@ -122,7 +149,7 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
     gamma = float(agent_config.get('gamma', 0.99))
 
     start_time = time.time()
-    rewards_history = []
+    rewards_history: list[float] = []
     global_step = 0
 
     try:
@@ -130,21 +157,16 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             state, _ = env.reset(seed=seed)
             agent.reset()
             episode_reward = 0
-            episode_loss = []
+            episode_loss: list[Any] = []
             done = False
-            last_info = {}
-            # n_step>1 buffers the last n env transitions and pushes the
-            # discounted n-step return; n_step=1 falls through to the
-            # direct buffer.push fast path.
-            nstep_q: deque = deque() if n_step > 1 else None
+            last_info: dict[str, Any] = {}
+            nstep_q: deque | None = deque() if n_step > 1 else None
 
             is_baseline = agent_type.lower() == "ltm_baseline"
             while not done:
                 if is_baseline:
-                    # Hardcoded baseline: drive the env in high-resolution callback
-                    # mode so the agent sees every FIND_CELL / HO_DECISION yield.
                     next_state, reward, done, _, info = env.step(
-                        0, high_res_callback=agent.select_action
+                        0, high_res_callback=agent.select_action,
                     )
                 else:
                     action = agent.select_action(state, epsilon)
@@ -159,7 +181,8 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
                             if done:
                                 while nstep_q:
                                     _emit_nstep(buffer, nstep_q, gamma)
-                    if buffer is not None and len(buffer) > batch_size and global_step % train_freq == 0:
+                    if (buffer is not None and len(buffer) > batch_size
+                            and global_step % train_freq == 0):
                         metrics = agent.train_step(buffer.sample(batch_size, device=device))
                         episode_loss.append(metrics['loss'])
                 state = next_state
@@ -168,7 +191,6 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
                 if done:
                     last_info = info
 
-            # Calculate LTM metrics at end of episode (Tracking during training)
             metrics_8 = calculate_8_metrics(
                 mcs_history=last_info["metrics"]["mcs"],
                 rlf_history=last_info["metrics"]["rlf"],
@@ -177,12 +199,10 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
                 pp_history=last_info["metrics"]["pp"],
                 serving_history=last_info["metrics"]["serving"],
                 pl3_history=last_info["metrics"]["pl3"],
-                config=config
+                config=config,
             )
 
             epsilon = max(eps_end, epsilon * eps_mult)
-            # train_step returns a detached 0-d tensor; materialise with a
-            # single device sync at episode end.
             if episode_loss:
                 avg_loss = float(torch.stack(episode_loss).mean().item())
             else:
@@ -190,192 +210,292 @@ def run_seed(agent_type: str, env_name: str, seed: int, config: dict, experiment
             if logger is not None:
                 logger.log([
                     ep + 1, episode_reward, avg_loss, env.t, time.time() - start_time,
-                    metrics_8["capacity_avg"],
-                    metrics_8["rlf_rate"],
-                    metrics_8["ho_rate"],
-                    metrics_8["pp_rate"],
-                    metrics_8["reliability_pct"],
-                    metrics_8["prep_rate"],
-                    metrics_8["res_reservation_pct"],
-                    metrics_8["hof_rate"]
+                    metrics_8["capacity_avg"], metrics_8["rlf_rate"],
+                    metrics_8["ho_rate"], metrics_8["pp_rate"],
+                    metrics_8["reliability_pct"], metrics_8["prep_rate"],
+                    metrics_8["res_reservation_pct"], metrics_8["hof_rate"],
                 ])
             rewards_history.append(episode_reward)
 
-            # Update progress bar
             pbar.update(1)
             pbar.set_postfix({
                 "agent": agent_type,
                 "seed": seed,
-                "reward": f"{np.mean(rewards_history[-10:]):.1f}"
+                "reward": f"{np.mean(rewards_history[-10:]):.1f}",
             })
     finally:
         if logger is not None:
             logger.close()
 
-    # SAVE MODEL FOR THIS SEED in experiment_dir/models/
     if save_results:
         model_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
         agent.save(model_path)
-        
-    # --- FORMAL EVALUATION PROTOCOL ---
-    # Evaluate on ALL users after training finishes
-    run_evaluation(agent, config, experiment_dir, agent_type, seed, save_results=save_results)
+
+    run_evaluation(
+        agent, config, experiment_dir, agent_type, seed,
+        save_results=save_results, num_workers=eval_workers,
+    )
 
     env.close()
     return float(np.mean(rewards_history[-10:]))
 
-def run_benchmark():
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file")
-    parser.add_argument("--no_save", action="store_true", help="Do not save any results, logs, or plots")
-    parser.add_argument("--device", type=str, default="cpu", help="Execution device (cpu, cuda, xpu)")
-    parser.add_argument("--description", type=str, default="benchmark", help="Short description for the benchmark")
-    parser.add_argument("--agents", type=str, default="dqn,qrdqn", help="Comma-separated list of agents to run")
-    parser.add_argument(
-        "--seeds", type=str, default=None,
-        help="Comma-separated explicit seeds to run (e.g. '42,43,44'). "
-             "Overrides benchmark.num_seeds. Used by the XPU+CPU parallel "
-             "orchestrator so each process trains one specific seed.",
+
+# ---------------------------------------------------------------------------
+# Orchestration
+# ---------------------------------------------------------------------------
+
+
+def _allocate_experiment_dir(results_dir: str, description: str) -> str:
+    """Find the next free `bmk_YYYY-MM-DD_<num>_<desc>/` and return it."""
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    slug = description.replace(" ", "-")
+    num = 1
+    while glob.glob(os.path.join(results_dir, f"bmk_{date_str}_{num}_*")):
+        num += 1
+    return os.path.join(results_dir, f"bmk_{date_str}_{num}_{slug}")
+
+
+def _prepare_expdir(expdir: str, src_config_path: str) -> None:
+    """Pre-create subdirectories and copy the config for provenance."""
+    for sub in ("train", "eval", "models", "figures", "logs"):
+        os.makedirs(os.path.join(expdir, sub), exist_ok=True)
+    cfg_dst = os.path.join(expdir, "config.yaml")
+    if not os.path.exists(cfg_dst):
+        shutil.copy(src_config_path, cfg_dst)
+
+
+def _default_eval_workers(num_parallel: int) -> int:
+    """Pick a sane eval-worker count given K processes share a 12-core box.
+
+    Each main.py process plus its workers must fit; we reserve 1 core per
+    main process and split the remainder.
+    """
+    cpu_count = os.cpu_count() or 12
+    return max(1, (cpu_count - num_parallel) // num_parallel)
+
+
+def _spawn_worker(
+    config_path: str, expdir: str, seed: int, agents: str,
+    device: str, eval_workers: int, log_path: str,
+) -> subprocess.Popen:
+    """Launch one worker subprocess that trains a single seed."""
+    cmd = [
+        sys.executable, os.path.abspath(__file__),
+        "--config", config_path,
+        "--experiment-dir", expdir,
+        "--worker-seed", str(seed),
+        "--agents", agents,
+        "--device", device,
+        "--eval-workers", str(eval_workers),
+    ]
+    fh = open(log_path, "w")
+    proc = subprocess.Popen(
+        cmd, stdout=fh, stderr=subprocess.STDOUT,
+        preexec_fn=os.setsid,  # own process group so we can kill cleanly
     )
+    # Stash the log filehandle on the proc so the caller can close it.
+    proc._log_fh = fh  # type: ignore[attr-defined]
+    return proc
+
+
+def _wait_with_signal_handling(procs: list[subprocess.Popen]) -> list[int]:
+    """Wait for all subprocesses; on SIGINT/SIGTERM, kill them and exit."""
+    def _terminate_all(*_: Any) -> None:
+        print("\n[orchestrator] received signal, killing subprocesses...", flush=True)
+        for p in procs:
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        for p in procs:
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        sys.exit(130)
+
+    signal.signal(signal.SIGINT, _terminate_all)
+    signal.signal(signal.SIGTERM, _terminate_all)
+
+    codes = []
+    for p in procs:
+        codes.append(p.wait())
+        fh = getattr(p, "_log_fh", None)
+        if fh is not None:
+            fh.close()
+    return codes
+
+
+def _run_inline(
+    config: dict, expdir: str, agent_types: list[str], seeds: list[int],
+    device: str, eval_workers: int | None, save_results: bool,
+) -> None:
+    """Run all (agent, seed) combinations in this process with a single
+    tqdm bar. Used for single-seed or `--no-parallel` runs."""
+    bench_cfg = config["benchmark"]
+    num_episodes = config["agent"].get("num_episodes", 20)
+    total_eps = len(agent_types) * len(seeds) * num_episodes
+    with tqdm(total=total_eps, desc="Benchmark Overall") as pbar:
+        for agent_type in agent_types:
+            for seed in seeds:
+                run_seed(
+                    agent_type, bench_cfg["env_type"], seed, config, expdir,
+                    pbar, device=device, save_results=save_results,
+                    eval_workers=eval_workers,
+                )
+
+
+def _run_parallel(
+    config_path: str, expdir: str, agents: str, seeds: list[int],
+    device: str, eval_workers: int | None,
+) -> None:
+    """Spawn one worker subprocess per seed; wait; aggregate."""
+    if eval_workers is None:
+        eval_workers = _default_eval_workers(len(seeds))
+    print(f"[orchestrator] launching {len(seeds)} workers "
+          f"(eval_workers={eval_workers} each)")
+    procs = []
+    for seed in seeds:
+        log_path = os.path.join(expdir, "logs", f"seed{seed}.log")
+        proc = _spawn_worker(
+            config_path, expdir, seed, agents, device, eval_workers, log_path,
+        )
+        procs.append(proc)
+        print(f"  -> seed {seed} (pid {proc.pid}) -> {log_path}")
+
+    codes = _wait_with_signal_handling(procs)
+    for seed, code in zip(seeds, codes):
+        status = "ok" if code == 0 else f"FAILED (exit {code})"
+        print(f"[orchestrator] seed {seed}: {status}")
+    if any(c != 0 for c in codes):
+        print("[orchestrator] some workers failed; aggregator may produce "
+              "incomplete plots.")
+
+
+def run_benchmark() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=str, default="configs/config.yaml")
+    parser.add_argument("--no_save", action="store_true",
+                        help="Profile mode: don't write logs / models / plots")
+    parser.add_argument("--device", type=str, default="cpu",
+                        choices=["cpu", "cuda", "xpu"])
+    parser.add_argument("--description", type=str, default="benchmark",
+                        help="Short slug used in the bmk_ directory name")
+    parser.add_argument("--agents", type=str, default="dqn,qrdqn",
+                        help="Comma-separated agent types")
+    parser.add_argument("--seeds", type=str, default=None,
+                        help="Comma-separated seeds (e.g. '42,43,44'). "
+                             "Defaults to benchmark.num_seeds in the config.")
+    parser.add_argument("--no-parallel", action="store_true",
+                        help="Run seeds sequentially in this process instead "
+                             "of forking one subprocess per seed.")
+    parser.add_argument("--eval-workers", type=int, default=None,
+                        help="Override eval worker count (default: "
+                             "auto-picked based on parallelism).")
+    parser.add_argument("--experiment-dir", type=str, default=None,
+                        help="Reuse an existing experiment directory instead "
+                             "of allocating a new one. Required by worker "
+                             "subprocesses; rarely needed by users.")
+    # Hidden flag: marks this process as a worker subprocess.
+    parser.add_argument("--worker-seed", type=int, default=None,
+                        help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     Config.set_config_path(args.config)
     config = Config.get()
 
-    device = args.device
-
     # Cap intra-op threads. PyTorch's default (~cpu_count) loses ~30%
     # on small-batch RL because the coordination overhead dwarfs the
     # parallel compute. CPU does the matmuls itself so it needs more
     # threads than XPU (where the heavy work runs on-device).
-    torch.set_num_threads(4 if device == "cpu" else 2)
+    torch.set_num_threads(4 if args.device == "cpu" else 2)
 
-    bench_cfg = config['benchmark']
+    # -----------------------------------------------------------------
+    # Worker mode: train exactly one seed in the given expdir, then exit.
+    # -----------------------------------------------------------------
+    if args.worker_seed is not None:
+        if not args.experiment_dir:
+            raise SystemExit("--worker-seed requires --experiment-dir")
+        agent_types = [a.strip().lower() for a in args.agents.split(",")]
+        num_episodes = config["agent"].get("num_episodes", 20)
+        total_eps = len(agent_types) * num_episodes
+        with tqdm(total=total_eps, desc=f"seed {args.worker_seed}") as pbar:
+            for agent_type in agent_types:
+                run_seed(
+                    agent_type, config["benchmark"]["env_type"],
+                    args.worker_seed, config, args.experiment_dir,
+                    pbar, device=args.device, save_results=not args.no_save,
+                    eval_workers=args.eval_workers,
+                )
+        return
+
+    # -----------------------------------------------------------------
+    # Orchestrator mode.
+    # -----------------------------------------------------------------
     agent_types = [a.strip().lower() for a in args.agents.split(",")]
     if args.seeds:
         seeds = [int(s) for s in args.seeds.split(",")]
     else:
-        seeds = [42 + s for s in range(bench_cfg['num_seeds'])]
-    
-    # --- PERFORMANCE OPTIMIZATION: Unique Naming Convention ---
-    # Format: bmk_YYYY-MM-DD_num_description
-    now = datetime.now()
-    date_str = now.strftime("%Y-%m-%d")
-    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
-    desc_slug = args.description.replace(" ", "-")
-    results_dir = bench_cfg['results_dir']
-    
-    num = 1
-    import glob
-    while True:
-        # Check if any directory exists with this date and number, regardless of description
-        pattern = os.path.join(results_dir, f"bmk_{date_str}_{num}_*")
-        if not glob.glob(pattern):
-            break
-        num += 1
-    
-    experiment_dir = os.path.join(results_dir, f"bmk_{date_str}_{num}_{desc_slug}")
-    
+        seeds = [42 + s for s in range(config["benchmark"]["num_seeds"])]
+
+    if args.experiment_dir:
+        expdir = args.experiment_dir
+        _prepare_expdir(expdir, args.config)
+    else:
+        expdir = _allocate_experiment_dir(config["benchmark"]["results_dir"],
+                                          args.description)
+        if not args.no_save:
+            _prepare_expdir(expdir, args.config)
+
     if not args.no_save:
-        # Pre-create subdirectories (Restructured)
-        os.makedirs(os.path.join(experiment_dir, "train"), exist_ok=True)
-        os.makedirs(os.path.join(experiment_dir, "eval"), exist_ok=True)
-        os.makedirs(os.path.join(experiment_dir, "models"), exist_ok=True)
-        os.makedirs(os.path.join(experiment_dir, "figures"), exist_ok=True)
-        
-        # Copy config file to experiment directory for provenance
-        shutil.copy(args.config, os.path.join(experiment_dir, "config.yaml"))
-        
-        num_episodes = config['agent'].get('num_episodes', 1)
-        
-        print(f"=== Starting Independent Benchmark ===")
-        print(f"  Directory: {experiment_dir}")
+        print("=== Starting Benchmark ===")
+        print(f"  Directory: {expdir}")
         print(f"  Agents:    {args.agents}")
         print(f"  Device:    {args.device}")
-        print(f"  Episodes:  {num_episodes}")
+        print(f"  Episodes:  {config['agent'].get('num_episodes', 1)}")
         print(f"  Seeds:     {seeds}")
         print(f"  Config:    {args.config}")
-        print(f"======================================")
+        parallel = (len(seeds) > 1) and not args.no_parallel
+        print(f"  Mode:      {'parallel (subprocess per seed)' if parallel else 'sequential (inline)'}")
+        print("==========================")
     else:
-        print("=== Starting Profiling Run (No artifacts will be saved) ===")
-    
-    bench_start_time = time.time()
-    total_runs = len(agent_types) * len(seeds)
-    num_episodes = config['agent'].get('num_episodes', 20)
-    total_eps_overall = total_runs * num_episodes
+        print("=== Profiling Run (no artifacts) ===")
 
-    with tqdm(total=total_eps_overall, desc="Benchmark Overall") as pbar:
-        for agent_type in agent_types:
-            best_reward = -np.inf
-            best_seed_path = ""
+    bench_start = time.time()
 
-            for seed in seeds:
-                final_reward = run_seed(agent_type, bench_cfg['env_type'], seed, config, experiment_dir,
-                                        pbar, device=device, save_results=not args.no_save)
-                if final_reward > best_reward:
-                    best_reward = final_reward
-                    best_seed_path = os.path.join(experiment_dir, "models", f"{agent_type}_seed{seed}.pth")
-            
-            if not args.no_save:
-                # Save "Best" for this specific run in models/
-                if best_seed_path and os.path.exists(best_seed_path):
-                    best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
-                    shutil.copy(best_seed_path, best_dst)
-                else:
-                    print(f"  -> No model file found for {agent_type} to mark as best.")
-
-            # Generate Quantile Plot if it's QRDQN
-            if agent_type.lower() == "qrdqn":
-                if not args.no_save:
-                    print(f"  -> Generating distributional insight plot for {agent_type}...")
-                    # We need to reload the best agent to sample a state
-                    env = LTMEnv(config=config)
-                    agent = QRDQNAgent(config['agent'], env.observation_space, env.action_space)
-
-                    # Determine path to best model
-                    best_dst = os.path.join(experiment_dir, "models", f"{agent_type}_best.pth")
-                    if os.path.exists(best_dst):
-                        agent.load(best_dst)
-
-                        state, _ = env.reset()
-                        # Sample a few steps to get a meaningful state
-                        for _ in range(50):
-                            state, _, d, _, _ = env.step(agent.select_action(state, 0))
-                            if d: break
-
-                        q_save_path = os.path.join(experiment_dir, "figures", "quantile_distribution.png")
-                        plot_quantiles(agent, state, save_path=q_save_path)
-                    
-                    env.close()
+    run_parallel = (len(seeds) > 1) and not args.no_parallel and not args.no_save
+    if run_parallel:
+        _run_parallel(
+            args.config, expdir, args.agents, seeds, args.device,
+            args.eval_workers,
+        )
+    else:
+        _run_inline(
+            config, expdir, agent_types, seeds, args.device,
+            args.eval_workers, save_results=not args.no_save,
+        )
 
     if not args.no_save:
-        # AUTO-PLOT in figures/
-        print("\nGenerating performance plots...")
-        fig_dir = os.path.join(experiment_dir, "figures")
-        csv_dir = os.path.join(experiment_dir, "train")
-        plot_learning_curves(csv_dir, save_path=os.path.join(fig_dir, "learning_curves.png"))
-        plot_efficiency(csv_dir, metric="reward", save_path=os.path.join(fig_dir, "reward_vs_time.png"))
-        plot_efficiency(csv_dir, metric="loss", save_path=os.path.join(fig_dir, "loss_vs_time.png"))
-        plot_metrics_grid(csv_dir, save_path=os.path.join(fig_dir, "metrics_grid.png"))
-
-        import json
-        metadata = {
-            "timestamp": timestamp,
-            "total_execution_time_seconds": time.time() - bench_start_time,
-            "device": device,
-            "config": config
-        }
-        
-        # We always save metadata for benchmarking, even if logs/models are disabled
-        os.makedirs(experiment_dir, exist_ok=True)
-        with open(os.path.join(experiment_dir, "metadata.json"), "w") as f:
-            json.dump(metadata, f, indent=4)
-
-        print(f"\nBenchmark completed. All artifacts saved in {experiment_dir}")
+        elapsed = time.time() - bench_start
+        aggregate(
+            expdir, config,
+            extra_metadata={
+                "timestamp": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+                "total_execution_time_seconds": elapsed,
+                "device": args.device,
+                "agents": agent_types,
+                "seeds": seeds,
+                "parallel_mode": run_parallel,
+            },
+        )
+        print(f"\nBenchmark completed in {elapsed:.0f}s. Artifacts: {expdir}")
     else:
         print("\nProfiling run completed. No artifacts saved.")
+
 
 if __name__ == "__main__":
     run_benchmark()

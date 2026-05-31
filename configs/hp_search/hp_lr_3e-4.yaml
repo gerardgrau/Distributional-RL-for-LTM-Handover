@@ -19,7 +19,6 @@ agent:
   lr: 3.0e-4
   gamma: 0.9
   tau: 0.01
-  target_update_freq: 1000
   buffer_size: 100000
   batch_size: 256
   num_quantiles: 50

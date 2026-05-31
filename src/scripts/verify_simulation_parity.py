@@ -1,9 +1,14 @@
 """High-resolution parity check: LTMBaselineAgent in LTMEnv vs paper LTM.
 
 Runs the gym env in high-res callback mode (one yield per simulation
-tick) for `--ue_number` UEs, aggregates the 8 LTM metrics, and writes
-the result to `results/final_metrics/baseline_summary.csv`. Seeds match
-`legacy_simulation.py` so the run is bit-comparable.
+tick) for `--ue_number` UEs, aggregates the 8 LTM metrics, and prints
+them next to the paper LTM reference. Seeds match `legacy_simulation.py`
+so the run is bit-comparable.
+
+By default this is a read-only check: it does NOT touch the committed
+`results/final_metrics/baseline_summary.csv`. Pass `--canonical` to
+refresh that file (do so over the full 1000-UE set so it stays
+comparable to `legacy_baseline_summary.csv`).
 """
 
 import argparse
@@ -33,8 +38,13 @@ METRIC_ORDER = [
 # CSV so its schema matches `legacy_baseline_summary.csv`.
 EXTRA_METRICS = ["total_steps", "total_minutes"]
 
+# Committed parity artifact and the UE count it is defined over (see CLAUDE.md:
+# the regression net is 1000 UEs). Only overwritten on an explicit --canonical.
+_CANONICAL_OUT_PATH = "results/final_metrics/baseline_summary.csv"
+_CANONICAL_UE_COUNT = 1000
 
-def verify_parity(ue_count: int) -> None:
+
+def verify_parity(ue_count: int, write_canonical: bool = False) -> None:
     Config.set_config_path("configs/config.yaml")
     config = Config.get()
     config["simulation"]["ue_number"] = ue_count
@@ -99,11 +109,23 @@ def verify_parity(ue_count: int) -> None:
             continue
         print(f"{k:20}: {float(np.mean(summary[k])):10.4f} (std: {float(np.std(summary[k])):.4f})")
 
-    out_path = "results/final_metrics/baseline_summary.csv"
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    pd.DataFrame(rows).to_csv(out_path, index=False)
-    print(f"\nSaved gym baseline metrics to {out_path}")
-    print(f"Execution time: {elapsed:.2f}s ({elapsed / ue_count:.3f} s/UE)")
+    print(f"\nExecution time: {elapsed:.2f}s ({elapsed / ue_count:.3f} s/UE)")
+
+    if write_canonical:
+        if ue_count < _CANONICAL_UE_COUNT:
+            print(
+                f"\nWARNING: writing the canonical baseline over only {ue_count} "
+                f"UEs; paper parity is defined over {_CANONICAL_UE_COUNT}, so this "
+                f"may not match legacy_baseline_summary.csv."
+            )
+        os.makedirs(os.path.dirname(_CANONICAL_OUT_PATH), exist_ok=True)
+        pd.DataFrame(rows).to_csv(_CANONICAL_OUT_PATH, index=False)
+        print(f"Updated canonical baseline at {_CANONICAL_OUT_PATH}")
+    else:
+        print(
+            f"\nParity check only — {_CANONICAL_OUT_PATH} left untouched.\n"
+            f"Re-run with --canonical (over {_CANONICAL_UE_COUNT} UEs) to refresh it."
+        )
 
     print("\n--- PAPER LTM REFERENCE ---")
     print("capacity_avg       : 3.75")
@@ -122,5 +144,11 @@ if __name__ == "__main__":
     # --high_res is the only supported mode and is left here for
     # backward-compat with the previous CLI; it's a no-op.
     parser.add_argument("--high_res", action="store_true")
+    parser.add_argument(
+        "--canonical",
+        action="store_true",
+        help="Overwrite the committed results/final_metrics/baseline_summary.csv. "
+        "Omit for a read-only parity check.",
+    )
     args = parser.parse_args()
-    verify_parity(args.ue_number)
+    verify_parity(args.ue_number, write_canonical=args.canonical)

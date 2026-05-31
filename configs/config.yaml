@@ -17,7 +17,6 @@ agent:
   lr: 1e-3
   gamma: 0.9
   tau: 0.01
-  target_update_freq: 1000
   buffer_size: 100000
   batch_size: 256
   train_freq: 4               # 1 gradient step per 4 env steps (Nature-DQN convention)
@@ -47,7 +46,7 @@ ho_prep:
   preparation_power_offset: -3          # dB
   preparation_time: 0.04                # 40 ms
   exec_power_offset: 3.0                  # dB (Table II)
-  max_number_prepared_bs: 4             # Table II: predicted top-4 neighbors
+  max_number_prepared_bs: 5             # matches physics.py + reference ltm_ho_codi_ainna.py (CLAUDE.md: prefer reference over paper Table II); used by the retroactive res-reservation/prep metric
 
 paths:
   channel_data_directory: "data/ChannelGains"
