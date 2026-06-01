@@ -1,0 +1,783 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+% --- Helper for visible placeholders / TODOs (remove before submission) ---
+\newcommand{\TODO}[1]{\textcolor{red}{[\textbf{TODO:} #1]}}
+\newcommand{\PLACEHOLDER}[1]{\textcolor{red}{\textit{[Placeholder --- #1]}}}
+
+\begin{document}
+
+\title{Risk-Aware Distributional Reinforcement Learning\\for 5G LTM Handover Decisions}
+
+\author{\IEEEauthorblockN{1\textsuperscript{st} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{2\textsuperscript{nd} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{3\textsuperscript{rd} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+}
+
+\maketitle
+
+% =====================================================================
+\begin{abstract}
+Handover (HO) decisions in 5G lower-layer-triggered mobility (LTM) must
+balance throughput against reliability under fast-varying radio conditions,
+where rare but costly events---handover and radio-link failures---dominate
+the user experience. We cast LTM HO as a Markov decision process and study
+distributional reinforcement learning (QR-DQN) with risk-aware action
+selection. We report two separable and statistically significant gains over
+scalar DQN: a large gain from the distributional learning target itself, and
+a second gain from a Conditional-Value-at-Risk (CVaR) policy that optimises
+the lower tail of the return distribution. A \emph{de-confounded} sweep that
+holds the number of predicted quantiles fixed while varying the risk level
+reveals an interior risk optimum at $\mathrm{CVaR}$ level $\alpha\!\approx\!0.5$,
+reversing the conclusion of a naive sweep in which capacity and risk are
+entangled. On a 1{,}000-trajectory 5G LTM benchmark the risk-aware agent
+nearly halves the handover-failure rate of DQN, surpasses a hand-tuned LTM
+baseline---evaluated in the same simulator---on capacity, reliability and
+ping-pong rate, and improves on a published contextual-bandit baseline in
+capacity and reliability. A quantile-bridge
+ablation shows both ingredients are necessary: a single risk-neutral quantile
+collapses to DQN, and a single risk-averse quantile only reaches risk-neutral
+performance---the full gain requires a multi-quantile CVaR representation.
+\end{abstract}
+
+\begin{IEEEkeywords}
+distributional reinforcement learning, quantile regression, conditional value
+at risk, risk-sensitive control, 5G NR, lower-layer triggered mobility,
+handover optimization.
+\end{IEEEkeywords}
+
+% =====================================================================
+\section{Introduction}
+
+Fifth-generation (5G) networks densify the radio access with many small,
+overlapping cells, so a moving user equipment (UE) crosses cell boundaries
+frequently and must be handed over from one cell---or sector---to another many
+times during a session. Each handover (HO) is a brief, risk-laden
+reconfiguration: chosen well it preserves throughput and reliability; chosen
+poorly it triggers a handover failure (HOF), a radio-link failure (RLF), or an
+unnecessary ``ping-pong'' (PP) back to the previous cell. \emph{Lower-layer
+triggered mobility} (LTM) is the 5G New Radio mechanism that accelerates these
+decisions by triggering them from fast L1/L2 measurements rather than slower
+higher-layer signalling; the price of the extra speed is that the choice of
+\emph{which} cell/sector to connect to at each measurement opportunity must be
+made under rapidly varying radio conditions. That selection is the decision
+problem we study.
+
+Learning-based HO optimisation typically casts cell selection as a heuristic
+rule or a contextual-bandit / scalar value-learning problem that maximises an
+\emph{expected} objective---throughput, or a weighted KPI score---sometimes
+augmented with reconfigurable intelligent surfaces (RIS) and LMMSE channel
+prediction to improve the underlying signal quality~\cite{ainna}. Expected-value
+objectives are risk-neutral: they optimise the \emph{average} outcome and are
+indifferent to its dispersion. Yet in LTM the user experience is dominated not
+by the average step but by rare, disproportionately costly tail
+events---handover and radio-link failures---which a mean-optimal policy has no
+explicit incentive to avoid. This motivates a \emph{risk-aware} formulation
+that acts on the lower tail of the outcome distribution rather than its mean.
+
+In this paper we approach LTM HO with \emph{distributional} reinforcement
+learning, which models the full return distribution $Z(x,a)$ rather than its
+mean $Q(x,a)$, and with \emph{risk-aware} action selection based on the
+Conditional Value at Risk (CVaR) of that distribution. Intuitively, learning
+the distribution yields a richer training signal, and acting on its lower tail
+makes the agent avoid worst-case outcomes (failures) instead of merely
+maximising the average. Our contributions are:
+
+\begin{itemize}
+  \item We formulate LTM HO as a Markov decision process and apply
+  Quantile-Regression DQN (QR-DQN) on a calibrated 5G LTM simulator
+  (Section~\ref{sec:model}--\ref{sec:method}).
+  \item We introduce a \emph{truncated-CVaR} head that concentrates network
+  capacity on only the lower $\alpha$-tail of the return distribution that
+  actually drives a CVaR policy (Section~\ref{sec:method}).
+  \item We \emph{de-confound} the two coupled knobs of the risk-aware
+  agent---the number of predicted quantiles $k$ (capacity) and the CVaR level
+  $\alpha$ (risk)---and show an interior risk optimum at $\alpha^\star\!\approx\!0.5$
+  that a naive, capacity-entangled sweep hides (Section~\ref{sec:results-sweep}).
+  \item We isolate where the gain originates with a \emph{quantile-bridge}
+  ablation, demonstrating that both the multi-quantile representation and the
+  CVaR policy are individually necessary (Section~\ref{sec:results-bridge}).
+  \item On the 5G LTM benchmark we demonstrate two separable, significant gains
+  over DQN, and benchmark the risk-aware policy against both a hand-tuned LTM
+  baseline (run in our own simulator) and the contextual multi-armed bandit
+  (CMAB) of~\cite{ainna}.
+\end{itemize}
+
+% =====================================================================
+\section{Background and Related Work}
+\label{sec:related}
+
+\subsection{LTM and Handover Optimization}
+In legacy mobility the network reconfigures a UE's serving cell through
+higher-layer (RRC) signalling driven by filtered L3 measurements---robust but
+slow. \emph{Lower-layer triggered mobility} (LTM) instead prepares one or more
+candidate cells in advance and lets a fast L1/L2 measurement event trigger the
+execution of a pre-configured switch, cutting the interruption time but
+tightening the decision loop. The operational cost of a mobility policy is
+captured by a small set of events: a \emph{handover} (HO) whenever the serving
+cell changes, a \emph{ping-pong} (PP) when the UE returns to a recently left
+cell within a short window, a \emph{handover failure} (HOF) when the target
+link cannot be established, and a \emph{radio-link failure} (RLF) when the
+serving link collapses after a sustained out-of-sync period. A good policy
+minimises failures and ping-pongs while sustaining spectral efficiency. Prior
+learning-based work optimises this trade-off with heuristics and contextual
+bandits over an expected-KPI objective, optionally stacking RIS and LMMSE
+channel prediction on top to improve signal quality and target
+pre-selection~\cite{ainna}; this is the closest prior art to ours. It is,
+however, risk-neutral---the gap we address.
+
+\subsection{Distributional Reinforcement Learning}
+\label{sec:rel-distrl}
+Distributional RL predicts the full distribution of the return rather than its
+expectation. Instead of the scalar action-value $Q(x,a)$, the agent models the
+return as a random variable $Z(x,a)$ that obeys the distributional Bellman
+equation
+\begin{equation}
+Z(x,a) \overset{D}{=} R(x,a) + \gamma\,Z(X',A'),
+\label{eq:dist-bellman}
+\end{equation}
+where $\overset{D}{=}$ denotes equality in distribution, $R(x,a)$ is the
+reward, $\gamma$ the discount factor, and $(X',A')$ the (random) next
+state--action pair. Even when the policy ultimately acts on the mean
+$\mathbb{E}[Z(x,a)]$, learning the distribution provides a richer per-update
+signal and consistently improves the resulting policy. Most practical
+algorithms approximate the cumulative distribution as a staircase function;
+representative methods include C51~\cite{c51}, QR-DQN~\cite{qrdqn},
+IQN~\cite{iqn} and FQF~\cite{fqf}. We build on QR-DQN, which parametrises the
+distribution by the locations of a fixed set of quantiles.
+
+\subsection{Risk-Sensitive Reinforcement Learning}
+\label{sec:rel-risk}
+In standard distributional RL the greedy action maximises
+$\mathbb{E}[Z(x,a)]$, approximated as the average of the $N$ predicted quantiles
+$\tfrac{1}{N}\sum_{i=1}^{N}\theta_i(x,a)$. One may instead aggregate the
+$\theta_i$ under a different criterion to obtain a risk-sensitive policy; note
+that no aggregation can totally order all distributions~\cite{rockafellar}.
+A common risk-averse choice replaces the expectation with the Conditional
+Value at Risk at level $\alpha$, $\mathrm{CVaR}_\alpha$, the average of the
+worst $\alpha$-fraction of outcomes. For a uniform return on $[0,1]$, for
+example, $\mathrm{CVaR}_{0.2}$ is the mean of the values in $[0,0.2]$, i.e.\
+$0.1$. In problems such as LTM HO, risk-aware decision-making is attractive
+because avoiding worst-case outcomes (handover or radio-link failures) is more
+valuable than maximising the expected return alone. CVaR and related
+risk-sensitive criteria have a long history in reinforcement learning and
+operations research~\cite{chow2014,tamar2015}; distributional RL makes them
+particularly convenient, since the return quantiles needed to evaluate
+$\mathrm{CVaR}_\alpha$ are predicted directly by the network.
+
+% =====================================================================
+\section{System Model and Problem Formulation}
+\label{sec:model}
+
+\subsection{5G LTM Deployment and Simulator}
+We evaluate on a calibrated multi-sector 5G deployment of $7$ tri-sector base
+stations ($21$ sectors), driven by a dataset of $1{,}000$ pre-computed UE
+trajectories of $300$\,s each whose per-sector channel gains are sampled every
+$10$\,ms. The simulator advances at this $10$\,ms resolution while the agent
+issues one HO decision every $100$\,ms. At each step the serving
+signal-to-interference-plus-noise ratio (SINR) is computed from the channel
+gains, transmit power and inter-cell interference, then mapped to a
+modulation-and-coding scheme (MCS) and hence a spectral efficiency through a
+$26$-entry SINR$\to$MCS table whose lowest entry (SINR $<-3$\,dB) is an outage
+(MCS$=0$); a sustained run of outage steps escalates to a radio-link failure.
+The radio and mobility constants (Table~\ref{tab:sysparams}) are calibrated to
+the reference LTM implementation of~\cite{ainna} rather than to nominal
+standards values, so that our LTM baseline reproduces that work's published
+KPIs; the same physics module is shared by the RL environment and a standalone
+reference simulator used for parity checking.
+
+\begin{table}[htbp]
+\caption{Key simulator constants (calibrated to the reference LTM implementation).}
+\label{tab:sysparams}
+\begin{center}
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Parameter} & \textbf{Value} \\
+\hline
+Base stations $\times$ sectors      & $7 \times 3 = 21$ \\
+UE trajectories                     & $1{,}000$ ($300$\,s each) \\
+Simulator / decision step           & $10$\,ms / $100$\,ms \\
+Transmit power                      & $25$\,dBm \\
+Noise floor                         & $-101$\,dBm ($-174$\,dBm/Hz $\times\,20$\,MHz) \\
+Receiver sensitivity                & $-95$\,dBm \\
+Outage (RLF) SINR threshold         & $-3$\,dB \\
+Execution power offset              & $3.0$\,dB \\
+Max.\ prepared cells                & $5$ \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsection{MDP Formulation}
+\label{sec:mdp}
+We model LTM HO as a Markov decision process.
+
+\textbf{State.} An $88$-dimensional vector: UE speed $(1)$ and serving-cell
+tenure $(1)$, the one-hot serving sector $(21)$, per-sector RSRP $(21)$,
+moving-average MCS $(21)$ and moving-average SINR $(21)$, and the UE position
+$(x,y)$ $(2)$.
+
+\textbf{Action.} At each $100$\,ms step the agent selects which of the $21$
+sectors to connect to. If the chosen sector equals the current serving sector
+no handover is performed; otherwise a handover is triggered.
+
+\textbf{Reward.} The agent optimises the multiplicative LTM HO reward
+of~\cite{ainna},
+\begin{equation}
+R_t = R^{\mathrm{thr}}_t \,\cdot\,
+      \alpha_{\mathrm{HO}}^{\,\mathbb{1}^{\mathrm{HO}}_t}\,\cdot\,
+      \alpha_{\mathrm{PP}}^{\,\mathbb{1}^{\mathrm{PP}}_t}\,\cdot\,
+      \alpha_{\mathrm{HOF}}^{\,\mathbb{1}^{\mathrm{HOF}}_t}\,\cdot\,
+      \rho_t,
+\label{eq:reward}
+\end{equation}
+where $R^{\mathrm{thr}}_t$ is the throughput term (the serving spectral
+efficiency in bps/Hz); the indicators
+$\mathbb{1}^{\mathrm{HO}}_t,\mathbb{1}^{\mathrm{PP}}_t,\mathbb{1}^{\mathrm{HOF}}_t\in\{0,1\}$
+flag a handover, ping-pong and handover failure at step $t$; and
+$\alpha_{\mathrm{HO}},\alpha_{\mathrm{PP}},\alpha_{\mathrm{HOF}}\in(0,1]$ are
+the corresponding multiplicative penalties (defaults $\alpha_{\mathrm{HOF}}{=}0.1$,
+$\alpha_{\mathrm{HO}}{=}0.8$, $\alpha_{\mathrm{PP}}{=}0.9$, so a failure is
+penalised far more harshly than a routine handover). The reliability factor
+$\rho_t\in(0,1]$ is a soft reverse-sigmoid of the out-of-sync counter that
+decays the reward as the serving link approaches radio-link failure. Since
+every factor lies in $(0,1]$, the reward is the fraction of attainable
+throughput that the policy retains after instability, which the distributional
+agent models as a random return.
+
+% =====================================================================
+\section{Method}
+\label{sec:method}
+
+\subsection{QR-DQN and the Quantile Loss}
+QR-DQN parametrises $Z(x,a)$ by its inverse CDF at $N$ quantile fractions
+$\tau_1,\dots,\tau_N\in[0,1]$, learning
+$\theta_i(x,a)\approx F^{-1}_{Z(x,a)}(\tau_i)$. The aggregated value used for
+action selection,
+\begin{equation}
+\mathbb{E}[Z(x,a)] = \int_0^1 F^{-1}_{Z(x,a)}(\tau)\,d\tau,
+\label{eq:expectation}
+\end{equation}
+is replaced by a finite-sample quadrature $\sum_{i=1}^{N} w_i\,\theta_i(x,a)$
+with weights $w_i\ge 0$, $\sum_i w_i = 1$. The choice of $(\tau_i,w_i)$ defines
+the quantile-positioning scheme. The quantiles are trained with the quantile
+(pinball) Huber loss. Writing the Huber function with threshold $\kappa$ as
+\begin{equation}
+\mathcal{H}_\kappa(u) =
+\begin{cases}
+\tfrac12 u^2, & |u|\le\kappa,\\[2pt]
+\kappa\big(|u|-\tfrac12\kappa\big), & |u|>\kappa,
+\end{cases}
+\end{equation}
+the quantile-Huber penalty at fraction $\tau$ is
+$\rho^\kappa_\tau(u) = \big|\tau - \mathbb{1}\{u<0\}\big|\,
+\mathcal{H}_\kappa(u)/\kappa$, and the per-transition loss sums the pairwise
+temporal-difference errors between the $N$ predicted quantiles and the $N$
+Bellman-target atoms $y_j = r + \gamma\,\theta_j\!\big(x',a^\star\big)$,
+\begin{equation}
+\mathcal{L}(x,a) = \sum_{i=1}^{N}\sum_{j=1}^{N}
+   \tilde w_j\,\rho^{\kappa}_{\tau_i}\!\big(y_j - \theta_i(x,a)\big),
+\label{eq:qr-loss}
+\end{equation}
+with $a^\star$ the greedy action under the aggregated value and $\tilde w_j$
+the target-axis quadrature weights ($\tilde w_j{=}1/N$ for the midpoint rule).
+At $N{=}1,\,\tau{=}0.5$ the asymmetric weight $|\tau-\mathbb{1}\{u<0\}|$ becomes
+the constant $\tfrac12$ and \eqref{eq:qr-loss} reduces to a symmetric Huber
+regression onto the median---i.e.\ (Huberised) scalar value learning---a fact
+we exploit in Section~\ref{sec:results-bridge}. We use $\kappa{=}0.25$
+throughout.
+
+\subsection{Quantile-Positioning Schemes}
+QR-DQN papers default to the midpoint rule; we additionally consider two
+classical quadrature alternatives and ask whether either the integration
+accuracy of the aggregator or the placement of the learnable quantiles affects
+policy quality on LTM HO.
+
+\textbf{Midpoint rule.} Vanilla QR-DQN places $\tau_i=(i-\tfrac12)/N$ with
+uniform weights $w_i=1/N$---the midpoint Riemann sum for
+$\int_0^1 F^{-1}(\tau)\,d\tau$, with $O(1/N^2)$ error for smooth integrands.
+All final models use this scheme; Section~\ref{sec:results-qmode} confirms the
+two alternatives below give no significant gain on LTM.
+
+\textbf{Gauss--Legendre quadrature.} Nodes are placed at the roots of the
+$N$-th Legendre polynomial shifted to $[0,1]$, integrating polynomials up to
+degree $2N-1$ exactly. The network still outputs $N$ quantiles, but the
+$\tau$ used in the loss and the aggregation weights follow the Gauss--Legendre
+rule, so the parameter count is unchanged.
+
+\textbf{Trapezoidal rule with fixed endpoints.} Uniform spacing including the
+endpoints $\tau_0=0,\tau_{N-1}=1$, with $w_0=w_{N-1}=1/(2(N-1))$ and
+$w_i=1/(N-1)$ otherwise. Because $F^{-1}$ is unbounded at the endpoints for
+infinite-support distributions, we fix them a priori from physical
+considerations ($F^{-1}(0)=0$ since returns are non-negative under the
+multiplicative reward, and $F^{-1}(1)=q_{\max}$ a conservative upper bound),
+predicting only the $N-2$ interior quantiles.
+
+\subsection{Risk-Aware Selection and Truncated CVaR}
+\label{sec:trunc-cvar}
+A $\mathrm{CVaR}_\alpha$ policy integrates only over $\tau\le\alpha$: the upper
+$1-\alpha$ of a predicted quantile vector is generated and then discarded---wasted
+capacity. We instead train the network on only $k=\lceil\alpha N\rceil$
+quantiles placed uniformly in $[0,\alpha]$, removing the upper lobe from both
+the prediction and the loss. Action selection is then the mean of the $k$
+predictions, which under the midpoint rule is exactly $\mathrm{CVaR}_\alpha$.
+Concentrating capacity on the part of the distribution that drives the policy
+should yield a better CVaR estimate at lower cost; Section~\ref{sec:results-trunc}
+confirms this directly---the full-grid alternative, given the identical policy,
+is both significantly worse and slower to train.
+
+% =====================================================================
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Evaluation Protocol and Metrics}
+All agents are trained and evaluated on the same $1{,}000$ pre-computed UE
+trajectories ($300$\,s each, $10$\,ms simulation resolution, one HO decision
+every $100$\,ms). We deliberately use the full trajectory set for both
+training and final evaluation rather than a held-out split: the channel-gain
+dataset is fixed and the policy never observes future returns, so the relevant
+question is how well each agent exploits the available propagation environment,
+not generalisation to unseen geometry. Final numbers freeze the learned
+weights, set $\epsilon=0$ (greedy), and replay all $1{,}000$ UEs. Every
+configuration is run for $5$ random seeds $\times$ $2{,}000$ episodes; we
+report the cross-seed mean $\pm$ standard deviation. Alongside the reward we
+track the eight physical KPIs of~\cite{ainna}: handover rate (HO/min),
+handover-failure rate (HOF/min), ping-pong rate (PP/min), radio-link-failure
+rate (RLF/min), spectral efficiency / capacity (bps/Hz), link reliability
+(\%), cell preparations (/min) and resource reservation (\%).
+
+\subsection{Models and Hyperparameters}
+We compare three learned agents that share an identical two-layer MLP trunk
+($256\times256$) and the same observation, action and reward definitions, so
+that any difference is attributable to the \emph{learning target} rather than
+capacity or input:
+\begin{enumerate}
+  \item \textbf{DQN}---scalar value learning; greedy $\arg\max_a Q(x,a)$.
+  \item \textbf{QR-DQN (risk-neutral, RN)}---distributional with a mean policy
+  $\mathbb{E}[Z(x,a)]$; predicts $10$ quantiles over $[0,1]$.
+  \item \textbf{QR-DQN (risk-aware, RA)}---distributional with a
+  $\mathrm{CVaR}_{0.5}$ policy via the truncated scheme of
+  Section~\ref{sec:trunc-cvar}: it predicts only the $k=\lceil\alpha N\rceil=10$
+  lower quantiles ($\alpha=0.5$, $N=20$).
+\end{enumerate}
+The two QR-DQN variants are matched to the \emph{same} effective number of
+predicted quantiles ($k=10$), hence the same head size and parameter count;
+they differ only in \emph{where} the quantiles sit (full $[0,1]$ vs.\ lower
+half $[0,0.5]$) and the selection rule (mean vs.\ CVaR). All three share a
+single soft-target-update backbone ($\tau=0.01$); the hard-vs-soft choice is
+within cross-seed noise for both agents, so a single shared scheme keeps the
+comparison strictly apples-to-apples. Hyperparameters are in
+Table~\ref{tab:hparams}; the learning rate, batch size, discount and
+target-update rate were fixed by coarse grid searches and partly inherited from
+the prior work (halving the learning rate to $5{\times}10^{-5}$ is $2.3\sigma$
+worse at the $2000$ ep $\times$ $5$ seed budget), and preliminary experiments
+with $n$-step returns, gradient
+clipping and optimiser-$\epsilon$ variants were not adopted as they did not
+improve the LTM agents (on the final risk-aware agent, $3$-step returns are
+$3.4\sigma$ worse and markedly less stable). Two choices the prior work leaves
+implicit we verified directly on the final backbone ($1000$ ep $\times$ $3$
+seeds). First, the Huber threshold is immaterial: across
+$\kappa\in\{0.1,0.25,0.5,1.0\}$ reward spans only $1.5$ points
+($1081.1$--$1082.6$), within cross-seed noise (Table~\ref{tab:kappa}), so we
+keep the standard $\kappa{=}0.25$. Second,
+network capacity saturates at $256{\times}256$: halving the width to
+$128{\times}128$ costs $5.4\sigma$ of reward ($1076.6$ vs.\ $1082.1$), while
+doubling it to $512{\times}512$ adds nothing ($1082.3$; $+0.3\sigma$).
+
+\begin{table}[htbp]
+\caption{Agent hyperparameters (shared backbone).}
+\label{tab:hparams}
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Hyperparameter} & \textbf{DQN} & \textbf{QR-DQN (RN)} & \textbf{QR-DQN (RA)} \\
+\hline
+Hidden layers      & $256\times256$ & $256\times256$ & $256\times256$ \\
+Learning rate      & $10^{-4}$ & $10^{-4}$ & $10^{-4}$ \\
+Discount $\gamma$  & 0.9 & 0.9 & 0.9 \\
+Replay buffer      & $10^5$ & $10^5$ & $10^5$ \\
+Batch size         & 256 & 256 & 256 \\
+Train frequency    & 1 & 1 & 1 \\
+Target update      & soft $\tau{=}0.01$ & soft $\tau{=}0.01$ & soft $\tau{=}0.01$ \\
+$\epsilon$ sched.  & $1.0\!\to\!0.05$ & idem & idem \\
+Huber $\kappa$     & --- & 0.25 & 0.25 \\
+Nominal $N$        & --- & 10 & 20 \\
+Predicted $k$      & --- & 10 & 10 \\
+Risk policy        & --- & mean & $\mathrm{CVaR}_{0.5}$ \\
+Quantile support   & --- & $[0,1]$ & $[0,0.5]$ \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\begin{table}[htbp]
+\caption{Huber threshold $\kappa$ on the final backbone (truncated
+$\mathrm{CVaR}_{0.5}$, $k{=}10$; $1000$ ep $\times$ $3$ seeds; mean $\pm$ std on
+reward). Reward spans only $1.5$ points across an order of magnitude in
+$\kappa$ (within cross-seed noise); we keep the standard $\kappa{=}0.25$ (bold).}
+\label{tab:kappa}
+\begin{center}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+$\kappa$ & $0.10$ & $\mathbf{0.25}$ & $0.50$ & $1.00$ \\
+\hline
+Reward $\uparrow$    & $1081.3{\pm}0.6$ & $\mathbf{1082.1{\pm}1.0}$ & $1082.6{\pm}1.9$ & $1081.1{\pm}1.7$ \\
+HOF/min $\downarrow$ & $1.36$ & $\mathbf{1.28}$ & $1.31$ & $1.35$ \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+% =====================================================================
+\section{Results on the LTM Handover Task}
+\label{sec:results}
+
+\subsection{Choosing the Risk Geometry: a De-confounded Sweep}
+\label{sec:results-sweep}
+The risk-aware agent couples two knobs: the number of in-use quantiles $k$ and
+the CVaR level $\alpha$. Because $k=\lceil\alpha N\rceil$, a naive sweep that
+fixes the \emph{nominal} $N$ and varies $\alpha$ silently changes $k$ too,
+conflating ``how risk-averse'' with ``how many quantiles.'' We therefore sweep
+the two axes separately ($1{,}000$ episodes $\times$ $3$ seeds per point).
+
+\textbf{Quantile count.} Fixing $\alpha=0.5$ and varying the head so
+$k\in\{10,13,15,25,50\}$ leaves reward essentially flat---$1083.8$, $1084.6$,
+$1083.4$, $1082.4$, $1083.1$ (all within cross-seed noise)---so we adopt the
+small, cheap $k=10$ head.
+
+\textbf{Risk level.} Holding $k=10$ and varying $\alpha$ (adjusting $N$ so
+$\lceil\alpha N\rceil=10$ at every point) traces a concave curve with an
+interior optimum (Table~\ref{tab:alpha}). Reward peaks at $\alpha\approx0.5$
+atop a broad plateau ($\alpha\in[0.3,0.7]$ all within $\sim\!1081$--$1084$) and
+falls sharply toward the risk-neutral extreme: $\alpha=1.0$ (which, since
+$\mathrm{CVaR}_{1.0}=\mathbb{E}[Z]$, \emph{is} the risk-neutral policy) is
+$9.2$ reward points---about $7\sigma$---below $\alpha=0.5$, and simultaneously
+worst on every safety KPI (HOF $1.83$ vs.\ $1.28$, RLF $0.148$ vs.\ $0.103$).
+This reverses what a confounded $N$-fixed sweep suggests: once the quantile
+count is held fixed, a genuine risk-aware optimum near $\alpha\approx0.5$
+emerges. We adopt $\alpha^\star=0.5$---CVaR of the worse half.
+
+\begin{table}[htbp]
+\caption{Reward vs.\ CVaR level $\alpha$ at fixed $k=10$ ($1000$ ep $\times$ $3$ seeds).}
+\label{tab:alpha}
+\begin{center}
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+$\alpha$ & 0.30 & 0.40 & 0.50 & 0.70 & 1.00 \\
+\hline
+Reward & $1081.2$ & $1081.5$ & $\mathbf{1083.8}$ & $1081.2$ & $1074.6$ \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsection{Quantile Positioning Does Not Matter on LTM}
+\label{sec:results-qmode}
+Section~\ref{sec:method} asked whether the placement of the learnable quantiles
+or the accuracy of the aggregating quadrature affects policy quality. We test
+this directly, training the risk-neutral agent ($N{=}10$, mean policy) under the
+midpoint, Gauss--Legendre and trapezoidal schemes with everything else held
+fixed ($1000$ ep $\times$ $3$ seeds, final backbone). The three are
+\emph{statistically indistinguishable} (Table~\ref{tab:qmode}): relative to
+midpoint, Gauss--Legendre shifts reward by $+0.8$ ($0.5\sigma$) and trapezoidal
+by $+2.8$ ($1.3\sigma$), both within cross-seed noise, and the safety KPIs
+differ by at most ${\approx}2\sigma$. Neither the higher-order accuracy of
+Gauss--Legendre nor the variance reduction of the fixed trapezoidal
+endpoints\footnote{The trapezoidal upper endpoint $q_{\max}$ must bound the
+return: the learned returns span ${\approx}[19,48]$, so we set $q_{\max}{=}60$;
+a naively small $q_{\max}$ sits below the distribution and silently handicaps
+only the trapezoidal scheme.} surfaces here---on this task the return
+distribution is smooth and well-scaled enough that the simple midpoint rule
+already represents it adequately. We therefore adopt the midpoint rule (the
+QR-DQN default) for all final models, as no alternative offers a significant
+gain. Pilot runs with Simpson's rule and Beta-distorted grids reached the same
+conclusion.
+
+\begin{table}[htbp]
+\caption{Quantile-positioning schemes, risk-neutral agent ($N{=}10$, $1000$ ep
+$\times$ $3$ seeds; mean $\pm$ std on reward). The schemes are within cross-seed
+noise on reward; midpoint is adopted as the simplest.}
+\label{tab:qmode}
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{KPI} & \textbf{Midpoint} & \textbf{Gauss--Leg.} & \textbf{Trapez.} \\
+\hline
+Reward $\uparrow$                   & $1075.3\pm2.5$ & $1076.0\pm1.5$ & $1078.0\pm2.8$ \\
+HOF/min $\downarrow$                & $1.89$  & $1.75$  & $1.60$  \\
+RLF/min $\downarrow$                & $0.132$ & $0.130$ & $0.124$ \\
+Capacity (bps/Hz) $\uparrow$        & $3.953$ & $3.955$ & $3.955$ \\
+Reliability (\%) $\uparrow$         & $95.99$ & $95.94$ & $96.06$ \\
+HO/min $\downarrow$                 & $15.31$ & $15.67$ & $15.40$ \\
+PP/min $\downarrow$                 & $2.09$  & $2.09$  & $2.09$  \\
+Prep/min $\downarrow$               & $1046$  & $1057$  & $1056$  \\
+Res.\ reservation (\%) $\downarrow$ & $8.30$  & $8.39$  & $8.38$  \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsection{Truncating the CVaR Head Is a Better Estimator}
+\label{sec:results-trunc}
+Where quantile positioning was inert, the truncated-CVaR head of
+Section~\ref{sec:trunc-cvar} is decisive. We isolate it with two agents that
+share the identical $\mathrm{CVaR}_{0.5}$ policy and differ \emph{only} in the
+head: the \emph{truncated} head predicts $k=10$ quantiles over $[0,0.5]$, while
+the \emph{full} head predicts all $N=20$ over $[0,1]$ and averages its lower ten
+for selection ($1000$ ep $\times$ $3$ seeds, final backbone). Truncation
+improves reward by $+8.3$ ($+8.8\sigma$, $p\approx0.001$; the per-seed ranges do
+not overlap) and simultaneously lowers both failure rates (HOF $1.28$ vs.\
+$1.84$, RLF $0.096$ vs.\ $0.138$) while raising capacity and reliability
+(Table~\ref{tab:trunc}). The full head spends half its outputs on the
+discarded upper lobe $[0.5,1]$; freeing that capacity for the lower tail that
+actually drives the policy yields a \emph{better} CVaR estimate, not merely a
+cheaper one. The truncated policy is in turn modestly more active---more handovers,
+ping-pongs and preparations (HO $16.3$ vs.\ $15.6$, prep $1074$ vs.\ $1054$)---the
+expected footprint of a more decisive risk-averse policy that pre-empts tail
+failures, in the same direction as the RA-vs-RN contrast of
+Section~\ref{sec:results-3way}. Finally, the smaller head trains ${\approx}20\%$
+faster ($48$ vs.\ $61$\,min). Truncation is therefore both cheaper and a better
+estimator, and we adopt it for the risk-aware agent.
+
+\begin{table}[htbp]
+\caption{Truncated vs.\ full CVaR head under the \emph{same} $\mathrm{CVaR}_{0.5}$
+policy ($N{=}20$, $1000$ ep $\times$ $3$ seeds; mean $\pm$ std on reward, bold =
+better). Truncating to the acted-upon lower tail is significantly better
+\emph{and} cheaper; it trades modestly more mobility signalling for fewer
+failures.}
+\label{tab:trunc}
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{KPI} & \textbf{Truncated ($k{=}10$)} & \textbf{Full ($N{=}20$)} \\
+\hline
+Reward $\uparrow$                   & $\mathbf{1082.1\pm1.0}$ & $1073.7\pm1.3$ \\
+HOF/min $\downarrow$                & $\mathbf{1.28}$  & $1.84$  \\
+RLF/min $\downarrow$                & $\mathbf{0.096}$ & $0.138$ \\
+Capacity (bps/Hz) $\uparrow$        & $\mathbf{3.976}$ & $3.949$ \\
+Reliability (\%) $\uparrow$         & $\mathbf{96.24}$ & $95.98$ \\
+HO/min $\downarrow$                 & $16.27$ & $\mathbf{15.61}$ \\
+PP/min $\downarrow$                 & $2.09$  & $\mathbf{2.02}$  \\
+Prep/min $\downarrow$               & $1074$  & $\mathbf{1054}$  \\
+Res.\ reservation (\%) $\downarrow$ & $8.52$  & $\mathbf{8.37}$  \\
+Train time (min) $\downarrow$       & $\mathbf{48}$ & $61$ \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsection{Three-Way Comparison}
+\label{sec:results-3way}
+Table~\ref{tab:final} reports the learned agents at the canonical
+$2000\times5$ budget against two references: our own hand-tuned LTM baseline,
+run in the \emph{same} simulator and therefore directly comparable, and the
+LTM contextual multi-armed bandit (CMAB) of~\cite{ainna}. The three headline
+agents (DQN, RN, RA) form the matched-capacity comparison; the fourth QR-DQN
+column is the single-quantile ($k{=}1$) risk-averse ablation of
+Section~\ref{sec:results-bridge}. Two observations structure the result.
+
+\textbf{Distributional learning helps, even with a risk-neutral policy.}
+Moving from DQN to risk-neutral QR-DQN---same mean-based rule, same
+architecture, only a distributional target---raises reward by $+14.1$
+($11.7\sigma$) and cuts HOF by $36\%$ and RLF by $25\%$. This gain genuinely
+needs \emph{multiple} quantiles: a risk-neutral QR-DQN restricted to a single
+quantile is statistically indistinguishable from DQN, so the improvement is a
+property of the distributional representation rather than the architecture
+(Section~\ref{sec:results-bridge}).
+
+\textbf{Risk-awareness adds a second, separable gain.} Switching the policy
+from the mean to $\mathrm{CVaR}_{0.5}$ at identical capacity ($k=10$) adds a
+further $+4.8$ reward ($5.1\sigma$) and cuts HOF by another $18\%$ and RLF by
+another $13\%$. The two effects stack: the risk-aware agent improves reward,
+HOF, RLF, capacity and reliability monotonically over both baselines.
+
+\textbf{The trade-off is interpretable.} The same ordering that improves the
+objective and safety KPIs \emph{increases} the activity/overhead KPIs: the
+risk-aware agent performs more handovers ($15.5$ vs.\ DQN's $13.9$/min), more
+cell preparations and more resource reservation. It is \emph{more willing to
+act}, but its actions are far more reliable---HOF nearly halved relative to DQN
+($-47\%$), RLF cut by $35\%$---and yield higher throughput. The agent buys
+reliability and capacity with signalling activity (Fig.~\ref{fig:bars}).
+
+\begin{table*}[t]
+\caption{Final performance on the LTM HO task ($5$ seeds $\times$ $2000$ ep; mean $\pm$ std for the learned agents). \textbf{DQN}: scalar baseline. \textbf{RN}/\textbf{RA}: risk-neutral / risk-aware ($\mathrm{CVaR}_{0.5}$) QR-DQN at $k{=}10$. \textbf{RA-1q}: single-quantile risk-aware ablation. \textbf{LTM}: our hand-tuned LTM baseline, run in the \emph{same} simulator. \textbf{CMAB}: the LTM contextual multi-armed bandit of~\cite{ainna}. Arrows mark the desirable direction; bold marks the best \emph{learned} agent per row (baselines are shown for reference).}
+\label{tab:final}
+\begin{center}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
+\textbf{KPI} & \textbf{DQN} & \textbf{RN} & \textbf{RA} & \textbf{RA-1q} & \textbf{LTM} & \textbf{CMAB}$^{*}$ \\
+\hline
+Reward $\uparrow$            & $1067.4\pm2.1$ & $1081.5\pm1.7$ & $\mathbf{1086.3\pm1.2}$ & $1080.6\pm1.2$ & $1055.5$ & --- \\
+HOF/min $\downarrow$         & $2.233$ & $1.432$ & $\mathbf{1.176}$ & $1.469$ & $1.151$ & $0.97$ \\
+RLF/min $\downarrow$         & $0.143$ & $0.107$ & $\mathbf{0.093}$ & $0.104$ & $0.065$ & $0.101$ \\
+Capacity (bps/Hz) $\uparrow$ & $3.909$ & $3.951$ & $\mathbf{3.974}$ & $3.974$ & $3.753$ & $3.68$ \\
+Reliability (\%) $\uparrow$  & $95.82$ & $96.10$ & $\mathbf{96.25}$ & $96.19$ & $95.25$ & $94.0$ \\
+HO/min $\downarrow$          & $\mathbf{13.86}$ & $14.74$ & $15.47$ & $16.12$ & $11.34$ & $8.00$ \\
+PP/min $\downarrow$          & $\mathbf{1.827}$ & $2.005$ & $1.946$ & $2.041$ & $3.625$ & $1.30$ \\
+Prep/min $\downarrow$        & $\mathbf{1010.8}$ & $1038.8$ & $1057.6$ & $1072.9$ & $811.2$ & $20.0$ \\
+Res.\ reservation (\%) $\downarrow$ & $\mathbf{8.022}$ & $8.244$ & $8.394$ & $8.515$ & $6.438$ & $6.5$ \\
+\hline
+\end{tabular}
+\end{center}
+{\footnotesize $^{*}$CMAB figures are reproduced from~\cite{ainna} and were obtained in that work's simulator. Our LTM baseline reproduces that work's published LTM KPIs to within $\approx 5\%$ on the radio and mobility metrics (resource reservation is the largest outlier, $\approx 13\%$), so the CMAB column is indicative rather than strictly comparable to our agents.}
+\end{table*}
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\columnwidth]{master_bar_plots.png}}
+\caption{The eight physical KPIs and the reward across the learned agents and
+the LTM / LTM-CMAB baselines. Colour encodes the algorithm family (blue: the
+LTM heuristic, shown for the paper's published numbers and our two simulators;
+grey: LTM-CMAB; red: our learned agents), and a striped hatch marks values
+reproduced from the paper.}
+\label{fig:bars}
+\end{figure}
+
+\subsection{Where the Gain Comes From: a Quantile-Bridge Ablation}
+\label{sec:results-bridge}
+To localise the two gains we sweep the head from a single quantile up to the
+full $k=10$ ($1000$ ep $\times$ $3$ seeds for the ablation; the single
+risk-averse point is also re-run at the canonical $2000\times5$ budget).
+
+\textbf{The distributional gain is a multi-quantile effect.} A risk-neutral
+QR-DQN with a single quantile at $\tau=0.5$ reduces, by construction, to DQN:
+the pinball loss at $\tau=0.5$ is a symmetric $\tfrac12$-Huber loss on the
+median, collapsing the agent to scalar value learning. Empirically the two are
+indistinguishable ($1063.8$ vs.\ $1060.9$, $0.8\sigma$). Reward then climbs
+smoothly with the quantile count ($N{:}1\!\to\!10$ gives
+$1063.8\!\to\!1075.4$), saturating by $N\approx5$.
+
+\textbf{A single risk-averse quantile is not enough.} At the canonical budget a
+single lower-tail quantile ($k=1$, $\tau=0.25$, $\alpha=0.5$) converges to
+\emph{risk-neutral} performance (reward $1080.6$, HOF $1.469$)---tied with the
+$k=10$ risk-neutral agent and $5.7$ reward ($7.8\sigma$) / $0.29$ HOF
+($6.2\sigma$) below the full $k=10$ CVaR agent. Tellingly, it incurs the
+\emph{highest} handover, preparation and reservation overhead of all agents
+while delivering only risk-neutral outcomes: a single tail quantile is a
+high-variance risk estimate that over-reacts without the payoff, whereas CVaR's
+averaging over the lower $k=10$ quantiles is a stable estimate.
+
+\textbf{Both axes are required.} Risk-aversion is necessary but not sufficient
+on its own---it needs a stable, multi-quantile (CVaR) estimate. Neither a
+single risk-averse quantile nor a risk-neutral $10$-quantile model reaches the
+champion; only their combination does.
+
+\subsection{Comparison with the LTM Baseline and Contextual Bandits}
+\label{sec:results-baselines}
+\textbf{Versus our LTM baseline (same simulator).} Against the hand-tuned LTM
+heuristic run in our own simulator---an apples-to-apples reference free of the
+cross-simulator caveat below---the risk-aware agent improves every user-facing
+KPI: $+5.9\%$ capacity ($3.974$ vs.\ $3.753$\,bps/Hz), $+1.0$ point of
+reliability ($96.25\%$ vs.\ $95.25\%$) and a $46\%$ lower ping-pong rate
+($1.95$ vs.\ $3.63$/min), while matching the heuristic's handover-failure rate
+($1.176$ vs.\ $1.151$); its reward is $+30.9$ points higher ($1086.3$ vs.\
+$1055.5$). As in the three-way comparison it pays for this with more
+control-plane activity---more handovers ($15.5$ vs.\ $11.3$/min), preparations
+and reservations---and a higher RLF ($0.093$ vs.\ $0.065$): the policy is more
+willing to act, but its actions are more reliable and higher-throughput.
+
+\textbf{Versus the contextual bandit (CMAB).} The CMAB of~\cite{ainna} adds a
+target pre-selection layer on top of LTM; we reproduce its numbers from that
+work. Because they were measured in a different simulator
+(Table~\ref{tab:final}, footnote), we read them as indicative. The risk-aware
+agent is clearly ahead on the user-facing quality KPIs---$+8.0\%$ capacity
+($3.974$ vs.\ $3.68$), $+2.25$ points of reliability ($96.25\%$ vs.\ $94.0\%$)
+and a lower RLF ($0.093$ vs.\ $0.101$). CMAB, in turn, is far more frugal with
+signalling: by pre-selecting targets it issues dramatically fewer preparations
+($20$ vs.\ $1058$/min) and fewer handovers ($8.0$ vs.\ $15.5$/min) and
+ping-pongs. The two mechanisms are therefore complementary: CMAB, like the
+orthogonal RIS and LMMSE-prediction enhancements of~\cite{ainna}, acts on
+target pre-selection and signal quality rather than on the value estimate, so
+it could be stacked on top of the distributional-RL policy; we leave that
+combination to future work.
+
+% =====================================================================
+\section{Discussion, Limitations, and Future Work}
+\label{sec:discussion}
+\textbf{Limitations.} Several caveats bound our claims. (i)~Training and
+evaluation use the \emph{same} fixed $1{,}000$-trajectory set with no held-out
+split; this is the appropriate protocol for the question we ask---how well a
+policy exploits a fixed propagation environment, matching the evaluation
+of~\cite{ainna}---but it does not measure generalisation to unseen geometry.
+(ii)~We study a single deployment and channel-gain dataset. (iii)~The
+reward-shaping coefficients are inherited from~\cite{ainna} and not re-optimised
+here; $\kappa$, the network width and the quantile placement, by contrast, are
+all swept on the final backbone (Sections~\ref{sec:setup},~\ref{sec:results-qmode})
+and leave the operating point within noise. (iv)~CVaR is the only risk measure we
+consider; other coherent or distortion risk measures may trade the KPIs off
+differently.
+
+\textbf{Future work.} Natural extensions include implicit and
+fully-parameterised quantile networks (IQN~\cite{iqn}, FQF~\cite{fqf}), which
+learn the quantile fractions themselves and would subsume the
+quantile-positioning study; constrained or multi-objective formulations that
+bound HOF or RLF directly rather than through a scalar reward; and validation
+on higher-fidelity or over-the-air deployments. Because the RIS,
+LMMSE-prediction and contextual-bandit enhancements of~\cite{ainna} act on
+signal quality and target pre-selection rather than on the value estimate, they
+are complementary to our risk-aware policy and could be stacked on top of it.
+Finally, it remains to confirm that the distributional and quantile-positioning
+findings transfer to standard finite-action RL benchmarks such as the
+Atari~2600 suite.
+
+% =====================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+On the LTM HO task, distributional RL delivers two cleanly separable
+improvements over scalar DQN: a large gain from the distributional learning
+target itself (DQN $\to$ RN), and a second, smaller-but-significant gain from a
+CVaR-based risk-aware policy (RN $\to$ RA) whose optimal level
+($\alpha\approx0.5$) we establish with a de-confounded sweep. The resulting
+risk-aware QR-DQN attains the best reward and the best safety and throughput
+profile of any learned agent, halving the handover-failure rate of DQN and
+exceeding our LTM baseline on capacity, reliability and ping-pong rate.
+A quantile-bridge ablation confirms both ingredients are necessary: a single
+risk-neutral quantile collapses to DQN, and even a single risk-averse quantile
+only reaches the risk-neutral $10$-quantile level---the combined gain requires
+the full $\sim\!10$-quantile CVaR representation.
+
+% =====================================================================
+\section*{Acknowledgment}
+\PLACEHOLDER{Funding and acknowledgements.}
+
+% =====================================================================
+\begin{thebibliography}{00}
+\bibitem{ainna} A. Y. Moreno-Locubiche \emph{et al.}, ``Contextual bandits and reconfigurable intelligent surfaces for predictive LTM handover decisions,'' \PLACEHOLDER{venue, year, pages}.
+\bibitem{c51} M. G. Bellemare, W. Dabney, and R. Munos, ``A distributional perspective on reinforcement learning,'' in \emph{Proc. ICML}, 2017.
+\bibitem{qrdqn} W. Dabney, M. Rowland, M. G. Bellemare, and R. Munos, ``Distributional reinforcement learning with quantile regression,'' in \emph{Proc. AAAI}, 2018.
+\bibitem{iqn} W. Dabney, G. Ostrovski, D. Silver, and R. Munos, ``Implicit quantile networks for distributional reinforcement learning,'' in \emph{Proc. ICML}, 2018.
+\bibitem{fqf} D. Yang, L. Zhao, Z. Lin, T. Qin, J. Bian, and T.-Y. Liu, ``Fully parameterized quantile function for distributional reinforcement learning,'' in \emph{Proc. NeurIPS}, 2019.
+\bibitem{rockafellar} R. T. Rockafellar and S. Uryasev, ``Optimization of conditional value-at-risk,'' \emph{J. Risk}, vol.~2, pp.~21--41, 2000.
+\bibitem{chow2014} Y. Chow and M. Ghavamzadeh, ``Algorithms for CVaR optimization in MDPs,'' in \emph{Proc. NeurIPS}, 2014.
+\bibitem{tamar2015} A. Tamar, Y. Glassner, and S. Mannor, ``Optimizing the CVaR via sampling,'' in \emph{Proc. AAAI}, 2015.
+\bibitem{dqn} V. Mnih \emph{et al.}, ``Human-level control through deep reinforcement learning,'' \emph{Nature}, vol.~518, pp.~529--533, 2015.
+\end{thebibliography}
+
+\vspace{6pt}
+\textcolor{red}{\textbf{Note:} red \texttt{[Placeholder]}/\texttt{[TODO]} markers and this note must be removed before submission. Figures referenced by \texttt{\textbackslash includegraphics} must be uploaded alongside this file.}
+
+\end{document}
