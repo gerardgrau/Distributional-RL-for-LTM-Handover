@@ -84,6 +84,21 @@ class LTMEnv(gym.Env):
         self._alpha_pp = float(ho_reward_cfg.get('alpha_pp', 0.9))
         self._alpha_hof = float(ho_reward_cfg.get('alpha_hof', 0.1))
 
+        # Tier-0 "decline" probe. When True, an L1-triggered HO_DECISION is
+        # only registered as a handover (HO event + execution + alpha_HO
+        # penalty) if the agent picks a cell DIFFERENT from the current
+        # serving one; picking the serving cell is an explicit stay, handled
+        # exactly like a NORMAL_STEP. When False (default) the legacy
+        # behaviour is preserved: any action at the trigger registers a HO,
+        # so picking the serving cell is a counted self-handover. The LTM
+        # baseline never selects its own serving cell, so this flag does not
+        # affect baseline parity.
+        self._ho_requires_change = bool(
+            self.config.get('simulation', {}).get(
+                'handover_requires_serving_change', False,
+            )
+        )
+
         # Reusable buffer for _get_rl_obs (returned as .copy() each call).
         self._obs_buf = np.empty(88, dtype=np.float32)
 
@@ -428,7 +443,12 @@ class LTMEnv(gym.Env):
 
             if np.sum(HO_condition) > 0:
                 action = yield self._get_obs_dict(t, 'HO_DECISION', HO_condition, PL1_report)
-                if action != -1:
+                # In the Tier-0 decline regime, selecting the current serving
+                # cell is a stay: skip the HO entirely (no event, no penalty)
+                # and fall through like a NORMAL_STEP cycle. Short-circuits to
+                # the legacy path when the flag is off.
+                _decline = self._ho_requires_change and action == self.ServingBSSector[t]
+                if action != -1 and not _decline:
                     t0 = t
                     self.HO_event[t0] = 1
                     I = action
