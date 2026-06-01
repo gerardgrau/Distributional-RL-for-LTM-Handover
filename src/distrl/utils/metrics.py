@@ -1,113 +1,55 @@
 import numpy as np
 from typing import Any
 
+
 def calculate_8_metrics(
     mcs_history: np.ndarray,
     rlf_history: np.ndarray,
     ho_history: np.ndarray,
     hof_history: np.ndarray,
     pp_history: np.ndarray,
-    serving_history: np.ndarray,
-    pl3_history: np.ndarray,
+    reserved_history: np.ndarray,
     config: dict[str, Any],
-    reserved_history: np.ndarray | None = None
 ) -> dict[str, Any]:
-    """
-    Computes the 8 LTM metrics based on the provided episode history using vectorized operations.
+    """Compute the 8 LTM metrics from one episode's tick-level histories.
+
+    `reserved_history` is the (NBS, total_steps) binary grid of prepared
+    sectors the simulator tracked live (env `info["metrics"]["reserved"]`),
+    matching the reference's `ReservedBSSectors`.
     """
     total_steps = len(mcs_history)
     time_step = config['simulation']['time_step']
     minutes = (total_steps * time_step) / 60.0
-    
-    # 1. Capacity (bps)
+
+    # 1. Capacity (avg MCS)
     avg_capacity = np.mean(mcs_history)
-    
+
     # 2. RLF Rate
-    rlf_total = np.sum(rlf_history)
-    rlf_rate = rlf_total / minutes if minutes > 0 else 0.0
-    
+    rlf_rate = np.sum(rlf_history) / minutes if minutes > 0 else 0.0
+
     # 3. HO Rate
-    ho_total = np.sum(ho_history)
-    ho_rate = ho_total / minutes if minutes > 0 else 0.0
-    
+    ho_rate = np.sum(ho_history) / minutes if minutes > 0 else 0.0
+
     # 4. PP Rate
-    pp_total = np.sum(pp_history)
-    pp_rate = pp_total / minutes if minutes > 0 else 0.0
-    
+    pp_rate = np.sum(pp_history) / minutes if minutes > 0 else 0.0
+
     # 5. Reliability (%)
     reliability = 100.0 - (np.mean(mcs_history == 0) * 100.0)
-    
-    # 6 & 7. Cell Preparation and Resource Reservation (Vectorized)
-    if reserved_history is not None:
-        reserved_bs_sectors = reserved_history
-    else:
-        # Retroactive calculation (Fallback if not tracked by env/agent)
-        prep_cfg = config['ho_prep']
-        nbs = pl3_history.shape[0]
-        
-        prep_offset = prep_cfg['preparation_power_offset']
-        prep_time_thresh = prep_cfg['preparation_time']
-        max_prep = prep_cfg['max_number_prepared_bs']
-        
-        # Vectorized condition check
-        serving_history_int = serving_history.astype(int)
-        valid_mask = serving_history_int != -1
-        
-        pl3_serving = np.zeros(total_steps, dtype=pl3_history.dtype)
-        pl3_serving[valid_mask] = pl3_history[serving_history_int[valid_mask], np.where(valid_mask)[0]]
-        
-        in_condition = pl3_history > (pl3_serving + prep_offset)
-        in_condition[:, ~valid_mask] = False
-        out_condition = pl3_history < (pl3_serving + prep_offset)
-        out_condition[:, ~valid_mask] = False
-        
-        reserved_bs_sectors = np.zeros((nbs, total_steps), dtype=bool)
-        list_bs_prepared = np.zeros(nbs, dtype=bool)
-        timer_entering = np.zeros(nbs, dtype=pl3_history.dtype)
-        timer_leaving = np.zeros(nbs, dtype=pl3_history.dtype)
-        
-        for t in range(total_steps):
-            s = serving_history_int[t]
-            if s == -1:
-                list_bs_prepared[:] = False
-                timer_entering[:] = 0
-                timer_leaving[:] = 0
-            else:
-                cond_in = in_condition[:, t]
-                timer_entering = (timer_entering + time_step) * cond_in
-                list_bs_prepared |= (timer_entering > prep_time_thresh)
 
-                cond_out = out_condition[:, t]
-                timer_leaving = (timer_leaving + time_step) * cond_out
-                list_bs_prepared &= ~(timer_leaving > prep_time_thresh)
-
-                if np.sum(list_bs_prepared) > max_prep:
-                    metric = (10 ** (pl3_history[:, t] / 10.0)) * list_bs_prepared
-                    i_sorted = np.argsort(metric)[::-1]
-                    list_bs_prepared[i_sorted[max_prep:]] = False
-            
-            if ho_history[t] > 0 and s != -1:
-                list_bs_prepared[s] = False
-                
-            reserved_bs_sectors[:, t] = list_bs_prepared
-
-    # prep_rate = preparation EVENTS per minute: count each 0->1 transition along
-    # the time axis (a sector newly entering the prepared list). This matches the
-    # reference's `Number_cell_preparations` intent (ltm_ho_codi_ainna.py:241), with
-    # its `>= 0` bug corrected to `> 0`. It is NOT occupancy -- res_reservation_pct
-    # below carries the occupancy. (The previous definition was occupancy/10, which
-    # only coincided with the paper's LTM 780 by an NBS=21 scaling accident and could
-    # not reproduce the paper's CMAB collapse; the occupancy and event rates diverge
-    # whenever the prepared set changes size/stability.)
-    reserved_int = reserved_bs_sectors.astype(np.int8)
+    # 6. Preparation EVENTS per minute: each 0->1 transition of the reservation
+    # grid (a sector newly entering the prepared list). This is the reference's
+    # `Number_cell_preparations` (ltm_ho_codi_ainna.py:241) with its `>= 0` bug
+    # corrected to `> 0`. It is NOT occupancy -- res_reservation_pct is occupancy.
+    reserved_int = reserved_history.astype(np.int8)
     prep_events = int(np.sum(np.diff(reserved_int, axis=1) > 0)) if total_steps > 1 else 0
     prep_rate = prep_events / minutes if minutes > 0 else 0.0
-    resource_reservation = (np.sum(reserved_bs_sectors) / (reserved_bs_sectors.shape[0] * total_steps)) * 100.0
-    
+
+    # 7. Resource reservation: % occupancy of the NBS x total_steps grid.
+    resource_reservation = (np.sum(reserved_history) / (reserved_history.shape[0] * total_steps)) * 100.0
+
     # 8. HOF Rate
-    hof_total = np.sum(hof_history)
-    hof_rate = hof_total / minutes if minutes > 0 else 0.0
-    
+    hof_rate = np.sum(hof_history) / minutes if minutes > 0 else 0.0
+
     return {
         "ho_rate": float(ho_rate),
         "hof_rate": float(hof_rate),
@@ -118,5 +60,5 @@ def calculate_8_metrics(
         "prep_rate": float(prep_rate),
         "res_reservation_pct": float(resource_reservation),
         "total_steps": int(total_steps),
-        "total_minutes": float(minutes)
+        "total_minutes": float(minutes),
     }

@@ -197,8 +197,7 @@ def run_seed(
                 ho_history=last_info["metrics"]["ho"],
                 hof_history=last_info["metrics"]["hof"],
                 pp_history=last_info["metrics"]["pp"],
-                serving_history=last_info["metrics"]["serving"],
-                pl3_history=last_info["metrics"]["pl3"],
+                reserved_history=last_info["metrics"]["reserved"],
                 config=config,
             )
 

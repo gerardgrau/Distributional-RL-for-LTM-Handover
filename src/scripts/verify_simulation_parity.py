@@ -79,10 +79,8 @@ def verify_parity(ue_count: int, write_canonical: bool = False) -> None:
                 info["metrics"]["ho"],
                 info["metrics"]["hof"],
                 info["metrics"]["pp"],
-                info["metrics"]["serving"],
-                info["metrics"]["pl3"],
+                info["metrics"]["reserved"],
                 config,
-                reserved_history=info["metrics"].get("reserved"),
             )
             m["reward"] = episode_reward
             all_metrics.append(m)
