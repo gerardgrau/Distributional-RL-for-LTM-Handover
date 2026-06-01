@@ -754,11 +754,14 @@ agent is clearly ahead on the user-facing quality KPIs---$+8.0\%$ capacity
 and a lower RLF ($0.093$ vs.\ $0.101$). CMAB, in turn, is far more frugal with
 signalling: by pre-selecting targets it issues dramatically fewer preparations
 ($20$ vs.\ $1058$/min) and fewer handovers ($8.0$ vs.\ $15.5$/min) and
-ping-pongs. The two mechanisms are therefore complementary: CMAB, like the
-orthogonal RIS and LMMSE-prediction enhancements of~\cite{cmab_ho}, acts on
-target pre-selection and signal quality rather than on the value estimate, so
-it could be stacked on top of the distributional-RL policy; we leave that
-combination to future work.
+ping-pongs. The two mechanisms are therefore complementary. The RIS and LMMSE-prediction
+enhancements of~\cite{cmab_ho} act on signal quality alone and are orthogonal
+to the decision policy, so they could be applied on the physical-layer side of
+any agent. CMAB sits at the adjacent decision stage---learning \emph{target
+pre-selection} (which cells to prepare), whereas our agent learns the
+\emph{execution} decision (when and where to hand over)---so the two could be
+stacked, its frugal candidate set feeding our risk-aware policy. We leave both
+to future work.
 
 % =====================================================================
 \section{Discussion, Limitations, and Future Work}
@@ -791,11 +794,7 @@ calibrated in~\cite{cmab_ho} for the CMAB's low-signalling regime rather than
 for a distributional value learner, so re-tuning them to our own operating
 point---most directly by \emph{lowering} $\alpha_{\mathrm{HO}}$ so that each
 handover incurs a steeper reward penalty---could rein in this control-plane
-overhead while preserving the throughput and reliability gains. Because the RIS,
-LMMSE-prediction and contextual-bandit enhancements of~\cite{cmab_ho} act on
-signal quality and target pre-selection rather than on the value estimate, they
-are complementary to our risk-aware policy and could be stacked on top of it.
-Finally, it remains to confirm that the distributional and quantile-positioning
+overhead while preserving the throughput and reliability gains. Finally, it remains to confirm that the distributional and quantile-positioning
 findings transfer to standard finite-action RL benchmarks such as the
 Atari~2600 suite.
 
