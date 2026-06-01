@@ -90,7 +90,7 @@ Learning-based HO optimisation typically casts cell selection as a heuristic
 rule or a contextual-bandit / scalar value-learning problem that maximises an
 \emph{expected} objective---throughput, or a weighted KPI score---sometimes
 augmented with reconfigurable intelligent surfaces (RIS) and LMMSE channel
-prediction to improve the underlying signal quality~\cite{ainna}. Expected-value
+prediction to improve the underlying signal quality~\cite{cmab_ho}. Expected-value
 objectives are risk-neutral: they optimise the \emph{average} outcome and are
 indifferent to its dispersion. Yet in LTM the user experience is dominated not
 by the average step but by rare, disproportionately costly tail
@@ -123,7 +123,7 @@ maximising the average. Our contributions are:
   \item On the 5G LTM benchmark we demonstrate two separable, significant gains
   over DQN, and benchmark the risk-aware policy against both a hand-tuned LTM
   baseline (run in our own simulator) and the contextual multi-armed bandit
-  (CMAB) of~\cite{ainna}.
+  (CMAB) of~\cite{cmab_ho}.
 \end{itemize}
 
 % =====================================================================
@@ -146,7 +146,7 @@ minimises failures and ping-pongs while sustaining spectral efficiency. Prior
 learning-based work optimises this trade-off with heuristics and contextual
 bandits over an expected-KPI objective, optionally stacking RIS and LMMSE
 channel prediction on top to improve signal quality and target
-pre-selection~\cite{ainna}; this is the closest prior art to ours. It is,
+pre-selection~\cite{cmab_ho}; this is the closest prior art to ours. It is,
 however, risk-neutral---the gap we address.
 
 \subsection{Distributional Reinforcement Learning}
@@ -204,7 +204,7 @@ modulation-and-coding scheme (MCS) and hence a spectral efficiency through a
 $26$-entry SINR$\to$MCS table whose lowest entry (SINR $<-3$\,dB) is an outage
 (MCS$=0$); a sustained run of outage steps escalates to a radio-link failure.
 The radio and mobility constants (Table~\ref{tab:sysparams}) are calibrated to
-the reference LTM implementation of~\cite{ainna} rather than to nominal
+the reference LTM implementation of~\cite{cmab_ho} rather than to nominal
 standards values, so that our LTM baseline reproduces that work's published
 KPIs; the same physics module is shared by the RL environment and a standalone
 reference simulator used for parity checking.
@@ -245,13 +245,13 @@ sectors to connect to. If the chosen sector equals the current serving sector
 no handover is performed; otherwise a handover is triggered.
 
 \textbf{Reward.} The agent optimises the multiplicative LTM HO reward
-of~\cite{ainna},
+of~\cite{cmab_ho},
 \begin{equation}
 R_t = R^{\mathrm{thr}}_t \,\cdot\,
-      \alpha_{\mathrm{HO}}^{\,\mathbb{1}^{\mathrm{HO}}_t}\,\cdot\,
-      \alpha_{\mathrm{PP}}^{\,\mathbb{1}^{\mathrm{PP}}_t}\,\cdot\,
-      \alpha_{\mathrm{HOF}}^{\,\mathbb{1}^{\mathrm{HOF}}_t}\,\cdot\,
-      \rho_t,
+      \frac{\alpha_{\mathrm{HO}}^{\,\mathbb{1}^{\mathrm{HO}}_t}\;
+            \alpha_{\mathrm{PP}}^{\,\mathbb{1}^{\mathrm{PP}}_t}\;
+            \alpha_{\mathrm{HOF}}^{\,\mathbb{1}^{\mathrm{HOF}}_t}}
+           {1 + e^{\,2\,(N^{\mathrm{OOS}}_t - 2)}},
 \label{eq:reward}
 \end{equation}
 where $R^{\mathrm{thr}}_t$ is the throughput term (the serving spectral
@@ -261,9 +261,11 @@ flag a handover, ping-pong and handover failure at step $t$; and
 $\alpha_{\mathrm{HO}},\alpha_{\mathrm{PP}},\alpha_{\mathrm{HOF}}\in(0,1]$ are
 the corresponding multiplicative penalties (defaults $\alpha_{\mathrm{HOF}}{=}0.1$,
 $\alpha_{\mathrm{HO}}{=}0.8$, $\alpha_{\mathrm{PP}}{=}0.9$, so a failure is
-penalised far more harshly than a routine handover). The reliability factor
-$\rho_t\in(0,1]$ is a soft reverse-sigmoid of the out-of-sync counter that
-decays the reward as the serving link approaches radio-link failure. Since
+penalised far more harshly than a routine handover). The final factor is a
+reverse sigmoid of the out-of-sync counter $N^{\mathrm{OOS}}_t$ (the number of
+consecutive out-of-sync indications on the serving link): it stays near $1$
+while the link is in sync, equals $0.5$ at $N^{\mathrm{OOS}}_t{=}2$, and decays
+toward $0$ as the link approaches radio-link failure. Since
 every factor lies in $(0,1]$, the reward is the fraction of attainable
 throughput that the policy retains after instability, which the distributional
 agent models as a random return.
@@ -293,8 +295,12 @@ the quantile-positioning scheme. The quantiles are trained with the quantile
 \end{cases}
 \end{equation}
 the quantile-Huber penalty at fraction $\tau$ is
-$\rho^\kappa_\tau(u) = \big|\tau - \mathbb{1}\{u<0\}\big|\,
-\mathcal{H}_\kappa(u)/\kappa$, and the per-transition loss sums the pairwise
+\begin{equation}
+\rho^\kappa_\tau(u) = \big|\tau - \mathbb{1}\{u<0\}\big|\,
+\mathcal{H}_\kappa(u),
+\label{eq:pinball}
+\end{equation}
+and the per-transition loss sums the pairwise
 temporal-difference errors between the $N$ predicted quantiles and the $N$
 Bellman-target atoms $y_j = r + \gamma\,\theta_j\!\big(x',a^\star\big)$,
 \begin{equation}
@@ -364,7 +370,7 @@ not generalisation to unseen geometry. Final numbers freeze the learned
 weights, set $\epsilon=0$ (greedy), and replay all $1{,}000$ UEs. Every
 configuration is run for $5$ random seeds $\times$ $2{,}000$ episodes; we
 report the cross-seed mean $\pm$ standard deviation. Alongside the reward we
-track the eight physical KPIs of~\cite{ainna}: handover rate (HO/min),
+track the eight physical KPIs of~\cite{cmab_ho}: handover rate (HO/min),
 handover-failure rate (HOF/min), ping-pong rate (PP/min), radio-link-failure
 rate (RLF/min), spectral efficiency / capacity (bps/Hz), link reliability
 (\%), cell preparations (/min) and resource reservation (\%).
@@ -595,7 +601,7 @@ Train time (min) $\downarrow$       & $\mathbf{48}$ & $61$ \\
 Table~\ref{tab:final} reports the learned agents at the canonical
 $2000\times5$ budget against two references: our own hand-tuned LTM baseline,
 run in the \emph{same} simulator and therefore directly comparable, and the
-LTM contextual multi-armed bandit (CMAB) of~\cite{ainna}. The three headline
+LTM contextual multi-armed bandit (CMAB) of~\cite{cmab_ho}. The three headline
 agents (DQN, RN, RA) form the matched-capacity comparison; the fourth QR-DQN
 column is the single-quantile ($k{=}1$) risk-averse ablation of
 Section~\ref{sec:results-bridge}. Two observations structure the result.
@@ -624,7 +630,7 @@ act}, but its actions are far more reliable---HOF nearly halved relative to DQN
 reliability and capacity with signalling activity (Fig.~\ref{fig:bars}).
 
 \begin{table*}[t]
-\caption{Final performance on the LTM HO task ($5$ seeds $\times$ $2000$ ep; mean $\pm$ std for the learned agents). \textbf{DQN}: scalar baseline. \textbf{RN}/\textbf{RA}: risk-neutral / risk-aware ($\mathrm{CVaR}_{0.5}$) QR-DQN at $k{=}10$. \textbf{RA-1q}: single-quantile risk-aware ablation. \textbf{LTM}: our hand-tuned LTM baseline, run in the \emph{same} simulator. \textbf{CMAB}: the LTM contextual multi-armed bandit of~\cite{ainna}. Arrows mark the desirable direction; bold marks the best \emph{learned} agent per row (baselines are shown for reference).}
+\caption{Final performance on the LTM HO task ($5$ seeds $\times$ $2000$ ep; mean $\pm$ std for the learned agents). \textbf{DQN}: scalar baseline. \textbf{RN}/\textbf{RA}: risk-neutral / risk-aware ($\mathrm{CVaR}_{0.5}$) QR-DQN at $k{=}10$. \textbf{RA-1q}: single-quantile risk-aware ablation. \textbf{LTM}: our hand-tuned LTM baseline, run in the \emph{same} simulator. \textbf{CMAB}: the LTM contextual multi-armed bandit of~\cite{cmab_ho}. Arrows mark the desirable direction; bold marks the best \emph{learned} agent per row (baselines are shown for reference).}
 \label{tab:final}
 \begin{center}
 \setlength{\tabcolsep}{5pt}
@@ -644,14 +650,14 @@ Res.\ reservation (\%) $\downarrow$ & $\mathbf{8.022}$ & $8.244$ & $8.394$ & $8.
 \hline
 \end{tabular}
 \end{center}
-{\footnotesize $^{*}$CMAB figures are reproduced from~\cite{ainna} and were obtained in that work's simulator. Our LTM baseline reproduces that work's published LTM KPIs to within $\approx 5\%$ on the radio and mobility metrics (resource reservation is the largest outlier, $\approx 13\%$), so the CMAB column is indicative rather than strictly comparable to our agents.}
+{\footnotesize $^{*}$CMAB figures are reproduced from~\cite{cmab_ho} and were obtained in that work's simulator. Our LTM baseline reproduces that work's published LTM KPIs to within $\approx 5\%$ on the radio and mobility metrics (resource reservation is the largest outlier, $\approx 13\%$), so the CMAB column is indicative rather than strictly comparable to our agents.}
 \end{table*}
 
 \begin{figure}[htbp]
 \centerline{\includegraphics[width=\columnwidth]{master_bar_plots.png}}
 \caption{The eight physical KPIs and the reward across the learned agents and
 the LTM / LTM-CMAB baselines. Colour encodes the algorithm family (blue: the
-LTM heuristic, shown for the paper's published numbers and our two simulators;
+LTM heuristic, shown for the paper's published numbers and our own simulator;
 grey: LTM-CMAB; red: our learned agents), and a striped hatch marks values
 reproduced from the paper.}
 \label{fig:bars}
@@ -664,9 +670,12 @@ full $k=10$ ($1000$ ep $\times$ $3$ seeds for the ablation; the single
 risk-averse point is also re-run at the canonical $2000\times5$ budget).
 
 \textbf{The distributional gain is a multi-quantile effect.} A risk-neutral
-QR-DQN with a single quantile at $\tau=0.5$ reduces, by construction, to DQN:
-the pinball loss at $\tau=0.5$ is a symmetric $\tfrac12$-Huber loss on the
-median, collapsing the agent to scalar value learning. Empirically the two are
+QR-DQN with a single quantile at $\tau=0.5$ is all but identical to DQN. The one
+nuance is the estimation target: its pinball loss at $\tau=0.5$ is a symmetric
+$\tfrac12$-Huber loss that regresses the \emph{median} of the return
+distribution, whereas DQN regresses its \emph{mean}. For the near-symmetric
+returns seen here the median and the mean nearly coincide, so both agents
+collapse to essentially the same scalar value learning; empirically they are
 indistinguishable ($1063.8$ vs.\ $1060.9$, $0.8\sigma$). Reward then climbs
 smoothly with the quantile count ($N{:}1\!\to\!10$ gives
 $1063.8\!\to\!1075.4$), saturating by $N\approx5$.
@@ -700,7 +709,7 @@ control-plane activity---more handovers ($15.5$ vs.\ $11.3$/min), preparations
 and reservations---and a higher RLF ($0.093$ vs.\ $0.065$): the policy is more
 willing to act, but its actions are more reliable and higher-throughput.
 
-\textbf{Versus the contextual bandit (CMAB).} The CMAB of~\cite{ainna} adds a
+\textbf{Versus the contextual bandit (CMAB).} The CMAB of~\cite{cmab_ho} adds a
 target pre-selection layer on top of LTM; we reproduce its numbers from that
 work. Because they were measured in a different simulator
 (Table~\ref{tab:final}, footnote), we read them as indicative. The risk-aware
@@ -710,7 +719,7 @@ and a lower RLF ($0.093$ vs.\ $0.101$). CMAB, in turn, is far more frugal with
 signalling: by pre-selecting targets it issues dramatically fewer preparations
 ($20$ vs.\ $1058$/min) and fewer handovers ($8.0$ vs.\ $15.5$/min) and
 ping-pongs. The two mechanisms are therefore complementary: CMAB, like the
-orthogonal RIS and LMMSE-prediction enhancements of~\cite{ainna}, acts on
+orthogonal RIS and LMMSE-prediction enhancements of~\cite{cmab_ho}, acts on
 target pre-selection and signal quality rather than on the value estimate, so
 it could be stacked on top of the distributional-RL policy; we leave that
 combination to future work.
@@ -722,9 +731,9 @@ combination to future work.
 evaluation use the \emph{same} fixed $1{,}000$-trajectory set with no held-out
 split; this is the appropriate protocol for the question we ask---how well a
 policy exploits a fixed propagation environment, matching the evaluation
-of~\cite{ainna}---but it does not measure generalisation to unseen geometry.
+of~\cite{cmab_ho}---but it does not measure generalisation to unseen geometry.
 (ii)~We study a single deployment and channel-gain dataset. (iii)~The
-reward-shaping coefficients are inherited from~\cite{ainna} and not re-optimised
+reward-shaping coefficients are inherited from~\cite{cmab_ho} and not re-optimised
 here; $\kappa$, the network width and the quantile placement, by contrast, are
 all swept on the final backbone (Sections~\ref{sec:setup},~\ref{sec:results-qmode})
 and leave the operating point within noise. (iv)~CVaR is the only risk measure we
@@ -736,8 +745,18 @@ fully-parameterised quantile networks (IQN~\cite{iqn}, FQF~\cite{fqf}), which
 learn the quantile fractions themselves and would subsume the
 quantile-positioning study; constrained or multi-objective formulations that
 bound HOF or RLF directly rather than through a scalar reward; and validation
-on higher-fidelity or over-the-air deployments. Because the RIS,
-LMMSE-prediction and contextual-bandit enhancements of~\cite{ainna} act on
+on higher-fidelity or over-the-air deployments. A more immediate,
+reward-side lever is suggested by the KPI profile itself: our risk-aware
+policy is the most active agent in the study, issuing more handovers than
+both the LTM baseline ($15.5$ vs.\ $11.3$/min) and the far more frugal CMAB
+($8.0$/min). The multiplicative shaping weights
+$\alpha_{\mathrm{HO}},\alpha_{\mathrm{PP}},\alpha_{\mathrm{HOF}}$ were
+calibrated in~\cite{cmab_ho} for the CMAB's low-signalling regime rather than
+for a distributional value learner, so re-tuning them to our own operating
+point---most directly by \emph{lowering} $\alpha_{\mathrm{HO}}$ so that each
+handover incurs a steeper reward penalty---could rein in this control-plane
+overhead while preserving the throughput and reliability gains. Because the RIS,
+LMMSE-prediction and contextual-bandit enhancements of~\cite{cmab_ho} act on
 signal quality and target pre-selection rather than on the value estimate, they
 are complementary to our risk-aware policy and could be stacked on top of it.
 Finally, it remains to confirm that the distributional and quantile-positioning
@@ -766,7 +785,7 @@ the full $\sim\!10$-quantile CVaR representation.
 
 % =====================================================================
 \begin{thebibliography}{00}
-\bibitem{ainna} A. Y. Moreno-Locubiche \emph{et al.}, ``Contextual bandits and reconfigurable intelligent surfaces for predictive LTM handover decisions,'' \PLACEHOLDER{venue, year, pages}.
+\bibitem{cmab_ho} A. Y. Moreno-Locubiche \emph{et al.}, ``Contextual bandits and reconfigurable intelligent surfaces for predictive LTM handover decisions,'' \PLACEHOLDER{venue, year, pages}.
 \bibitem{c51} M. G. Bellemare, W. Dabney, and R. Munos, ``A distributional perspective on reinforcement learning,'' in \emph{Proc. ICML}, 2017.
 \bibitem{qrdqn} W. Dabney, M. Rowland, M. G. Bellemare, and R. Munos, ``Distributional reinforcement learning with quantile regression,'' in \emph{Proc. AAAI}, 2018.
 \bibitem{iqn} W. Dabney, G. Ostrovski, D. Silver, and R. Munos, ``Implicit quantile networks for distributional reinforcement learning,'' in \emph{Proc. ICML}, 2018.
