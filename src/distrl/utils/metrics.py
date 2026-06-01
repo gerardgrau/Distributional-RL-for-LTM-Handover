@@ -91,9 +91,17 @@ def calculate_8_metrics(
                 
             reserved_bs_sectors[:, t] = list_bs_prepared
 
-    # Paper Alignment: prep_rate is the average number of prepared sectors summed over 100ms cycles
-    # 780 per minute means ~1.3 prepared sectors on average per 100ms.
-    prep_rate = (np.sum(reserved_bs_sectors) / 10.0) / minutes if minutes > 0 else 0.0
+    # prep_rate = preparation EVENTS per minute: count each 0->1 transition along
+    # the time axis (a sector newly entering the prepared list). This matches the
+    # reference's `Number_cell_preparations` intent (ltm_ho_codi_ainna.py:241), with
+    # its `>= 0` bug corrected to `> 0`. It is NOT occupancy -- res_reservation_pct
+    # below carries the occupancy. (The previous definition was occupancy/10, which
+    # only coincided with the paper's LTM 780 by an NBS=21 scaling accident and could
+    # not reproduce the paper's CMAB collapse; the occupancy and event rates diverge
+    # whenever the prepared set changes size/stability.)
+    reserved_int = reserved_bs_sectors.astype(np.int8)
+    prep_events = int(np.sum(np.diff(reserved_int, axis=1) > 0)) if total_steps > 1 else 0
+    prep_rate = prep_events / minutes if minutes > 0 else 0.0
     resource_reservation = (np.sum(reserved_bs_sectors) / (reserved_bs_sectors.shape[0] * total_steps)) * 100.0
     
     # 8. HOF Rate

@@ -133,9 +133,15 @@ def verify_parity(ue_count: int, write_canonical: bool = False) -> None:
     print("rlf_rate           : 0.068")
     print("ho_rate            : 11.00")
     print("pp_rate            : 3.45")
-    print("prep_rate          : 780.00")
-    print("res_reservation_pct: 5.70")
+    print("prep_rate          : (not comparable -- see note)")
+    print("res_reservation_pct: 5.70   (the comparable reservation metric)")
     print("hof_rate           : 1.10")
+    print(
+        "\nNote: prep_rate is a preparation-EVENT count (0->1 transitions per min)."
+        "\n      Paper fig (g) 'cell preparations/min' (LTM 780) is occupancy-scaled"
+        "\n      and not reproducible as an event rate here; our LTM baseline is ~28,"
+        "\n      near the paper's CMAB (~20). Compare reservation via res_reservation_pct."
+    )
 
 
 if __name__ == "__main__":
