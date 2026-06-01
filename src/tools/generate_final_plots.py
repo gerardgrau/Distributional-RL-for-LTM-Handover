@@ -22,7 +22,6 @@ def generate_plots():
     mapping = {
         "paper_ltm": "LTM",
         "paper_ltm_cmab": "LTM-CMAB",
-        "legacy_baseline_summary": "Baseline (Legacy)",
         "baseline_summary": "Baseline (Ours)",
         "dqn_summary": "DQN (Ours)",
         "qrdqn_riskneutral_summary": "QR-DQN-RN (Ours)",
@@ -30,15 +29,18 @@ def generate_plots():
     }
 
     # Colour encodes the algorithm family; hatch encodes the data source.
-    # The LTM heuristic appears three times -- the paper's published numbers
-    # and our two simulators -- so all three are shades of blue to show they
-    # are the same baseline (and indeed they nearly coincide). LTM-CMAB is the
-    # paper's contextual-bandit variant (grey); the three learned agents share a
-    # red family. Paper-sourced bars carry a diagonal hatch so literature
-    # values stay distinguishable from our own runs. The order keeps the blue
-    # LTM family contiguous.
+    # The LTM heuristic appears twice -- the paper's published numbers and our
+    # own simulator -- so both are shades of blue to show they are the same
+    # baseline (and indeed they nearly coincide). Our second, legacy reference
+    # simulator is omitted: it is metric-identical to "Baseline (Ours)" (the
+    # parity audit drove them bit-for-bit), so plotting both is redundant; we
+    # keep "Baseline (Ours)" because it also carries the RL reward. LTM-CMAB is
+    # the paper's contextual-bandit variant (grey); the three learned agents
+    # share a red family. Paper-sourced bars carry a diagonal hatch so
+    # literature values stay distinguishable from our own runs. The order keeps
+    # the blue LTM family contiguous.
     desired_order = [
-        "LTM", "Baseline (Legacy)", "Baseline (Ours)",   # LTM heuristic (blue)
+        "LTM", "Baseline (Ours)",                         # LTM heuristic (blue)
         "LTM-CMAB",                                       # contextual bandit
         "DQN (Ours)", "QR-DQN-RN (Ours)",                 # learned agents (red)
         "QR-DQN-RA (Ours)",
@@ -46,7 +48,6 @@ def generate_plots():
 
     agent_color = {
         "LTM": "#6baed6",
-        "Baseline (Legacy)": "#3182bd",
         "Baseline (Ours)": "#08519c",
         "LTM-CMAB": "#969696",
         "DQN (Ours)": "#fcae91",
