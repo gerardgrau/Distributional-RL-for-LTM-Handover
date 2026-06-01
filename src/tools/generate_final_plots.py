@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import glob
+from matplotlib.patches import Patch
 
 def load_summary(path):
     if not os.path.exists(path):
@@ -20,26 +21,41 @@ def generate_plots():
     # File Key -> Nice Label
     mapping = {
         "paper_ltm": "LTM",
-        "paper_lmmse": "LMMSE",
         "paper_ltm_cmab": "LTM-CMAB",
-        "paper_lmmse_cmab": "LMMSE-CMAB",
         "legacy_baseline_summary": "Baseline (Legacy)",
         "baseline_summary": "Baseline (Ours)",
         "dqn_summary": "DQN (Ours)",
         "qrdqn_riskneutral_summary": "QR-DQN-RN (Ours)",
-        "qrdqn_ra_k1_summary": "QR-DQN-RA-1q (Ours)",
         "qrdqn_summary": "QR-DQN-RA (Ours)"
     }
 
+    # Colour encodes the algorithm family; hatch encodes the data source.
+    # The LTM heuristic appears three times -- the paper's published numbers
+    # and our two simulators -- so all three are shades of blue to show they
+    # are the same baseline (and indeed they nearly coincide). LTM-CMAB is the
+    # paper's contextual-bandit variant (grey); the three learned agents share a
+    # red family. Paper-sourced bars carry a diagonal hatch so literature
+    # values stay distinguishable from our own runs. The order keeps the blue
+    # LTM family contiguous.
     desired_order = [
-        "LTM", "LMMSE", "LTM-CMAB", "LMMSE-CMAB",
-        "Baseline (Legacy)", "Baseline (Ours)", "DQN (Ours)",
-        "QR-DQN-RN (Ours)", "QR-DQN-RA-1q (Ours)", "QR-DQN-RA (Ours)"
+        "LTM", "Baseline (Legacy)", "Baseline (Ours)",   # LTM heuristic (blue)
+        "LTM-CMAB",                                       # contextual bandit
+        "DQN (Ours)", "QR-DQN-RN (Ours)",                 # learned agents (red)
+        "QR-DQN-RA (Ours)",
     ]
 
-    # Paper references get a striped hatch so they are visually distinct from
-    # the measurements produced by this project.
-    paper_refs = {"LTM", "LMMSE", "LTM-CMAB", "LMMSE-CMAB"}
+    agent_color = {
+        "LTM": "#6baed6",
+        "Baseline (Legacy)": "#3182bd",
+        "Baseline (Ours)": "#08519c",
+        "LTM-CMAB": "#969696",
+        "DQN (Ours)": "#fcae91",
+        "QR-DQN-RN (Ours)": "#fb6a4a",
+        "QR-DQN-RA (Ours)": "#a50f15",
+    }
+    # Paper-sourced bars get a diagonal hatch; our own measurements are solid.
+    paper_sourced = {"LTM", "LTM-CMAB"}
+    agent_hatch = {a: ("///" if a in paper_sourced else "") for a in desired_order}
     
     all_data = {}
     csv_files = glob.glob(os.path.join(results_dir, "*.csv"))
@@ -60,7 +76,7 @@ def generate_plots():
 
     # Convert to DataFrame and REINDEX to enforce the requested order.
     # Keep ALL agents from `desired_order` (filling missing rows with NaN)
-    # so the 8-slot x-axis layout stays consistent across every subplot,
+    # so the x-axis layout stays consistent across every subplot,
     # even when a CSV is missing for some agent.
     data = pd.DataFrame(all_data).transpose()
     data = data.reindex(desired_order)
@@ -84,8 +100,8 @@ def generate_plots():
         "res_reservation_pct": "Res. Reservation (%)"
     }
 
-    # Consistent color palette for the agents
-    colors = plt.cm.tab10(np.linspace(0, 1, len(agents)))
+    # Group-coded colours, shared by the bar and radar charts.
+    colors = [agent_color[a] for a in agents]
 
     # --- 2. CONSOLIDATED BAR SUBPLOTS ---
     print(f"Generating 3x3 bar plots for agents in order: {agents}")
@@ -123,19 +139,23 @@ def generate_plots():
         ax_.plot([-d_x, d_x], [0.005, 0.005 + 1.6 * d_y], **kw)
         ax_.plot([-d_x, d_x], [0.005 + 2 * d_y, 0.005 + 3.6 * d_y], **kw)
 
+    # Per-agent colours / hatches and uniform x-positions (computed once;
+    # identical across every subplot). Colour already separates the groups, so
+    # no extra spacing between them is needed.
+    current_colors = [agent_color[a] for a in agents]
+    current_hatches = [agent_hatch[a] for a in agents]
+    x_pos = np.arange(len(agents))
+
     for idx, metric in enumerate(metrics_to_plot):
         ax = axes[idx]
         if metric not in data.columns:
             ax.set_visible(False)
             continue
 
-        # Keep all 8 agents on the x-axis (NaN -> invisible bar but reserved
+        # Keep all agents on the x-axis (NaN -> invisible bar but reserved
         # slot). Use numeric positions so matplotlib doesn't drop empty
         # categories and the bar widths stay consistent across panels.
         series = data[metric].reindex(agents)
-        current_colors = [colors[i] for i in range(len(agents))]
-        current_hatches = ['///' if a in paper_refs else '' for a in agents]
-        x_pos = np.arange(len(agents))
 
         bars = ax.bar(
             x_pos, series.values,
@@ -171,8 +191,25 @@ def generate_plots():
             ax.set_ylim(bottom=ymin, top=ymax)
             _draw_axis_break(ax)
 
+    # Figure-level legend: colour encodes the algorithm family, the hatched
+    # swatch explains that paper-sourced bars are striped.
+    legend_handles = [
+        Patch(facecolor="#3182bd", edgecolor='black', alpha=0.8,
+              label="LTM heuristic"),
+        Patch(facecolor="#969696", edgecolor='black', alpha=0.8,
+              label="LTM-CMAB"),
+        Patch(facecolor="#de2d26", edgecolor='black', alpha=0.8,
+              label="Learned RL agents (ours)"),
+        Patch(facecolor="white", edgecolor='black', hatch='///',
+              label="Published (paper)"),
+    ]
+    fig.legend(
+        handles=legend_handles, loc='lower center', ncol=4,
+        fontsize=15, frameon=True, bbox_to_anchor=(0.5, 0.012),
+    )
+
     plt.suptitle("LTM-HO Comparative Analysis: RL Agents vs. State-of-the-Art Baselines", fontsize=24, fontweight='bold', y=0.98)
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
     
     bar_path = os.path.join(results_dir, "master_bar_plots.png")
     plt.savefig(bar_path, dpi=300)
