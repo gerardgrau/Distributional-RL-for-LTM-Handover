@@ -124,7 +124,10 @@ def run_seed(
 
     buffer = None
     if agent_type.lower() in ["dqn", "qrdqn"]:
-        buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
+        buffer = ReplayBuffer(
+            agent_config['buffer_size'], env.observation_space.shape,
+            action_dim=env.action_space.n,
+        )
 
     logger: CSVLogger | None = None
     if save_results:
@@ -169,11 +172,13 @@ def run_seed(
                         0, high_res_callback=agent.select_action,
                     )
                 else:
-                    action = agent.select_action(state, epsilon)
+                    mask = env.valid_action_mask()
+                    action = agent.select_action(state, epsilon, mask)
                     next_state, reward, done, _, info = env.step(action)
                     if buffer is not None:
+                        next_mask = env.valid_action_mask()
                         if nstep_q is None:
-                            buffer.push(state, action, reward, next_state, done)
+                            buffer.push(state, action, reward, next_state, done, next_mask)
                         else:
                             nstep_q.append((state, action, reward, next_state, done))
                             if len(nstep_q) >= n_step:

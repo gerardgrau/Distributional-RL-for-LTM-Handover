@@ -93,6 +93,7 @@ def train(
     buf = ReplayBuffer(
         max_size=int(agent_cfg.get("buffer_size", 100_000)),
         state_shape=env.observation_space.shape,
+        action_dim=env.action_space.n,
         state_dtype=torch.uint8,
     )
 

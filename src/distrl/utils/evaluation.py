@@ -70,7 +70,9 @@ def _run_episode(
                 0, high_res_callback=agent.select_action,
             )
         else:
-            action = agent.select_action(state, epsilon=0.0)
+            action = agent.select_action(
+                state, epsilon=0.0, valid_mask=env.valid_action_mask(),
+            )
             state, reward, done, _, info = env.step(action)
         episode_reward += reward
         if done:
@@ -86,6 +88,13 @@ def _run_episode(
         config=config,
     )
     m["reward"] = episode_reward
+    m["composite_reward"] = float(
+        last_info["metrics"].get("composite_reward", float("nan"))
+    )
+    m["util_throughput"] = float(
+        last_info["metrics"].get("util_throughput", float("nan"))
+    )
+    m["n_decisions"] = float(last_info["metrics"].get("n_decisions", float("nan")))
     return m
 
 
