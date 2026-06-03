@@ -53,11 +53,12 @@ the lower tail of the return distribution. A \emph{de-confounded} sweep that
 holds the number of predicted quantiles fixed while varying the risk level
 reveals an interior risk optimum at $\mathrm{CVaR}$ level $\alpha\!\approx\!0.5$,
 reversing the conclusion of a naive sweep in which capacity and risk are
-entangled. On a 1{,}000-trajectory 5G LTM benchmark the risk-aware agent
-nearly halves the handover-failure rate of DQN, surpasses a hand-tuned LTM
-baseline---evaluated in the same simulator---on capacity, reliability and
-ping-pong rate, and improves on a published contextual-bandit baseline in
-capacity and reliability. A quantile-bridge
+entangled. On a 1{,}000-trajectory 5G LTM benchmark, scalar DQN already markedly
+outperforms a hand-tuned LTM baseline---evaluated in the same simulator---and
+the distributional agents extend this lead on the tail metrics: the risk-aware
+agent nearly halves the handover-failure rate of DQN while further improving on
+LTM in capacity, reliability and ping-pong rate, and also improves on a
+published contextual-bandit baseline in capacity and reliability. A quantile-bridge
 ablation shows both ingredients are necessary: a single risk-neutral quantile
 collapses to DQN, and a single risk-averse quantile only reaches risk-neutral
 performance---the full gain requires a multi-quantile CVaR representation.
@@ -317,6 +318,7 @@ we exploit in Section~\ref{sec:results-bridge}. We use $\kappa{=}0.25$
 throughout.
 
 \subsection{Quantile-Positioning Schemes}
+\label{sec:qmode-method}
 QR-DQN papers default to the midpoint rule; we additionally consider two
 classical quadrature alternatives and ask whether either the integration
 accuracy of the aggregator or the placement of the learnable quantiles affects
@@ -342,18 +344,45 @@ considerations ($F^{-1}(0)=0$ since returns are non-negative under the
 multiplicative reward, and $F^{-1}(1)=q_{\max}$ a conservative upper bound),
 predicting only the $N-2$ interior quantiles.
 
-\subsection{Risk-Aware Selection and Truncated CVaR}
+\subsection{Risk-Aware Action Selection via CVaR}
+\label{sec:cvar}
+Because distributional learning exposes the entire return distribution, the
+policy can optimise a risk functional rather than the mean. We use the
+Conditional Value-at-Risk: the $\mathrm{CVaR}_\alpha$ value of an action is the
+mean of its return over the lower tail $\tau\le\alpha$---the average of its worst
+$\alpha$-fraction of outcomes---and the greedy policy selects the action of
+largest $\mathrm{CVaR}_\alpha$. The level $\alpha$ continuously sets the risk
+posture: $\alpha\!\to\!1$ recovers the risk-neutral mean, while smaller $\alpha$
+weights progressively more pessimistic outcomes. This is the natural objective
+for LTM HO, where the rare handover and radio-link failures---not the typical
+throughput---dominate the user experience. Under the midpoint rule,
+$\mathrm{CVaR}_\alpha$ is simply the mean of the quantiles with $\tau_i\le\alpha$.
+
+\subsection{Truncated CVaR Head}
 \label{sec:trunc-cvar}
-A $\mathrm{CVaR}_\alpha$ policy integrates only over $\tau\le\alpha$: the upper
-$1-\alpha$ of a predicted quantile vector is generated and then discarded---wasted
-capacity. We instead train the network on only $k=\lceil\alpha N\rceil$
-quantiles placed uniformly in $[0,\alpha]$, removing the upper lobe from both
-the prediction and the loss. Action selection is then the mean of the $k$
-predictions, which under the midpoint rule is exactly $\mathrm{CVaR}_\alpha$.
-Concentrating capacity on the part of the distribution that drives the policy
-should yield a better CVaR estimate at lower cost; Section~\ref{sec:results-trunc}
-confirms this directly---the full-grid alternative, given the identical policy,
-is both significantly worse and slower to train.
+The selection rule above is wasteful as usually implemented: the network predicts
+the \emph{full} quantile vector over $[0,1]$, yet the upper $1-\alpha$ of it is
+generated only to be thrown away when the policy averages the lower tail. We
+propose a \emph{truncated CVaR head} that removes this waste. The network predicts
+only $k=\lceil\alpha N\rceil$ quantiles, placed in $[0,\alpha]$, and the
+quantile-regression loss is applied to those alone---the upper lobe is dropped from
+\emph{both} the architecture and the training target. Selection is still the mean
+of the $k$ predictions, which under the midpoint rule is again exactly
+$\mathrm{CVaR}_\alpha$: the \emph{policy is unchanged}, only the estimator differs.
+
+Seen as a choice of quantile locations, this is a \emph{task-driven, non-uniform
+allocation of the quantile budget}. Where vanilla QR-DQN spreads its $N$ learnable
+quantiles uniformly over $[0,1]$, and the quadrature schemes of
+Section~\ref{sec:qmode-method} merely re-place them for integration accuracy, the
+truncated head concentrates the \emph{entire} budget on the lower tail that drives
+the risk-averse decision---a non-uniform quantile distribution chosen by the risk
+objective rather than by quadrature. Spending the model's capacity where the policy
+reads it should sharpen the CVaR estimate at lower cost, and
+Section~\ref{sec:results-trunc} confirms this directly: holding the
+$\mathrm{CVaR}_{0.5}$ policy \emph{identical}, the truncated head is significantly
+more accurate---higher reward and lower failure rates---\emph{and} trains faster
+than the full-grid alternative. We therefore adopt it as the estimator of choice
+for the risk-aware agent.
 
 % =====================================================================
 \section{Experimental Setup}
