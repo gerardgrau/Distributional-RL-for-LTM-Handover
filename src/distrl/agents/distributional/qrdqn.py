@@ -105,8 +105,15 @@ class QRDQNAgent(BaseAgent):
             return self.scheme.cvar(predicted)
         return self.scheme.expectation(predicted)
 
-    def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
+    def select_action(
+        self,
+        state: np.ndarray,
+        epsilon: float = 0.0,
+        valid_mask: np.ndarray | None = None,
+    ) -> int:
         if np.random.rand() < epsilon:
+            if valid_mask is not None:
+                return int(np.random.choice(np.flatnonzero(valid_mask)))
             return int(self.action_space.sample())
 
         state_t = torch.as_tensor(
@@ -114,18 +121,25 @@ class QRDQNAgent(BaseAgent):
         ).unsqueeze(0)
         with torch.no_grad():
             predicted = self.q_net(state_t)  # [1, A, num_predicted]
-            q_values = self._action_values(predicted)  # [1, A]
-            return int(q_values.argmax(dim=1).item())
+            q_values = self._action_values(predicted).squeeze(0)  # [A]
+            if valid_mask is not None:
+                m = torch.as_tensor(valid_mask, dtype=torch.bool, device=self.device)
+                q_values = q_values.masked_fill(~m, float("-inf"))
+            return int(q_values.argmax().item())
 
     def train_step(
         self, batch: tuple[torch.Tensor, ...]
     ) -> dict[str, torch.Tensor]:
-        states, actions, rewards, next_states, dones = batch
+        states, actions, rewards, next_states, dones, next_valid_mask = batch
         num_predicted = self.scheme.num_predicted
 
         with torch.no_grad():
             next_predicted = self.target_net(next_states)  # [B, A, P]
-            best_next_actions = self._action_values(next_predicted).argmax(dim=1)
+            next_values = self._action_values(next_predicted)  # [B, A]
+            # Restrict the greedy next action to valid (prepared) targets;
+            # all-True mask (Atari) leaves this unchanged.
+            next_values = next_values.masked_fill(~next_valid_mask, float("-inf"))
+            best_next_actions = next_values.argmax(dim=1)
             best_next_predicted = next_predicted.gather(
                 1,
                 best_next_actions.view(-1, 1, 1).expand(-1, 1, num_predicted),

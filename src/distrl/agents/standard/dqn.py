@@ -44,22 +44,36 @@ class DQNAgent(BaseAgent):
             fused=self.device.type != "cpu",
         )
 
-    def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
+    def select_action(
+        self,
+        state: np.ndarray,
+        epsilon: float = 0.0,
+        valid_mask: np.ndarray | None = None,
+    ) -> int:
         if np.random.rand() < epsilon:
+            if valid_mask is not None:
+                return int(np.random.choice(np.flatnonzero(valid_mask)))
             return int(self.action_space.sample())
-        
+
         state_t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            q_values = self.q_net(state_t)
-            return int(q_values.argmax(dim=1).item())
+            q_values = self.q_net(state_t).squeeze(0)
+            if valid_mask is not None:
+                m = torch.as_tensor(valid_mask, dtype=torch.bool, device=self.device)
+                q_values = q_values.masked_fill(~m, float("-inf"))
+            return int(q_values.argmax().item())
 
     def train_step(self, batch: tuple[torch.Tensor, ...]) -> dict[str, torch.Tensor]:
-        states, actions, rewards, next_states, dones = batch
+        states, actions, rewards, next_states, dones, next_valid_mask = batch
         rewards = rewards.squeeze(1)
         dones = dones.squeeze(1)
 
         with torch.no_grad():
-            max_next_q = self.target_net(next_states).max(dim=1)[0]
+            next_q = self.target_net(next_states)
+            # Restrict the bootstrap max to valid (prepared) next actions;
+            # all-True mask (Atari) leaves this unchanged.
+            next_q = next_q.masked_fill(~next_valid_mask, float("-inf"))
+            max_next_q = next_q.max(dim=1)[0]
             target_q = rewards + (1 - dones) * self.gamma_n * max_next_q
 
         current_q = self.q_net(states).gather(1, actions).squeeze(1)
