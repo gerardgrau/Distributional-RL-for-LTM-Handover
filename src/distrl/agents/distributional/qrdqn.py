@@ -48,6 +48,9 @@ class QRDQNAgent(BaseAgent):
         self.truncate_upper = bool(
             config.get("truncate_upper_quantiles", False)
         )
+        self.dense_truncate = bool(config.get("dense_truncate", False))
+        self.cvar_soft_ratio = float(config.get("cvar_soft_ratio", 0.0))
+        self.density_ratio = float(config.get("density_ratio", 2.0))
         self.q_min = float(config.get("q_min", 0.0))
         self.q_max = float(config.get("q_max", 50.0))
         self.beta_alpha = float(config.get("beta_alpha", 2.0))
@@ -62,6 +65,9 @@ class QRDQNAgent(BaseAgent):
             risk_type=self.risk_type,
             risk_fraction=self.risk_fraction,
             truncate_upper=self.truncate_upper,
+            dense_truncate=self.dense_truncate,
+            cvar_soft_ratio=self.cvar_soft_ratio,
+            density_ratio=self.density_ratio,
             beta_alpha=self.beta_alpha,
             beta_beta=self.beta_beta,
         )
@@ -208,6 +214,8 @@ class QRDQNAgent(BaseAgent):
                     "risk_type": self.risk_type,
                     "risk_fraction": self.risk_fraction,
                     "truncate_upper": self.truncate_upper,
+                    "cvar_soft_ratio": self.cvar_soft_ratio,
+                    "density_ratio": self.density_ratio,
                     "q_min": self.q_min,
                     "q_max": self.q_max,
                     "beta_alpha": self.beta_alpha,
