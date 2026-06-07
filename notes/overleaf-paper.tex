@@ -516,15 +516,15 @@ Huber $\kappa$ (QR-DQN)       & $0.25$ \\
 \label{sec:results-dist}
 We first establish how the two learning agents behave on the handover task before
 turning to risk. Scalar DQN and risk-neutral QR-DQN (RN) are trained on the full
-set of $1{,}000$ trajectories for $2{,}000$ episodes and evaluated as the average
-over five seeds. The two differ only in the output layer: DQN regresses a single
+set of $1{,}000$ trajectories for $2{,}000$ episodes and evaluated, with results
+averaged over five seeds. The two differ only in the output layer: DQN regresses a single
 scalar value, whereas RN predicts a distributional \emph{head}---the set of
 outputs of the network's final layer, here $25$ quantiles---and acts on its mean.
 Table~\ref{tab:dist} reports both, alongside a single-quantile RN that isolates the
 effect of the distributional representation.
 
 \textbf{Distributional learning versus the scalar baseline.}
-DQN and RN earn the same reward per decision, yet RN is more reliable on
+DQN and RN earn the same reward per decision, yet RN improves on
 every other axis: it lowers the handover, ping-pong, and handover-failure rates,
 raises capacity and link reliability, and leaves resource use essentially
 unchanged (Table~\ref{tab:dist}). Learning the return distribution and acting on
@@ -537,8 +537,11 @@ single quantile at $\tau=0.5$ reproduces DQN almost exactly across every metric
 (Table~\ref{tab:dist}, middle column): as Section~\ref{sec:method-risk} notes, a
 lone median quantile trained under the Huber loss recovers essentially the same
 robust value that DQN learns on these near-symmetric returns. The reliability gain
-appears only as further quantiles populate the head, and it is largely complete
-once a few are present. Their \emph{placement}, by contrast, is immaterial:
+appears only as further quantiles populate the head and is largely complete once a
+few are present: sweeping $N$ at the study setting, the handover-failure rate falls
+from $0.64$/min at $N{=}1$ to $0.55$/min by $N{=}3$ and changes little thereafter
+(handover rate $6.0$ to $5.3$/min), while the reward per decision stays flat. Their
+\emph{placement}, by contrast, is immaterial:
 replacing the midpoint grid with Gauss--Legendre, trapezoidal, Simpson, or
 Beta-warped positions leaves the reward per decision within cross-seed noise
 (between $3.654$ and $3.663$), so we keep the simple midpoint grid throughout.
@@ -552,7 +555,7 @@ in each row.}
 \centering
 \begin{tabular}{|l|c|c|c|}
 \hline
-\textbf{KPI} & \textbf{DQN} & \textbf{RN ($k{=}1$)} & \textbf{RN ($N{=}25$)} \\
+\textbf{KPI} & \textbf{DQN} & \textbf{RN ($N{=}1$)} & \textbf{RN ($N{=}25$)} \\
 \hline
 Reward/decision $\uparrow$          & $3.667{\pm}0.006$ & $\mathbf{3.669{\pm}0.003}$ & $3.663{\pm}0.011$ \\
 Capacity (bps/Hz) $\uparrow$        & $4.062$ & $\mathbf{4.072}$ & $4.068$ \\
@@ -597,7 +600,7 @@ any failure level than the averaging or reweighting schemes; we examine why in
 Section~\ref{sec:results-bridge}.
 
 \begin{table}[htbp]
-\caption{The CVaR risk dial ($1{,}000$ episodes, three seeds), from mild
+\caption{The hard-CVaR risk dial ($1{,}000$ episodes, three seeds), from mild
 ($\alpha=0.5$) to aggressive ($\alpha=0.1$). Greater risk-aversion lowers the
 handover and failure rates at a modest cost in reward, capacity, and link
 reliability; the trade is monotone, with a knee near $\alpha=0.25$. Bold marks the
@@ -638,7 +641,7 @@ RN and hard CVaR. Upper-left is better.}
 
 \subsection{Where to Spend Quantile Capacity}
 \label{sec:results-bridge}
-Section~\ref{sec:results-dist} showed that representing the \emph{mean} rewards
+Section~\ref{sec:results-dist} showed that the \emph{mean} is sharpened by adding
 more quantiles, up to saturation. The risk estimate behaves oppositely: the lower
 tail is best summarized by very few quantiles, and in the limit by a single
 dedicated one. The studies below use $1{,}000$ episodes and three seeds; the
@@ -678,7 +681,7 @@ reward per decision and tail KPIs (at $\alpha=0.4$, $3.628$ versus $3.619$);
 truncation merely trains faster with a smaller head ($65$\,min versus $79$\,min). It is
 an efficiency option, not a better estimator.
 
-\subsection{Comparison with the LTM Heuristic and Contextual Bandit}
+\subsection{Comparison with the LTM Heuristic and Contextual Bandits}
 \label{sec:results-main}
 Table~\ref{tab:final} reports the four learned agents at the canonical
 $2{,}000$-episode, five-seed setting against two references: our hand-tuned LTM
