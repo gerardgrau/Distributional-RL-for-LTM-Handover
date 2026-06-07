@@ -203,6 +203,7 @@ def build_scheme(
     truncate_upper: bool = False,
     dense_truncate: bool = False,
     cvar_soft_ratio: float = 0.0,
+    single_quantile_action: bool = False,
     density_ratio: float = 2.0,
     beta_alpha: float = 2.0,
     beta_beta: float = 2.0,
@@ -228,6 +229,14 @@ def build_scheme(
             gives quantiles below risk_fraction this multiple of the base mass
             of those above. 1.0 == plain mean, large == hard CVaR. 0.0 (the
             default) keeps the hard CVaR mask unchanged.
+        single_quantile_action: If True (only with mode='midpoint',
+            risk_type='cvar'), the FULL midpoint distribution is learned but
+            action selection reads ONLY the single quantile nearest
+            tau = risk_fraction/2 (a VaR-style point criterion). This decouples
+            learning (full distribution -> representation) from acting (one
+            low quantile -> sharp tail focus); choose num_quantiles so that the
+            grid lands exactly on risk_fraction/2 (e.g. N=20 hits 0.125 for
+            risk_fraction=0.25).
         density_ratio: For mode='step_dense', the ratio of lower-lobe to
             upper-lobe quantile *density* across the risk_fraction breakpoint.
         beta_alpha, beta_beta: Shape parameters of the Beta distribution used
@@ -273,14 +282,25 @@ def build_scheme(
         tau = torch.tensor(tau_np, dtype=torch.float32, device=device)
         weights = torch.tensor(w_np, dtype=torch.float32, device=device)
         if risk_type == "cvar":
-            cvar_w = (
-                _compute_soft_step_cvar_weights(
+            if single_quantile_action:
+                # Learn the full distribution, but act on ONLY the single
+                # quantile nearest tau = risk_fraction/2 (the RA-1q position).
+                target = risk_fraction / 2.0
+                idx = int(np.argmin(np.abs(tau_np - target)))
+                oh = np.zeros(n, dtype=np.float64)
+                oh[idx] = 1.0
+                cvar_w = torch.tensor(oh, dtype=torch.float32, device=device)
+                mode_name = "midpoint_var1q"
+            elif cvar_soft_ratio > 0.0:
+                cvar_w = _compute_soft_step_cvar_weights(
                     tau, weights, risk_fraction, cvar_soft_ratio)
-                if cvar_soft_ratio > 0.0
-                else _compute_cvar_weights(tau, weights, risk_fraction)
-            )
+                mode_name = "midpoint_softcvar"
+            else:
+                cvar_w = _compute_cvar_weights(tau, weights, risk_fraction)
+                mode_name = "midpoint"
         else:
             cvar_w = None
+            mode_name = "midpoint"
         # mean_weights and predictor_weights are uniform 1/n; share the
         # tensor since these are read-only quadrature constants.
         return QuantileScheme(
@@ -291,7 +311,7 @@ def build_scheme(
             num_predicted=n,
             fixed_lo=None,
             fixed_hi=None,
-            mode="midpoint_softcvar" if cvar_soft_ratio > 0.0 else "midpoint",
+            mode=mode_name,
         )
 
     if mode == "gauss_legendre":
