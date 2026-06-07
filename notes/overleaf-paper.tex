@@ -17,11 +17,15 @@
 \begin{document}
 
 \title{Risk-Aware Distributional Reinforcement Learning\\for 5G-Advanced Handover Decisions}
+\author{\IEEEauthorblockN{Gerard Grau Garcia, Marga Cabrera Bean, Josep Vidal,
+and Ainna Yue Moreno-Locubiche }
+\IEEEauthorblockA{gerard.grau.garcia@estudiantat.upc.edu, \{marga.cabrera, josep.vidal, ainna.yue.moreno\}@upc.edu}
+\textit{Dept.\ of Signal Theory and Communications} ---\textit{Universitat Politècnica de Catalunya (UPC)}}
 
-\author{\IEEEauthorblockN{Gerard Grau Garcia %,Marga Cabrera-Bean, Josep Vidal, Ainna Yue Moreno-Locubiche%
-}
-\IEEEauthorblockA{\textit{\textsuperscript{$\star$}Dept. of Signal Theory and Communications, Universitat Politècnica de Catalunya - BarcelonaTech (UPC), Spain}   \\
-{gerard.grau.garcia@estudiantat.upc.edu}}
+%\author{\IEEEauthorblockN{Gerard Grau Garcia %,Marga Cabrera-Bean, Josep Vidal, Ainna Yue Moreno-Locubiche%
+%}
+%\IEEEauthorblockA{\textit{\textsuperscript{$\star$}Dept. of Signal Theory and Communications, Universitat Politècnica de Catalunya - BarcelonaTech %(UPC), Spain}   \\
+%{gerard.grau.garcia@estudiantat.upc.edu}}
 %\and
 %\IEEEauthorblockN{2\textsuperscript{nd} Given Name Surname}
 %\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
@@ -34,7 +38,7 @@
 %\textit{name of organization (of Aff.)}\\
 %City, Country \\
 %email address or ORCID}
-}
+%}
 
 \maketitle
 
@@ -65,6 +69,7 @@ baseline in capacity, reliability and handover failures.
 Distributional reinforcement learning, Quantile regression, Risk-sensitive control, 5G NR, Lower-layer triggered mobility,
 Handover optimization.
 \end{IEEEkeywords}
+
 
 % =====================================================================
 \section{Introduction}
@@ -288,7 +293,6 @@ aggregated value used for action selection,
 \;\approx\; \sum_{i=1}^{N} w_i\,\theta_i(x,a),
 \label{eq:expectation}
 \end{equation}
-
 is a finite-sample quadrature with weights $w_i\ge 0$, $\sum_i w_i = 1$; the pair
 $(\tau_i,w_i)$ defines the \emph{quantile scheme}, and the midpoint choice is the
 midpoint Riemann sum for $\int_0^1 F^{-1}(\tau)\,d\tau$. Risk sensitivity is
@@ -306,7 +310,6 @@ Huber function with threshold $\kappa$ as
 \kappa\big(|u|-\tfrac12\kappa\big), & |u|>\kappa,
 \end{cases}
 \end{equation}
-
 the quantile-Huber penalty at fraction $\tau$ is
 
 \begin{equation}
@@ -314,7 +317,6 @@ the quantile-Huber penalty at fraction $\tau$ is
 \mathcal{H}_\kappa(u),
 \label{eq:pinball}
 \end{equation}
-
 and the per-transition loss sums the pairwise temporal-difference errors between
 each of the $N$ predicted quantiles and each of the $N$ target quantiles
 $y_j = r + \gamma\,\theta_j\!\big(x',a^\star\big)$,
@@ -324,7 +326,6 @@ $y_j = r + \gamma\,\theta_j\!\big(x',a^\star\big)$,
    \rho^{\kappa}_{\tau_i}\!\big(y_j - \theta_i(x,a)\big),
 \label{eq:qr-loss}
 \end{equation}
-
 with $a^\star$ the greedy action under the aggregated value~\eqref{eq:expectation}.
 Equation~\eqref{eq:qr-loss} is best read as a sum of independent per-quantile
 regressions. Ideally each prediction $\theta_i(x,a)$ would be fit to its
@@ -808,6 +809,7 @@ Finally, it remains to confirm that the distributional and quantile-placement
 findings transfer to standard finite-action RL benchmarks such as the Atari~2600
 suite.
 
+
 % =====================================================================
 \section{Conclusion}
 \label{sec:conclusion}
@@ -818,7 +820,7 @@ raises capacity and reliability at equal reward per decision. Second, making the
 policy risk-averse with a CVaR criterion drives the failure tails down further,
 trading a small, controllable amount of reward for reliability along a monotone
 risk dial with a knee near $\alpha=0.25$. The most effective realization is the
-single dedicated quantile (RA-1q): trained and acting on one tail quantile, it
+single, dedicated quantile (RA-1q): trained and acting on one tail quantile, it
 attains the lowest handover, ping-pong and failure rates of any learned
 agent---cutting DQN's handover-failure rate by $40\%$---at the output size and
 inference cost of scalar DQN. Against our hand-tuned LTM baseline in the same
@@ -829,15 +831,13 @@ reservation. For the lower tail that governs handover reliability, one well-plac
 quantile is enough---``learn what you act on.''
 
 % =====================================================================
-\section*{Acknowledgment}
+\section*{Acknowledgments}
 Thanks to my tutors Josep Vidal Manzano and Marga Cabrera Bean, for the mentoring and guidance on this paper.
-Also many thanks to Ainna Yue Moreno, for providing the code necessary to perform the simulation on the LTM, and to help me debug the simulation.
-
-\PLACEHOLDER{Funding and acknowledgements.}
+Also many thanks to Ainna Yue Moreno Locubiche, for providing the code necessary to perform the simulation on the LTM, and to help me debug the simulation.
 
 % =====================================================================
 \begin{thebibliography}{00}
-\bibitem{cmab_ho} A. Y. Moreno-Locubiche \emph{et al.}, ``Contextual bandits and reconfigurable intelligent surfaces for predictive LTM handover decisions,'' \PLACEHOLDER{venue, year, pages}.
+\bibitem{cmab_ho} A. Y. Moreno-Locubiche \emph{et al.}, ``Contextual bandits and reconfigurable intelligent surfaces for predictive LTM handover decisions,'' in \emph{Proc. ICC}, 2026.
 \bibitem{c51} M. G. Bellemare, W. Dabney, and R. Munos, ``A distributional perspective on reinforcement learning,'' in \emph{Proc. ICML}, 2017.
 \bibitem{qrdqn} W. Dabney, M. Rowland, M. G. Bellemare, and R. Munos, ``Distributional reinforcement learning with quantile regression,'' in \emph{Proc. AAAI}, 2018.
 \bibitem{iqn} W. Dabney, G. Ostrovski, D. Silver, and R. Munos, ``Implicit quantile networks for distributional reinforcement learning,'' in \emph{Proc. ICML}, 2018.
