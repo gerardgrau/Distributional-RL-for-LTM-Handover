@@ -84,7 +84,7 @@ def generate_plots():
 
     # Canonical KPI order, used across every table and plot in the paper:
     # benefits (higher is better) -> mobility outcomes by increasing severity
-    # -> resource cost. See notes/paper-revision-todo.md.
+    # -> resource cost. See notes/planning/paper-revision-todo.md.
     metrics_to_plot = [
         "reward", "capacity_avg", "reliability_pct",
         "ho_rate", "pp_rate", "hof_rate",
