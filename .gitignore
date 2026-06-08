@@ -25,6 +25,11 @@ __pycache__/
 # Per-run operational logs (overnight queues, parity-check stdout, etc.)
 /logs/
 
+# Presentation-prep figures/animations (local working material, ~77 MB of MP4s).
+# The reproducible source figures live in results/ and paper/; this folder is a
+# curated copy for talks. Remove this line if you want to publish it.
+/figures/
+
 # LaTeX intermediate build artifacts (paper.pdf is tracked; these byproducts are not)
 /paper/*.aux
 /paper/*.log

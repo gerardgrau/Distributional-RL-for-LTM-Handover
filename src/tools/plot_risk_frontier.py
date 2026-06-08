@@ -34,12 +34,13 @@ import numpy as np
 _BENCH = "results/benchmarks"
 _GRID = [0.10, 0.20, 0.25, 0.30, 0.40, 0.50]
 
-# Colours shared across panels.
-_C_Q1 = "#ff7f0e"     # single dedicated quantile
-_C_CVAR = "#d62728"   # hard CVaR (averaged tail)
-_C_SOFT = "#2ca02c"   # soft-step weights
-_C_RN = "#1f77b4"     # risk-neutral anchor
-_C_DQN = "#555555"    # scalar baseline anchor
+# Colours = the reserved per-algorithm palette shared with the head-to-head
+# figures, so each mechanism matches its representative final policy:
+_C_Q1 = "#2ca02c"     # single quantile  -> RA-1q  (green)
+_C_CVAR = "#d9a000"   # hard CVaR        -> RA     (amber)
+_C_SOFT = "#1f77b4"   # soft-step        -> Soft-step (blue)
+_C_RN = "#e41a1c"     # risk-neutral anchor -> RN  (red)
+_C_DQN = "#8c564b"    # scalar baseline anchor -> DQN (brown)
 
 
 def _agg(suffix: str, agent: str = "qrdqn") -> dict[str, float] | None:
