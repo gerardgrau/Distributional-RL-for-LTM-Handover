@@ -544,7 +544,7 @@ its mean improves the scalar baseline at equal reward.
 \textbf{Quantile count for the mean.}
 The improvement comes from the full
 distribution, not from the quantile loss alone. A risk-neutral head reduced to a
-single quantile at $\tau=0.5$ reproduces DQN almost exactly across every metric
+single quantile at $\tau=0.5$ closely reproduces DQN across every metric
 (Table~\ref{tab:dist}, middle column): as Section~\ref{sec:method-risk} notes, a
 lone median quantile trained under the Huber loss recovers essentially the same
 robust value that DQN learns on these near-symmetric returns. The reliability gain
@@ -696,7 +696,7 @@ you act on''---is both the cheapest and the most failure-averse design.
 enough on its own; that quantile must also be the one trained. The converse
 design---learning the full $25$-quantile distribution but selecting on a single
 $\tau=\alpha/2$ quantile---ties RA-1q on reward yet leaves the failure rate
-markedly higher (HOF $0.42$--$0.48$ versus $0.374$ in the $1{,}000$-episode studies), while
+markedly higher (HOF $0.42$--$0.48$ versus RA-1q's $0.374$ in the $1{,}000$-episode studies), while
 fitting $25$ quantiles instead of one costs substantially more to train.
 Concentrating the loss on the single acted quantile is what sharpens the tail.
 
