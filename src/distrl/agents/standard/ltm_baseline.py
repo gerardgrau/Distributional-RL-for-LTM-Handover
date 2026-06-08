@@ -43,7 +43,9 @@ class LTMBaselineAgent:
     def train_step(self, batch: tuple) -> dict[str, float]:
         return {"loss": 0.0}
 
-    def select_action(self, obs: Any, epsilon: float = 0.0) -> int:
+    def select_action(
+        self, obs: Any, epsilon: float = 0.0, valid_mask: Any = None,
+    ) -> int:
         # In high-res callback mode `obs` is the per-tick dict produced
         # by `LTMEnv._get_obs_dict`. The 100ms RL-step path passes the
         # 88-dim observation vector instead, in which case there is no

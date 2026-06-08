@@ -48,6 +48,12 @@ class QRDQNAgent(BaseAgent):
         self.truncate_upper = bool(
             config.get("truncate_upper_quantiles", False)
         )
+        self.dense_truncate = bool(config.get("dense_truncate", False))
+        self.cvar_soft_ratio = float(config.get("cvar_soft_ratio", 0.0))
+        self.single_quantile_action = bool(
+            config.get("single_quantile_action", False)
+        )
+        self.density_ratio = float(config.get("density_ratio", 2.0))
         self.q_min = float(config.get("q_min", 0.0))
         self.q_max = float(config.get("q_max", 50.0))
         self.beta_alpha = float(config.get("beta_alpha", 2.0))
@@ -62,6 +68,10 @@ class QRDQNAgent(BaseAgent):
             risk_type=self.risk_type,
             risk_fraction=self.risk_fraction,
             truncate_upper=self.truncate_upper,
+            dense_truncate=self.dense_truncate,
+            cvar_soft_ratio=self.cvar_soft_ratio,
+            single_quantile_action=self.single_quantile_action,
+            density_ratio=self.density_ratio,
             beta_alpha=self.beta_alpha,
             beta_beta=self.beta_beta,
         )
@@ -105,8 +115,15 @@ class QRDQNAgent(BaseAgent):
             return self.scheme.cvar(predicted)
         return self.scheme.expectation(predicted)
 
-    def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
+    def select_action(
+        self,
+        state: np.ndarray,
+        epsilon: float = 0.0,
+        valid_mask: np.ndarray | None = None,
+    ) -> int:
         if np.random.rand() < epsilon:
+            if valid_mask is not None:
+                return int(np.random.choice(np.flatnonzero(valid_mask)))
             return int(self.action_space.sample())
 
         state_t = torch.as_tensor(
@@ -114,18 +131,25 @@ class QRDQNAgent(BaseAgent):
         ).unsqueeze(0)
         with torch.no_grad():
             predicted = self.q_net(state_t)  # [1, A, num_predicted]
-            q_values = self._action_values(predicted)  # [1, A]
-            return int(q_values.argmax(dim=1).item())
+            q_values = self._action_values(predicted).squeeze(0)  # [A]
+            if valid_mask is not None:
+                m = torch.as_tensor(valid_mask, dtype=torch.bool, device=self.device)
+                q_values = q_values.masked_fill(~m, float("-inf"))
+            return int(q_values.argmax().item())
 
     def train_step(
         self, batch: tuple[torch.Tensor, ...]
     ) -> dict[str, torch.Tensor]:
-        states, actions, rewards, next_states, dones = batch
+        states, actions, rewards, next_states, dones, next_valid_mask = batch
         num_predicted = self.scheme.num_predicted
 
         with torch.no_grad():
             next_predicted = self.target_net(next_states)  # [B, A, P]
-            best_next_actions = self._action_values(next_predicted).argmax(dim=1)
+            next_values = self._action_values(next_predicted)  # [B, A]
+            # Restrict the greedy next action to valid (prepared) targets;
+            # all-True mask (Atari) leaves this unchanged.
+            next_values = next_values.masked_fill(~next_valid_mask, float("-inf"))
+            best_next_actions = next_values.argmax(dim=1)
             best_next_predicted = next_predicted.gather(
                 1,
                 best_next_actions.view(-1, 1, 1).expand(-1, 1, num_predicted),
@@ -194,6 +218,9 @@ class QRDQNAgent(BaseAgent):
                     "risk_type": self.risk_type,
                     "risk_fraction": self.risk_fraction,
                     "truncate_upper": self.truncate_upper,
+                    "cvar_soft_ratio": self.cvar_soft_ratio,
+                    "single_quantile_action": self.single_quantile_action,
+                    "density_ratio": self.density_ratio,
                     "q_min": self.q_min,
                     "q_max": self.q_max,
                     "beta_alpha": self.beta_alpha,

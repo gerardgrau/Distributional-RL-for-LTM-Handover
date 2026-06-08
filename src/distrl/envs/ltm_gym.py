@@ -47,6 +47,15 @@ _TICK_RA = int(np.ceil(Time_RA_10 / Time["TimeStep"]))
 _TICK_CTX_RELEASE = int(np.ceil(Time_ContextRelease_11 / Time["TimeStep"]))
 _TICK_PINGPONG = int(np.floor(Time_PingPong / Time["TimeStep"]))
 
+# Reference inter-decision span (ticks) for the optional time-weighted reward.
+# Each decision's reward is scaled by span/_SPAN_REF so the episode return is
+# the cadence-invariant time-integral of penalized throughput. Set to the
+# empirical mean inter-decision span (~no-gate event-driven) so the average
+# reward magnitude matches the legacy per-decision mean-MCS reward — i.e. the
+# A/B isolates the time-weighting effect, not a reward-scale change. Measured:
+# mean inter-decision span ≈ 44 ticks (no-gate event-driven, random-valid policy).
+_SPAN_REF = 44
+
 _STATE_MAP = {'NORMAL_STEP': 0, 'FIND_CELL': 1, 'HO_DECISION': 2}
 
 
@@ -83,6 +92,36 @@ class LTMEnv(gym.Env):
         self._alpha_ho = float(ho_reward_cfg.get('alpha_ho', 0.8))
         self._alpha_pp = float(ho_reward_cfg.get('alpha_pp', 0.9))
         self._alpha_hof = float(ho_reward_cfg.get('alpha_hof', 0.1))
+
+        # Event-driven RL cadence. When true, env.step advances to the NEXT
+        # HO_DECISION so the agent acts on every handover decision (per-decision
+        # semi-MDP), instead of a fixed 10-cycle (~1 s) bundle. Off by default →
+        # legacy bundled cadence and baseline parity are untouched. Temporary
+        # A/B toggle; hardcode if adopted.
+        self._event_driven = bool(
+            self.config.get('simulation', {}).get('event_driven', False)
+        )
+
+        # Learned-trigger ("no-gate") mode. When true, the agent is offered a
+        # decision at every cycle where >=1 PREPARED cell other than serving
+        # exists (not gated by the +3 dB exec rule), and may execute a handover
+        # to ANY prepared cell — i.e. the RL replaces the +3 dB execution trigger
+        # entirely with its learned value (preparation stays the LTM heuristic;
+        # handovers still restricted to prepared cells). Off by default → the
+        # standard LTM +3 dB trigger gates decisions. Implies event-driven cadence.
+        self._learned_trigger = bool(
+            self.config.get('simulation', {}).get('learned_trigger', False)
+        )
+
+        # Time-weighted reward (A/B). When true, each decision's reward is
+        # scaled by its inter-decision span (in _SPAN_REF units) so the episode
+        # return becomes the cadence-invariant time-integral of penalized
+        # throughput — removing the per-decision-count bias that lets short
+        # (stay) cycles over-accumulate. Off by default → legacy per-decision
+        # mean-MCS reward. The composite_reward METRIC is reported regardless.
+        self._time_weighted_reward = bool(
+            self.config.get('simulation', {}).get('time_weighted_reward', False)
+        )
 
         # Reusable buffer for _get_rl_obs (returned as .copy() each call).
         self._obs_buf = np.empty(88, dtype=np.float32)
@@ -199,6 +238,24 @@ class LTMEnv(gym.Env):
         # copy so consecutive env.step returns don't alias the buffer.
         return buf.copy()
 
+    def valid_action_mask(self) -> np.ndarray:
+        """Boolean [NBS] selection mask: the prepared cells plus the serving
+        cell (stay). The agent restricts its action selection to this set, so
+        it can only target a prepared candidate. The prepared set is used here
+        (rather than the instantaneous +3 dB HO_condition) because it is stable
+        across the 100 ms RL step, whereas HO_condition is re-evaluated every
+        10 ms tick; the +3 dB execution condition is enforced at the true
+        decision tick by the generator's HO gate, so a selected cell that does
+        not meet +3 dB there simply becomes a stay. Always has >= 1 True
+        entry."""
+        mask = self.ListBSPrepared.astype(bool).copy()
+        s = self.ServingBSSector[min(self.t, self.Max_iter - 1)]
+        if s != -1:
+            mask[s] = True
+        if not mask.any():
+            mask[:] = True  # no serving + nothing prepared: action is ignored
+        return mask
+
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
 
@@ -238,64 +295,138 @@ class LTMEnv(gym.Env):
         }
         self.t = 0
         self.serving_tenure = 0
+        self._ep_score_sum = 0.0   # Σ span·(mean-MCS reward) → composite_reward.
+        self._ep_util_sum = 0.0    # Σ span·(MCS·reliability) → util_throughput.
+        self._ep_span_ticks = 0    # Σ span lengths covered by decisions.
+        self._ep_n_decisions = 0   # # decisions (env.step) → per-action mean reward.
         self._ma_last_t = None  # Invalidate the running-MA cache.
 
         self._sim_gen = self._simulation_generator()
         self._last_obs_dict = next(self._sim_gen)
+        if self._event_driven:
+            # Hand the agent its first HO_DECISION, not the initial FIND_CELL.
+            self._skip_to_decision()
         return self._get_rl_obs(), {"metrics": self._get_obs_dict(0)}
 
-    def step(self, action, high_res_callback=None):
-        reward = 0.0
-        terminated = False
-        truncated = False
-        t_start = self._last_obs_dict['t']
+    def _greedy_recovery_action(self, obs_dict: dict) -> int:
+        """Env-side greedy cell (re)acquisition used at FIND_CELL yields."""
+        ch = obs_dict['ChBS2UE_t']
+        if float(np.max(ch)) + System["TxPower"] > ReceiverSensitivity:
+            return int(np.argmax(ch))
+        return -1
 
-        for _ in range(10):
+    def _skip_to_decision(self) -> bool:
+        """Auto-advance the generator through FIND_CELL/NORMAL_STEP yields until
+        it pauses at an HO_DECISION. Returns True if the episode terminated
+        first. Event-driven cadence: the agent only ever sees HO_DECISION states.
+        """
+        while self._last_obs_dict['state_type'] != _STATE_MAP['HO_DECISION']:
+            if self._last_obs_dict['state_type'] == _STATE_MAP['FIND_CELL']:
+                act = self._greedy_recovery_action(self._last_obs_dict)
+            else:  # NORMAL_STEP
+                act = -1
             try:
-                if high_res_callback is not None:
-                    # Baseline-parity mode: callback fires on every tick.
-                    act = high_res_callback(self._last_obs_dict)
-                    self._last_obs_dict = self._sim_gen.send(act)
-                else:
-                    # RL mode: env handles FIND_CELL greedy recovery
-                    # automatically; agent's action is consumed at the
-                    # HO_DECISION yield; NORMAL_STEP yields ignore action.
-                    current_state = self._last_obs_dict['state_type']
-                    if current_state == 1:  # FIND_CELL
-                        ChBS2UE = self._last_obs_dict['ChBS2UE_t']
-                        Pbest = np.max(ChBS2UE)
-                        if Pbest + System["TxPower"] > ReceiverSensitivity:
-                            act = np.argmax(ChBS2UE)
-                        else:
-                            act = -1
-                        self._last_obs_dict = self._sim_gen.send(act)
-                    elif current_state == 2:  # HO_DECISION
-                        self._last_obs_dict = self._sim_gen.send(action)
-                        action = -1
-                    else:  # NORMAL_STEP
-                        self._last_obs_dict = self._sim_gen.send(-1)
+                self._last_obs_dict = self._sim_gen.send(act)
             except StopIteration:
-                terminated = True
-                break
+                return True
+        return False
 
+    def step(self, action, high_res_callback=None):
+        if high_res_callback is not None:
+            return self._step_high_res(high_res_callback)
+        if self._event_driven:
+            return self._step_event_driven(action)
+        return self._step_bundled(action)
+
+    def _finish_step(self, t_start: int, terminated: bool):
+        """Shared tail: reward over [t_start, t_end), obs, info."""
+        reward = 0.0
         if not terminated:
-            # Reward aggregates over [t_start, t_end) rather than the
-            # latest yielded tick — MCS/HO/PP/HOF for tick t are written
-            # at the TOP of the NEXT outer iter, so sampling at the
-            # just-yielded t would read a zero-initialised slot.
+            # Reward aggregates over [t_start, t_end) rather than the latest
+            # yielded tick — MCS/HO/PP/HOF for tick t are written at the TOP of
+            # the NEXT outer iter, so sampling the just-yielded t reads a zero.
             t_end = min(self._last_obs_dict['t'], self.Max_iter)
-            reward = self._compute_step_reward(t_start, t_end)
-
+            canonical, throughput = self._compute_step_reward(t_start, t_end)
+            span = max(t_end - t_start, 1)
+            # Duration-weighted accumulation for the cadence-invariant
+            # composite_reward metric (tracked regardless of the training form).
+            self._ep_score_sum += span * canonical
+            # Throughput-only accumulation (MCS x reliability, no event
+            # multipliers) for the ranking metric U; events are applied by COUNT
+            # (per-min rates) post-hoc, avoiding the duration-weighting quirk.
+            self._ep_util_sum += span * throughput
+            self._ep_span_ticks += span
+            self._ep_n_decisions += 1
+            # Training reward: legacy per-decision mean-MCS, or (flag) the
+            # span-weighted time-integral in _SPAN_REF units.
+            reward = (canonical * span / _SPAN_REF
+                      if self._time_weighted_reward else canonical)
         info = {}
         if terminated:
             info["metrics"] = self._build_metrics_dict()
-        return self._get_rl_obs(), reward, terminated, truncated, info
+        return self._get_rl_obs(), reward, terminated, False, info
 
-    def _compute_step_reward(self, t_start: int, t_end: int) -> float:
+    def _step_high_res(self, high_res_callback):
+        """Baseline-parity cadence: callback fires on every tick, 10-tick bundle."""
+        terminated = False
+        t_start = self._last_obs_dict['t']
+        for _ in range(10):
+            try:
+                act = high_res_callback(self._last_obs_dict)
+                self._last_obs_dict = self._sim_gen.send(act)
+            except StopIteration:
+                terminated = True
+                break
+        return self._finish_step(t_start, terminated)
+
+    def _step_bundled(self, action):
+        """Legacy RL cadence: one action consumed at the first HO_DECISION in a
+        10-cycle bundle; env auto-handles FIND_CELL recovery; NORMAL_STEP ignores
+        action. (Preserved for backward compatibility; off the event-driven path.)
+        """
+        terminated = False
+        t_start = self._last_obs_dict['t']
+        for _ in range(10):
+            try:
+                current_state = self._last_obs_dict['state_type']
+                if current_state == _STATE_MAP['FIND_CELL']:
+                    self._last_obs_dict = self._sim_gen.send(
+                        self._greedy_recovery_action(self._last_obs_dict))
+                elif current_state == _STATE_MAP['HO_DECISION']:
+                    self._last_obs_dict = self._sim_gen.send(action)
+                    action = -1
+                else:  # NORMAL_STEP
+                    self._last_obs_dict = self._sim_gen.send(-1)
+            except StopIteration:
+                terminated = True
+                break
+        return self._finish_step(t_start, terminated)
+
+    def _step_event_driven(self, action):
+        """Per-decision cadence: apply the agent's action to the current
+        HO_DECISION, then advance to the next one (auto-handling recovery /
+        non-decision cycles). Reward accumulates over the inter-decision span."""
+        t_start = self._last_obs_dict['t']
+        terminated = False
+        try:
+            self._last_obs_dict = self._sim_gen.send(action)
+        except StopIteration:
+            terminated = True
+        if not terminated:
+            terminated = self._skip_to_decision()
+        return self._finish_step(t_start, terminated)
+
+    def _compute_step_reward(self, t_start: int, t_end: int) -> tuple[float, float]:
         """Multiplicative-Ainna reward over the simulator tick range
-        [t_start, t_end)."""
+        [t_start, t_end).
+
+        Returns (reward, throughput) where `throughput` = avg_MCS x reliability
+        (the continuous half, WITHOUT the discrete HO/PP/HOF event multipliers).
+        `throughput` feeds the cadence-clean ranking metric U (events applied by
+        count, not duration); `reward` is the full per-decision training reward.
+        """
         if t_end <= t_start:
-            return 0.0
+            return 0.0, 0.0
         avg_mcs = float(self.MCS[t_start:t_end].mean())
         multiplier = 1.0
         if np.any(self.HO_event[t_start:t_end] > 0):
@@ -306,7 +437,8 @@ class LTMEnv(gym.Env):
             multiplier *= self._alpha_hof
         n_oos = self.Sync["out_sync_count"]
         reliability_factor = 1.0 / (1.0 + np.exp(2 * (n_oos - 2)))
-        return avg_mcs * multiplier * reliability_factor
+        throughput = avg_mcs * reliability_factor
+        return throughput * multiplier, throughput
 
     def _simulation_generator(self):
         t = 0
@@ -426,9 +558,32 @@ class LTMEnv(gym.Env):
                 self.ServingBSSector[t] = self.ServingBSSector[t - 1]
             if self.RLF[t]: NextBSSector = -1; continue
 
-            if np.sum(HO_condition) > 0:
+            # Decision gate + execution-eligibility depend on the trigger mode:
+            #  - default (LTM trigger): offer a decision only when a prepared cell
+            #    beats serving by +3 dB (HO_condition); execute only to such cells.
+            #  - learned_trigger (no-gate): offer a decision whenever >=1 prepared
+            #    cell other than serving exists; the agent may execute to ANY
+            #    prepared cell, replacing the +3 dB rule with its learned value.
+            _s = self.ServingBSSector[t]
+            if self._learned_trigger:
+                _cand = self.ListBSPrepared.copy()
+                if _s != -1:
+                    _cand[_s] = 0
+                _gate = bool(_cand.any())
+                _exec_ok = self.ListBSPrepared
+            else:
+                _gate = np.sum(HO_condition) > 0
+                _exec_ok = HO_condition
+
+            if _gate:
                 action = yield self._get_obs_dict(t, 'HO_DECISION', HO_condition, PL1_report)
-                if action != -1:
+                # A handover fires only if the agent picks a non-serving cell that
+                # is execution-eligible: HO_condition (+3 dB) in LTM mode, or any
+                # prepared cell in learned_trigger mode. Any other pick (serving,
+                # or a non-eligible cell) is a stay — no HO event, no alpha_HO.
+                if (action != -1
+                        and action != _s
+                        and _exec_ok[action]):
                     t0 = t
                     self.HO_event[t0] = 1
                     I = action
@@ -485,5 +640,15 @@ class LTMEnv(gym.Env):
             "pp": self.ping_pong,
             "serving": self.ServingBSSector,
             "pl3": self.PL3,
-            "reserved": self.ReservedBSSectors
+            "reserved": self.ReservedBSSectors,
+            # Cadence-invariant time-average of penalized throughput over the
+            # episode's decision spans (same ponderation as the reward). A
+            # comparable scalar across agents/baseline (≠ episode reward sum).
+            "composite_reward": self._ep_score_sum / max(self._ep_span_ticks, 1),
+            # Throughput half of the ranking metric U: time-averaged
+            # MCS×reliability (events excluded). U = util_throughput ×
+            # α_HO^(HO/min)·α_PP^(PP/min)·α_HOF^(HOF/min), computed post-hoc.
+            "util_throughput": self._ep_util_sum / max(self._ep_span_ticks, 1),
+            # Decision count → "reward per action" = reward / n_decisions.
+            "n_decisions": self._ep_n_decisions,
         }

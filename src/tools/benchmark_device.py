@@ -24,7 +24,10 @@ def run_device_benchmark(device_name: str, num_episodes: int = 10):
     # Use simulation time from config to reflect production workload
     env = LTMEnv(config=config)
     agent = QRDQNAgent(agent_config, env.observation_space, env.action_space, device=device_name)
-    buffer = ReplayBuffer(agent_config['buffer_size'], env.observation_space.shape)
+    buffer = ReplayBuffer(
+        agent_config['buffer_size'], env.observation_space.shape,
+        action_dim=env.action_space.n,
+    )
     
     batch_size = agent_config.get('batch_size', 64)
     epsilon = 0.1 # Fixed low epsilon for benchmarking

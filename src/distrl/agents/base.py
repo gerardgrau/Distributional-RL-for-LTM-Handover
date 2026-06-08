@@ -44,13 +44,21 @@ class BaseAgent(ABC):
             target_net.load_state_dict(q_net.state_dict())
 
     @abstractmethod
-    def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:
+    def select_action(
+        self,
+        state: np.ndarray,
+        epsilon: float = 0.0,
+        valid_mask: np.ndarray | None = None,
+    ) -> int:
         """
         Selects an action based on the current state and exploration strategy.
-        
+
         Args:
             state: The current environment state.
             epsilon: The exploration rate (for epsilon-greedy policies).
+            valid_mask: Optional boolean [action_dim] mask; when given, the
+                policy (greedy and epsilon-greedy) is restricted to actions
+                where the mask is True.
         """
         pass
 

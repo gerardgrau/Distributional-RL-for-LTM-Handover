@@ -171,6 +171,26 @@ def _compute_cvar_weights(
     return masked / total
 
 
+def _compute_soft_step_cvar_weights(
+    full_tau: torch.Tensor,
+    full_weights: torch.Tensor,
+    risk_fraction: float,
+    ratio: float,
+) -> torch.Tensor:
+    """Soft two-step distortion weights for action aggregation.
+
+    A finite relaxation of hard CVaR: quantiles at tau <= risk_fraction keep
+    `ratio` times the base mass of those above the cutoff, then the result is
+    renormalized to sum to 1. ratio -> inf recovers hard CVaR_{risk_fraction};
+    ratio == 1 recovers the plain mean (RN). The positions stay uniform (all N
+    quantiles remain active and faithfully trained) -- only the action-time
+    aggregation is distorted, exactly as for the hard-CVaR weights.
+    """
+    below = full_tau <= risk_fraction
+    scaled = torch.where(below, full_weights * ratio, full_weights)
+    return scaled / scaled.sum()
+
+
 def build_scheme(
     mode: str,
     num_quantiles: int,
@@ -181,6 +201,10 @@ def build_scheme(
     risk_type: str = "mean",
     risk_fraction: float = 0.1,
     truncate_upper: bool = False,
+    dense_truncate: bool = False,
+    cvar_soft_ratio: float = 0.0,
+    single_quantile_action: bool = False,
+    density_ratio: float = 2.0,
     beta_alpha: float = 2.0,
     beta_beta: float = 2.0,
 ) -> QuantileScheme:
@@ -200,6 +224,21 @@ def build_scheme(
             risk_type='cvar'), drop the upper (1 - risk_fraction) of the
             quantile grid and place the remaining k = ceil(N * risk_fraction)
             quantiles uniformly in [0, risk_fraction].
+        cvar_soft_ratio: If > 0 (only with mode='midpoint', risk_type='cvar'),
+            replace the hard CVaR mask with a soft two-step distortion that
+            gives quantiles below risk_fraction this multiple of the base mass
+            of those above. 1.0 == plain mean, large == hard CVaR. 0.0 (the
+            default) keeps the hard CVaR mask unchanged.
+        single_quantile_action: If True (only with mode='midpoint',
+            risk_type='cvar'), the FULL midpoint distribution is learned but
+            action selection reads ONLY the single quantile nearest
+            tau = risk_fraction/2 (a VaR-style point criterion). This decouples
+            learning (full distribution -> representation) from acting (one
+            low quantile -> sharp tail focus); choose num_quantiles so that the
+            grid lands exactly on risk_fraction/2 (e.g. N=20 hits 0.125 for
+            risk_fraction=0.25).
+        density_ratio: For mode='step_dense', the ratio of lower-lobe to
+            upper-lobe quantile *density* across the risk_fraction breakpoint.
         beta_alpha, beta_beta: Shape parameters of the Beta distribution used
             to distort tau in 'beta_equal' / 'beta_weighted'. alpha=beta=2.0
             gives a symmetric center-clustered grid (mode at tau=0.5).
@@ -215,7 +254,10 @@ def build_scheme(
                 "truncate_upper_quantiles=True is only supported with "
                 f"quantile_mode='midpoint' (got {mode!r})"
             )
-        k = max(1, int(math.ceil(num_quantiles * risk_fraction)))
+        # dense_truncate: spend ALL N quantiles inside [0, risk_fraction]
+        # (k=N, high-resolution tail) instead of the usual k=ceil(N*rf).
+        k = num_quantiles if dense_truncate else max(
+            1, int(math.ceil(num_quantiles * risk_fraction)))
         tau_np = (np.arange(k) + 0.5) * risk_fraction / k
         w_np = np.full(k, 1.0 / k, dtype=np.float64)
         tau = torch.tensor(tau_np, dtype=torch.float32, device=device)
@@ -230,7 +272,7 @@ def build_scheme(
             num_predicted=k,
             fixed_lo=None,
             fixed_hi=None,
-            mode="midpoint_truncated",
+            mode="midpoint_truncated_dense" if dense_truncate else "midpoint_truncated",
         )
 
     if mode == "midpoint":
@@ -239,11 +281,26 @@ def build_scheme(
         w_np = np.full(n, 1.0 / n, dtype=np.float64)
         tau = torch.tensor(tau_np, dtype=torch.float32, device=device)
         weights = torch.tensor(w_np, dtype=torch.float32, device=device)
-        cvar_w = (
-            _compute_cvar_weights(tau, weights, risk_fraction)
-            if risk_type == "cvar"
-            else None
-        )
+        if risk_type == "cvar":
+            if single_quantile_action:
+                # Learn the full distribution, but act on ONLY the single
+                # quantile nearest tau = risk_fraction/2 (the RA-1q position).
+                target = risk_fraction / 2.0
+                idx = int(np.argmin(np.abs(tau_np - target)))
+                oh = np.zeros(n, dtype=np.float64)
+                oh[idx] = 1.0
+                cvar_w = torch.tensor(oh, dtype=torch.float32, device=device)
+                mode_name = "midpoint_var1q"
+            elif cvar_soft_ratio > 0.0:
+                cvar_w = _compute_soft_step_cvar_weights(
+                    tau, weights, risk_fraction, cvar_soft_ratio)
+                mode_name = "midpoint_softcvar"
+            else:
+                cvar_w = _compute_cvar_weights(tau, weights, risk_fraction)
+                mode_name = "midpoint"
+        else:
+            cvar_w = None
+            mode_name = "midpoint"
         # mean_weights and predictor_weights are uniform 1/n; share the
         # tensor since these are read-only quadrature constants.
         return QuantileScheme(
@@ -254,7 +311,7 @@ def build_scheme(
             num_predicted=n,
             fixed_lo=None,
             fixed_hi=None,
-            mode="midpoint",
+            mode=mode_name,
         )
 
     if mode == "gauss_legendre":
@@ -415,6 +472,44 @@ def build_scheme(
             fixed_lo=None,
             fixed_hi=None,
             mode=mode,
+        )
+
+    if mode == "step_dense":
+        # Risk via *position*: a piecewise-uniform grid that packs the lower
+        # lobe [0, risk_fraction] `density_ratio` times more densely than the
+        # upper lobe, with uniform 1/N weights. Action selection is a plain
+        # mean over this tail-dense grid (cvar_weights stay None -> the agent's
+        # expectation() path is used), so the tail bias is carried entirely by
+        # where the quantiles sit -- the positional dual of midpoint+softcvar.
+        n = num_quantiles
+        a = float(risk_fraction)
+        if not 0.0 < a < 1.0:
+            raise ValueError(
+                f"step_dense requires 0 < risk_fraction < 1 (got {a})"
+            )
+        if density_ratio <= 0.0:
+            raise ValueError(
+                f"step_dense requires density_ratio > 0 (got {density_ratio})"
+            )
+        # n_lo / a = density_ratio * n_hi / (1 - a),  n_lo + n_hi = N.
+        n_lo = int(round(n * density_ratio * a / (density_ratio * a + 1.0 - a)))
+        n_lo = min(max(n_lo, 1), n - 1)
+        n_hi = n - n_lo
+        tau_lo = (np.arange(n_lo) + 0.5) * a / n_lo
+        tau_hi = a + (np.arange(n_hi) + 0.5) * (1.0 - a) / n_hi
+        tau_np = np.concatenate([tau_lo, tau_hi])
+        w_np = np.full(n, 1.0 / n, dtype=np.float64)
+        tau = torch.tensor(tau_np, dtype=torch.float32, device=device)
+        weights = torch.tensor(w_np, dtype=torch.float32, device=device)
+        return QuantileScheme(
+            tau=tau,
+            mean_weights=weights,
+            cvar_weights=None,
+            predictor_weights=weights,
+            num_predicted=n,
+            fixed_lo=None,
+            fixed_hi=None,
+            mode="step_dense",
         )
 
     raise ValueError(f"Unknown quantile_mode: {mode!r}")

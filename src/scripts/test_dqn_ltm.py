@@ -28,7 +28,10 @@ def train_ltm_minimal():
     
     device = "cpu"
     agent = DQNAgent(config, env.observation_space, env.action_space, device=device)
-    buffer = ReplayBuffer(config["buffer_size"], env.observation_space.shape)
+    buffer = ReplayBuffer(
+        config["buffer_size"], env.observation_space.shape,
+        action_dim=env.action_space.n,
+    )
     
     print(f"Starting DQN training on LTM-HO simulation ({device})...")
     
@@ -42,10 +45,12 @@ def train_ltm_minimal():
         done = False
         
         while not done:
-            action = agent.select_action(state, epsilon)
+            mask = env.valid_action_mask()
+            action = agent.select_action(state, epsilon, mask)
             next_state, reward, done, _, _ = env.step(action)
-            
-            buffer.push(state, action, reward, next_state, done)
+
+            buffer.push(state, action, reward, next_state, done,
+                        env.valid_action_mask())
             state = next_state
             episode_reward += reward
             
