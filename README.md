@@ -32,17 +32,14 @@ src/evaluate_model.py
                  Frozen-weight evaluation on all 1000 UEs
 configs/         YAML configs (see configs/README.md)
 data/            Channel-gain dataset (raw .mat + precomputed .npz cache)
-docs/            Reference docs, parity audit notes, future improvements
+docs/            Reference docs, future improvements
 paper/           LaTeX manuscript + its figures (see paper/README.md)
-notes/           Research journal: experiments, studies, meetings, planning
-                 (see notes/README.md)
 results/         All training / eval / animation outputs (see results/README.md)
 ```
 
 For deeper guidance, see:
 - **`CLAUDE.md`** — full architecture overview + canonical commands + parity decisions
 - **`paper/`** — the manuscript this code supports
-- **`notes/planning/tasks.md`** — live to-do list and calibration history
 
 ## Getting started
 

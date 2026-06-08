@@ -13,8 +13,14 @@ __pycache__/
 /.DS_Store
 
 /conductor
-/notes/meeting-notes.md
-/notes/conversation-summary.md
+
+# Local-only material — kept on disk for development, intentionally NOT published.
+# The research journal (meetings, planning, studies, experiment logs) and the
+# collaborator reference code stay private to this working copy.
+/notes/
+/docs/reference/ltm_ho_codi_ainna.py
+/docs/reference/codi_ainna_matlab.txt
+/docs/CMAB for LTM HO.md
 
 # Per-run operational logs (overnight queues, parity-check stdout, etc.)
 /logs/
