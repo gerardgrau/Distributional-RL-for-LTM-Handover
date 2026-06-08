@@ -10,6 +10,7 @@ class ReplayBuffer:
         self,
         max_size: int,
         state_shape: int | tuple[int, ...],
+        action_dim: int,
         action_shape: int | tuple[int, ...] = (1,),
         device: str = "cpu",
         state_dtype: torch.dtype = torch.float32,
@@ -49,6 +50,11 @@ class ReplayBuffer:
         self.reward = alloc((max_size, 1), torch.float32)
         self.next_state = alloc((max_size, *state_shape), state_dtype)
         self.done = alloc((max_size, 1), torch.float32)
+        # Valid-action mask for the NEXT state, used to restrict the
+        # Bellman-target max to LTM-prepared actions. Defaults all-True so
+        # callers that don't mask (e.g. Atari) get standard unmasked targets.
+        self.next_valid_mask = alloc((max_size, action_dim), torch.bool)
+        self.next_valid_mask.fill_(True)
 
     def push(
         self,
@@ -57,8 +63,12 @@ class ReplayBuffer:
         reward: float | torch.Tensor,
         next_state: np.ndarray | torch.Tensor,
         done: bool | torch.Tensor,
+        next_valid_mask: np.ndarray | torch.Tensor | None = None,
     ) -> None:
-        """Add one transition. Writes directly into the preallocated rows."""
+        """Add one transition. Writes directly into the preallocated rows.
+
+        next_valid_mask is the boolean valid-action mask for next_state; if
+        omitted the row stays all-True (no masking)."""
         p = self.ptr
         if isinstance(state, torch.Tensor):
             self.state[p] = state.detach().to(self.storage_device, non_blocking=True)
@@ -76,6 +86,12 @@ class ReplayBuffer:
             float(reward.item()) if isinstance(reward, torch.Tensor) else reward
         )
         self.done[p, 0] = float(done)
+        if next_valid_mask is None:
+            self.next_valid_mask[p] = True
+        else:
+            self.next_valid_mask[p] = torch.as_tensor(
+                next_valid_mask, dtype=torch.bool,
+            )
 
         self.ptr = (p + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
@@ -84,7 +100,7 @@ class ReplayBuffer:
         """Alias for push."""
         self.push(*args, **kwargs)
 
-    def sample(self, batch_size: int, device: str | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def sample(self, batch_size: int, device: str | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Samples a batch of transitions and moves them to the target device.
         """
@@ -100,15 +116,17 @@ class ReplayBuffer:
                 self.action[ind].to(out_device, non_blocking=True),
                 self.reward[ind].to(out_device, non_blocking=True),
                 self.next_state[ind].to(out_device, non_blocking=True),
-                self.done[ind].to(out_device, non_blocking=True)
+                self.done[ind].to(out_device, non_blocking=True),
+                self.next_valid_mask[ind].to(out_device, non_blocking=True),
             )
-        
+
         return (
             self.state[ind],
             self.action[ind],
             self.reward[ind],
             self.next_state[ind],
-            self.done[ind]
+            self.done[ind],
+            self.next_valid_mask[ind],
         )
 
     def __len__(self) -> int:

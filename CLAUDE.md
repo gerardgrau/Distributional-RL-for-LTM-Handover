@@ -20,7 +20,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 ### Training / benchmarks
 ```bash
 # Full benchmark (DQN + QR-DQN, multi-seed, auto eval + plots)
-./venv-RL/bin/python3 src/main.py --config configs/config.yaml --device xpu --description my-run
+./venv-RL/bin/python3 src/main.py --config configs/config.yaml --device cpu --description my-run
 
 # Profiling run with no artifacts
 ./venv-RL/bin/python3 src/main.py --config configs/config.yaml --no_save
@@ -29,7 +29,14 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 ./venv-RL/bin/python3 src/main.py --agents qrdqn --device cpu
 ```
 
-`--device` accepts `cpu`, `cuda`, or `xpu`. XPU (Intel iGPU) is ~41% faster than CPU on this workload because the precomputed dataset removes the CPU's radio-physics bottleneck.
+`--device` accepts `cpu`, `cuda`, or `xpu`. **Use `cpu`.** Because `main.py`
+self-parallelizes seeds across CPU cores and the networks are small MLPs,
+multi-core CPU is substantially faster in wall-clock than the Intel iGPU
+(`xpu`), which cannot parallelize seeds and is dominated by per-op overhead on
+this workload. (Empirically: a 1000-ep × 3-seed `[256,256]` QR-DQN run is
+~50 min on CPU vs **>85 min for a single seed** on XPU; every recent run,
+including all the finals, uses CPU.) The older note that XPU was ~41% faster
+predates the precomputed dataset + seed-parallelism and no longer holds.
 
 ### Single-agent evaluation (frozen weights, ε=0, all 1,000 users)
 ```bash
@@ -127,6 +134,6 @@ Training and final evaluation both use **all 1,000 trajectories** (no train/test
 
 ## Things to double-check before editing
 
-- Changes to `physics.py`, `System["TxPower"]`, `ExecPowerOffset`, or the SINR table affect **paper parity**. The current calibration (see `notes/tasks.md` "Configuració de Paritat Final") follows the paper's Table I / II: `TxPower=25 dBm`, `NoiseLevel=-91 dBm` (= -174 dBm/Hz over 200 MHz), `ExecPowerOffset=3.0 dB`, `MaxNumberPreparedBS=5` (reference code; paper Table II says 4 — the reference wins), 26-step SINR table with Outage < -3 dB, `ChannelBS2UE_noRIS` channels. The canonical reference implementation is `docs/reference/ltm_ho_codi_ainna.py` — when in doubt about a physics constant, match that file rather than the paper's prose. Re-run `src/scripts/verify_simulation_parity.py` after touching any of these.
+- Changes to `physics.py`, `System["TxPower"]`, `ExecPowerOffset`, or the SINR table affect **paper parity**. The current calibration (see `notes/tasks.md` "Configuració de Paritat Final") follows the paper's Table I / II: `TxPower=25 dBm`, `NoiseLevel=-101 dBm` (reference code: -174 dBm/Hz over 20 MHz — the paper's prose implies 200 MHz/-91, but the reference wins, as `physics.py` confirms), `ExecPowerOffset=3.0 dB`, `MaxNumberPreparedBS=5` (reference code; paper Table II says 4 — the reference wins), 26-step SINR table with Outage < -3 dB, `ChannelBS2UE_noRIS` channels. The canonical reference implementation is `docs/reference/ltm_ho_codi_ainna.py` — when in doubt about a physics constant, match that file rather than the paper's prose. Re-run `src/scripts/verify_simulation_parity.py` after touching any of these.
 - Anything that changes the 88-dim state vector breaks all saved `.pth` checkpoints — bump and document.
 - The active calibration target is the published paper LTM numbers; `src/scripts/verify_simulation_parity.py` (LTMBaselineAgent in LTMEnv, 10 ms high-res, 1000 UEs) is the regression net. Gym ↔ legacy_simulation bit-exactness was achieved during the parity audit and is no longer continuously tested — if you change either side, re-run that script and eyeball the numbers against the paper LTM reference printed at the bottom of the run. By default the script is **read-only** (prints only); it overwrites the committed `results/final_metrics/baseline_summary.csv` only when run with `--canonical`, and that refresh must use the full 1000-UE set to stay comparable to `legacy_baseline_summary.csv`.

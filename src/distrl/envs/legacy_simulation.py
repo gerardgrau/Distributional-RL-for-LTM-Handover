@@ -250,7 +250,10 @@ def PerformanceEvaluation(MCS, ServingCell_channel, ping_pong, ReservedBSSectors
     Performance["Number_HO"] = np.sum(HO_event) / Minutes
     Performance["Number_ping_pongs"] = np.sum(ping_pong) / Minutes
     Performance["Reliability"] = 100 - np.mean(MCS == 0) * 100
-    Performance["Number_cell_preparations"] = np.sum((ReservedBSSectors[:, 1:] - ReservedBSSectors[:, :-1]) >= 0) / Minutes
+    # FIX: count only 0->1 entering transitions (Matlab uses > 0). The previous
+    # >= 0 counted every non-decreasing tick (~126k/min); > 0 gives the true
+    # discrete preparation rate (~26/min, matching Ainna's accurate value).
+    Performance["Number_cell_preparations"] = np.sum((ReservedBSSectors[:, 1:] - ReservedBSSectors[:, :-1]) > 0) / Minutes
     Performance["Resource_reservation"] = np.sum(ReservedBSSectors) / ReservedBSSectors.size * 100
     Performance["HOF"] = np.sum(HOF) / Minutes
 
