@@ -549,12 +549,14 @@ single quantile at $\tau=0.5$ reproduces DQN almost exactly across every metric
 lone median quantile trained under the Huber loss recovers essentially the same
 robust value that DQN learns on these near-symmetric returns. The reliability gain
 grows as further quantiles populate the head, with the largest step in the first
-few and diminishing returns afterward: sweeping $N$ at the study setting, the
+few and diminishing returns afterward: sweeping $N$ at the lighter study setting
+($1{,}000$ episodes, three seeds), the
 handover-failure rate falls from $0.64$/min at $N{=}1$ to $0.55$/min by $N{=}3$ and
 eases further to $0.50$/min by $N{=}25$ (handover rate $6.0$, $5.3$, $5.0$/min),
-while the reward per decision stays flat (${\approx}3.66$). The $N{=}25$
-head we carry throughout (Table~\ref{tab:dist}, right column) is therefore also the
-best-performing mean policy, and it supplies the finer tail grid that the CVaR and
+while the reward per decision stays flat (${\approx}3.66$). We therefore carry the
+$N{=}25$ head throughout; at the final $2{,}000$-episode, five-seed setting it
+remains the best-performing mean policy (Table~\ref{tab:dist}, right column), and
+it supplies the finer tail grid that the CVaR and
 soft-step risk studies act on ($k=\lceil\alpha N\rceil$ tail quantiles,
 Section~\ref{sec:results-risk}). The quantiles'
 \emph{placement}, by contrast, is immaterial:
@@ -629,7 +631,7 @@ Section~\ref{sec:results-bridge}.
 ($\alpha=0.5$) to aggressive ($\alpha=0.1$). Greater risk-aversion lowers the
 handover and failure rates at a modest cost in reward, capacity, and link
 reliability; the trade is monotone, with a knee near $\alpha=0.25$. Bold marks the
-best value in each row.}
+best value in each row (ties at the shown precision broken by the unrounded value).}
 \label{tab:alpha}
 \centering
 \begin{tabular}{|l|c|c|c|}
@@ -688,7 +690,7 @@ the final setting it attains the lowest failure rates of any learned agent
 output size and inference cost of scalar DQN, and it trains fastest of all
 ($76$\,min, versus $87$ for DQN and $141$ for the $25$-quantile RN). Committing the
 network's one statistic to the quantile the policy actually consults---``learn what
-you act on''---is both the cheapest and the most reliable design.
+you act on''---is both the cheapest and the most failure-averse design.
 
 \textbf{Training the acted quantile.} Acting on a single tail quantile is not
 enough on its own; that quantile must also be the one trained. The converse
@@ -733,11 +735,11 @@ their reliability and throughput gains while \emph{reducing} control-plane
 mobility, not by trading signaling for reliability.
 
 \textbf{The resource-reservation trade-off.} The one metric on which the
-heuristics lead is resource reservation: the learned agents hold more cells
+LTM baseline leads is resource reservation: the learned agents hold more cells
 reserved ($8.8$ to $9.0\%$, versus $6.4\%$ for LTM and $6.8\%$ for CMAB). Keeping
 more candidates ready is the cost they pay for their lower failure rates;
 preparation rates, by contrast, are comparable across all agents ($24$ to
-$28$/min).
+$28$/min, lowest for CMAB at $24.1$ and RA-1q at $24.7$).
 
 \textbf{Relation to contextual bandits.} The CMAB of~\cite{cmab_ho} addresses
 the \emph{same} decision as our agent: at each opportunity it selects the handover
@@ -758,8 +760,8 @@ cross-simulator caveat above.
 reward per decision is the cross-seed mean $\pm$ standard deviation over
 $2{,}000$ episodes and five seeds (standard deviation across seeds, not a
 confidence interval; each seed is evaluated on all $1{,}000$ trajectories).
-\textbf{LTM}: our hand-tuned baseline. \textbf{CMAB}$^{*}$: the contextual bandits
-of~\cite{cmab_ho}. \textbf{DQN}: scalar baseline. \textbf{RN}: risk-neutral QR-DQN
+\textbf{LTM}: our hand-tuned baseline. \textbf{CMAB}$^{*}$: the contextual
+multi-armed bandit of~\cite{cmab_ho}. \textbf{DQN}: scalar baseline. \textbf{RN}: risk-neutral QR-DQN
 ($N{=}25$). \textbf{Soft-step}: spectral reweighting ($\alpha{=}0.25$, $r{=}2$).
 \textbf{RA-1q}: single dedicated quantile ($\alpha{=}0.25$). The LTM reward per
 decision is measured in our simulator; CMAB reports no reward. Bold marks the best
@@ -849,7 +851,7 @@ agent---cutting DQN's handover-failure rate by $40\%$---at the output size and
 inference cost of scalar DQN. Against our hand-tuned LTM baseline in the same
 simulator it improves every user-facing and safety KPI while issuing \emph{fewer}
 handovers, and it improves on the published contextual-bandit figures on the
-quality KPIs; the only metric on which the heuristics lead is resource
+quality KPIs; the only metric on which the LTM baseline leads is resource
 reservation. For the lower tail that governs handover reliability, one well-placed
 quantile is enough---``learn what you act on.''
 
