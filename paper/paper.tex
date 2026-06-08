@@ -30,7 +30,7 @@ experience. We cast LTM HO as a Markov decision process and study distributional
 reinforcement learning (QR-DQN) with risk-aware action selection. We report two
 separable improvements over scalar DQN. First, the distributional learning target
 alone lowers the handover, ping-pong and failure rates at equal reward per
-decision. Second, a Conditional-Value-at-Risk (CVaR) policy that acts on the lower
+decision. Second, a Conditional Value at Risk (CVaR) policy that acts on the lower
 tail of the return distribution drives the failure tails down further; the degree
 of risk aversion is a single monotone dial that trades a small amount of reward for
 reliability, with a knee at CVaR level $\alpha\approx0.25$. We further show that the
@@ -81,7 +81,7 @@ Our contributions are:\begin{itemize}
   sharpened by adding quantiles, whereas the lower tail is best captured by a
   single dedicated quantile trained and acted on at $\tau=\alpha/2$ (``learn what
   you act on''), which attains the lowest failure rates of any learned agent at the
-  cost of scalar DQN (Section~\ref{sec:results-bridge}).
+  output size and inference cost of scalar DQN (Section~\ref{sec:results-bridge}).
   \item On the 5G LTM benchmark we compare the risk-aware policy against a
   hand-tuned LTM baseline and the contextual
   multi-armed bandit (CMAB) of~\cite{cmab_ho}, improving on both across the
