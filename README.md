@@ -33,13 +33,16 @@ src/evaluate_model.py
 configs/         YAML configs (see configs/README.md)
 data/            Channel-gain dataset (raw .mat + precomputed .npz cache)
 docs/            Reference docs, parity audit notes, future improvements
-notes/           Working notes — task list, meeting notes (see notes/README.md)
+paper/           LaTeX manuscript + its figures (see paper/README.md)
+notes/           Research journal: experiments, studies, meetings, planning
+                 (see notes/README.md)
 results/         All training / eval / animation outputs (see results/README.md)
 ```
 
 For deeper guidance, see:
 - **`CLAUDE.md`** — full architecture overview + canonical commands + parity decisions
-- **`notes/tasks.md`** — live to-do list and calibration history
+- **`paper/`** — the manuscript this code supports
+- **`notes/planning/tasks.md`** — live to-do list and calibration history
 
 ## Getting started
 
@@ -57,7 +60,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 # 4. Run a benchmark (DQN + QR-DQN, multi-seed, auto eval + plots)
 ./venv-RL/bin/python3 src/main.py \
     --config configs/config.yaml \
-    --device xpu \
+    --device cpu \
     --description my-run
 ```
 
@@ -71,9 +74,18 @@ The env is heavily optimized for research-scale iteration:
   active physics constants)
 - Vectorized SINR / MCS / HOF math in `src/distrl/envs/physics.py`
 - O(1) moving-average state computations
-- ~1.5 s/episode on Intel XPU (≈ 41 % faster than CPU since the precomputed
-  cache removes the radio-physics bottleneck)
+
+Use `--device cpu`: `main.py` parallelizes seeds across CPU cores, and because
+the networks are small MLPs this is substantially faster in wall-clock than the
+single-seed Intel iGPU (`xpu`) path on this workload. See `CLAUDE.md` for the
+measured comparison.
+
+## Paper
+
+This repository accompanies the manuscript **"Risk-Aware Distributional
+Reinforcement Learning for 5G-Advanced Handover Decisions"** (G. Grau Garcia).
+The LaTeX source and figures are in [`paper/`](paper/).
 
 ## License
 
-MIT — see the `LICENSE` file.
+MIT — see the [`LICENSE`](LICENSE) file.

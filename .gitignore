@@ -19,11 +19,11 @@ __pycache__/
 # Per-run operational logs (overnight queues, parity-check stdout, etc.)
 /logs/
 
-# LaTeX build artifacts (the manuscript source is paper.tex; PDFs/aux are built)
-/notes/*.aux
-/notes/*.log
-/notes/*.out
-/notes/*.bbl
-/notes/*.blg
-/notes/*.synctex.gz
-/notes/paper.pdf
+# LaTeX build artifacts (the manuscript source is paper/paper.tex; PDFs/aux are built)
+/paper/*.aux
+/paper/*.log
+/paper/*.out
+/paper/*.bbl
+/paper/*.blg
+/paper/*.synctex.gz
+/paper/*.pdf
