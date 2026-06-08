@@ -18,44 +18,43 @@ def generate_plots():
     results_dir = "results/final_metrics"
     
     # --- 1. Define the Fixed Order and Mapping ---
-    # File Key -> Nice Label
+    # File Key -> Nice Label. The roster mirrors the paper's final table
+    # (tab:final): the four learned agents, then the two references. "LTM" is
+    # our own hand-tuned baseline run in our simulator (the paper's "LTM"
+    # column); "CMAB" is the published contextual bandit of [cmab_ho].
     mapping = {
-        "paper_ltm": "LTM",
-        "paper_ltm_cmab": "LTM-CMAB",
-        "baseline_summary": "Baseline (Ours)",
-        "dqn_summary": "DQN (Ours)",
-        "qrdqn_riskneutral_summary": "QR-DQN-RN (Ours)",
-        "qrdqn_summary": "QR-DQN-RA (Ours)"
+        "dqn_summary": "DQN",
+        "qrdqn_riskneutral_summary": "RN",
+        "qrdqn_softstep_summary": "Soft-step",
+        "qrdqn_summary": "RA-1q",
+        "ltm_ours_summary": "LTM",
+        "paper_ltm_cmab": "CMAB",
     }
 
-    # Colour encodes the algorithm family; hatch encodes the data source.
-    # The LTM heuristic appears twice -- the paper's published numbers and our
-    # own simulator -- so both are shades of blue to show they are the same
-    # baseline (and indeed they nearly coincide). Our second, legacy reference
-    # simulator is omitted: it is metric-identical to "Baseline (Ours)" (the
-    # parity audit drove them bit-for-bit), so plotting both is redundant; we
-    # keep "Baseline (Ours)" because it also carries the RL reward. LTM-CMAB is
-    # the paper's contextual-bandit variant (grey); the three learned agents
-    # share a red family. Paper-sourced bars carry a diagonal hatch so
-    # literature values stay distinguishable from our own runs. The order keeps
-    # the blue LTM family contiguous.
+    # Colour encodes the algorithm family; hatch encodes the data source. The
+    # four learned agents share a red family, lightest (DQN) to darkest (RA-1q),
+    # so the risk gradient reads off the shade. LTM is our own baseline measured
+    # in our simulator (blue, solid); CMAB is reproduced from the literature
+    # (grey, hatched), and its figures come from a different simulator.
+    # Order: references first (prior art), then the learned agents by increasing
+    # sophistication, so the eye ends on RA-1q (the risk-aware contribution).
     desired_order = [
-        "LTM", "Baseline (Ours)",                         # LTM heuristic (blue)
-        "LTM-CMAB",                                       # contextual bandit
-        "DQN (Ours)", "QR-DQN-RN (Ours)",                 # learned agents (red)
-        "QR-DQN-RA (Ours)",
+        "LTM",                               # our LTM baseline (blue)
+        "CMAB",                              # published bandit (grey)
+        "DQN", "RN", "Soft-step", "RA-1q",   # learned agents (red, light->dark)
     ]
 
     agent_color = {
-        "LTM": "#6baed6",
-        "Baseline (Ours)": "#08519c",
-        "LTM-CMAB": "#969696",
-        "DQN (Ours)": "#fcae91",
-        "QR-DQN-RN (Ours)": "#fb6a4a",
-        "QR-DQN-RA (Ours)": "#a50f15",
+        "DQN": "#fcae91",        # red, lightest
+        "RN": "#fb6a4a",
+        "Soft-step": "#de2d26",
+        "RA-1q": "#a50f15",      # red, darkest (most risk-averse)
+        "LTM": "#3182bd",        # blue, our baseline
+        "CMAB": "#969696",       # grey, published
     }
-    # Paper-sourced bars get a diagonal hatch; our own measurements are solid.
-    paper_sourced = {"LTM", "LTM-CMAB"}
+    # Literature-sourced bars get a diagonal hatch; our own measurements are
+    # solid. Only CMAB is external now -- the LTM bar is our own simulator.
+    paper_sourced = {"CMAB"}
     agent_hatch = {a: ("///" if a in paper_sourced else "") for a in desired_order}
     
     all_data = {}
@@ -83,14 +82,17 @@ def generate_plots():
     data = data.reindex(desired_order)
     agents = desired_order
 
+    # Canonical KPI order, used across every table and plot in the paper:
+    # benefits (higher is better) -> mobility outcomes by increasing severity
+    # -> resource cost. See notes/paper-revision-todo.md.
     metrics_to_plot = [
-        "ho_rate", "hof_rate", "pp_rate",
-        "capacity_avg", "rlf_rate", "reliability_pct",
-        "prep_rate", "res_reservation_pct", "reward"
+        "reward", "capacity_avg", "reliability_pct",
+        "ho_rate", "pp_rate", "hof_rate",
+        "rlf_rate", "prep_rate", "res_reservation_pct"
     ]
 
     nice_names = {
-        "reward": "Total Reward",
+        "reward": "Reward / Decision",
         "capacity_avg": "Capacity (bps/Hz)",
         "rlf_rate": "RLF Rate (/min)",
         "hof_rate": "HOF Rate (/min)",
@@ -109,12 +111,9 @@ def generate_plots():
     fig, axes = plt.subplots(3, 3, figsize=(22, 18))
     axes = axes.flatten()
 
-    # Broken-y-axis configuration: (ymin, ymax). NaN ymax = autoscale upper.
-    broken_ylim = {
-        "reward": (800.0, None),
-        "capacity_avg": (2.0, None),
-        "reliability_pct": (80.0, 100.0),
-    }
+    # Every panel starts at zero -- no broken axes. (The reward row in the
+    # final_metrics CSVs is the mean reward PER DECISION, not the total.)
+    broken_ylim: dict[str, tuple[float, float | None]] = {}
 
     def _draw_axis_break(ax_) -> None:
         """Flag a broken (non-zero-anchored) y-axis with a visible indicator.
@@ -186,6 +185,9 @@ def generate_plots():
                 ha='center', va='bottom', fontsize=9, fontweight='bold',
             )
 
+        # (The reward panel's data-source note lives in the figure caption,
+        # not inside the axes.)
+
         # Broken y-axis: clip the visible range and mark the break visually
         if metric in broken_ylim:
             ymin, ymax = broken_ylim[metric]
@@ -194,18 +196,18 @@ def generate_plots():
 
     # Figure-level legend: colour encodes the algorithm family, the hatched
     # swatch explains that paper-sourced bars are striped.
+    # CMAB is the only literature-sourced (hatched) bar, so its grey-hatched
+    # swatch doubles as the "published" key -- no separate hatch entry needed.
     legend_handles = [
         Patch(facecolor="#3182bd", edgecolor='black', alpha=0.8,
-              label="LTM heuristic"),
-        Patch(facecolor="#969696", edgecolor='black', alpha=0.8,
-              label="LTM-CMAB"),
+              label="LTM baseline (our simulator)"),
+        Patch(facecolor="#969696", edgecolor='black', alpha=0.8, hatch='///',
+              label="CMAB (published)"),
         Patch(facecolor="#de2d26", edgecolor='black', alpha=0.8,
               label="Learned RL agents (ours)"),
-        Patch(facecolor="white", edgecolor='black', hatch='///',
-              label="Published (paper)"),
     ]
     fig.legend(
-        handles=legend_handles, loc='lower center', ncol=4,
+        handles=legend_handles, loc='lower center', ncol=3,
         fontsize=15, frameon=True, bbox_to_anchor=(0.5, 0.012),
     )
 
@@ -219,7 +221,9 @@ def generate_plots():
 
     # --- 3. CONSOLIDATED RADAR CHART ---
     print("Generating master radial chart...")
-    radar_labels = ["Capacity", "Reliability", "RLF (Inv)", "HOF (Inv)", "HO Stability", "PP Stability"]
+    # Canonical order (radar omits reward / prep / reservation):
+    # benefits -> mobility outcomes by increasing severity.
+    radar_labels = ["Capacity", "Reliability", "HO Stability", "PP Stability", "HOF (Inv)", "RLF (Inv)"]
     radar_df = pd.DataFrame(index=agents, columns=radar_labels)
     
     for agent in agents:
@@ -259,5 +263,89 @@ def generate_plots():
     plt.close()
     print(f"  Saved {radar_path}")
 
+def generate_single_column_bars():
+    """Column-width variant of the master bar plot (single IEEE text column).
+
+    Re-tuned for ~3.4 in print width: a 5x2 portrait grid rendered at near
+    print size (so fonts stay legible under `width=\\columnwidth`), no per-bar
+    value labels (exact values live in tab:final), and a compact legend placed
+    in the spare 10th panel. All panels start at zero.
+    """
+    results_dir = "results/final_metrics"
+    mapping = {
+        "ltm_ours_summary": "LTM",
+        "paper_ltm_cmab": "CMAB",
+        "dqn_summary": "DQN",
+        "qrdqn_riskneutral_summary": "RN",
+        "qrdqn_softstep_summary": "Soft-step",
+        "qrdqn_summary": "RA-1q",
+    }
+    order = ["LTM", "CMAB", "DQN", "RN", "Soft-step", "RA-1q"]
+    color = {"DQN": "#fcae91", "RN": "#fb6a4a", "Soft-step": "#de2d26",
+             "RA-1q": "#a50f15", "LTM": "#3182bd", "CMAB": "#969696"}
+    hatches = ["///" if a == "CMAB" else "" for a in order]
+
+    all_data = {}
+    for f in glob.glob(os.path.join(results_dir, "*.csv")):
+        key = os.path.basename(f).replace(".csv", "")
+        if key in mapping:
+            s = load_summary(f)
+            if s is not None:
+                all_data[mapping[key]] = s
+    data = pd.DataFrame(all_data).transpose().reindex(order)
+
+    metrics = ["reward", "capacity_avg", "reliability_pct",
+               "ho_rate", "pp_rate", "hof_rate",
+               "rlf_rate", "prep_rate", "res_reservation_pct"]
+    nice = {
+        "reward": "Reward / Decision", "capacity_avg": "Capacity (bps/Hz)",
+        "reliability_pct": "Reliability (%)", "ho_rate": "HO (/min)",
+        "pp_rate": "PP (/min)", "hof_rate": "HOF (/min)",
+        "rlf_rate": "RLF (/min)", "prep_rate": "Preparations (/min)",
+        "res_reservation_pct": "Res. Reservation (%)",
+    }
+
+    x = np.arange(len(order))
+    colors = [color[a] for a in order]
+
+    # Rendered at ~print size so width=\columnwidth needs no down-scaling.
+    fig, axes = plt.subplots(5, 2, figsize=(3.5, 5.4))
+    axes = axes.flatten()
+    for idx, metric in enumerate(metrics):
+        ax = axes[idx]
+        vals = data[metric].reindex(order).values
+        bars = ax.bar(x, vals, color=colors, alpha=0.85,
+                      edgecolor="black", linewidth=0.5)
+        for b, h in zip(bars, hatches):
+            if h:
+                b.set_hatch(h)
+        ax.set_title(nice[metric], fontsize=6.5, fontweight="bold", pad=2)
+        ax.set_xticks(x)
+        ax.set_xticklabels(order, rotation=45, ha="right", fontsize=5.5)
+        ax.tick_params(axis="y", labelsize=5.5, pad=1)
+        ax.grid(axis="y", linestyle="--", alpha=0.3, linewidth=0.4)
+        ax.set_xlim(-0.6, len(order) - 0.4)
+
+    # Compact legend in the spare 10th panel.
+    legend_handles = [
+        Patch(facecolor="#3182bd", edgecolor="black", alpha=0.85,
+              label="LTM baseline (our simulator)"),
+        Patch(facecolor="#969696", edgecolor="black", alpha=0.85, hatch="///",
+              label="CMAB (published)"),
+        Patch(facecolor="#de2d26", edgecolor="black", alpha=0.85,
+              label="Learned RL agents (ours)"),
+    ]
+    axes[9].axis("off")
+    axes[9].legend(handles=legend_handles, loc="center", fontsize=6.0,
+                   frameon=True, handlelength=1.4, borderpad=0.6)
+
+    fig.tight_layout(h_pad=0.3, w_pad=0.8)
+    out = os.path.join(results_dir, "master_bar_plots_1col.png")
+    fig.savefig(out, dpi=400, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved {out}")
+
+
 if __name__ == "__main__":
     generate_plots()
+    generate_single_column_bars()

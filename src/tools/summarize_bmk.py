@@ -18,7 +18,7 @@ import pandas as pd
 _EVAL_RE = re.compile(r"^(?P<agent>.+)_summary_seed(?P<seed>\d+)\.csv$")
 _METRICS = [
     "reward", "capacity_avg", "reliability_pct",
-    "hof_rate", "pp_rate", "rlf_rate", "ho_rate",
+    "ho_rate", "pp_rate", "hof_rate", "rlf_rate",
 ]
 
 
