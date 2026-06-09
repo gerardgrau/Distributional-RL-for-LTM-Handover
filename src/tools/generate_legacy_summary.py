@@ -29,7 +29,7 @@ def generate_legacy_csv():
         res = perf["Resource_reservation"]
         hof = perf["HOF"]
         
-        # Derivació prep_rate:
+        # prep_rate derivation:
         # Resource_reservation = (np.sum(ReservedBSSectors) / (NBS * Max_iter)) * 100
         # prep_rate = (np.sum(ReservedBSSectors) / 10.0) / minutes
         sum_reserved = (res / 100.0) * NBS * Max_iter

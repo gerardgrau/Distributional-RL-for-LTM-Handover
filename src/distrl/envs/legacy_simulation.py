@@ -7,7 +7,7 @@ from typing import Any
 
 ChannelDirectory = "data/ChannelGains"
 
-# Buscar todos los archivos
+# Find all files
 files = glob.glob(os.path.join(ChannelDirectory, "ChannelGainBSUE_User*.mat"))
 
 UE_Number = len(files)
@@ -16,17 +16,17 @@ UE_Number = len(files)
 print(f"Detected {len(files)} UE channel files. Simulating {UE_Number} UEs.")
 
 # ============================================================
-# CONFIGURACIÓN POR DEFECTO
+# DEFAULT CONFIGURATION
 # ============================================================
 
 ReceiverSensitivity = -95
 
-# Parámetros del sistema
+# System parameters
 System = {
     "TxPower": 25,  # dBm
-    # Al paper està a 25
+    # The paper uses 25
     "NoiseLevel": -174 + 10 * np.log10(20*1e6),  # dBm
-    # ! He afegit els 20 MHz de la bandwidth
+    # Added the 20 MHz bandwidth
     
     "SINRThreshold": np.array([
         -np.inf, -3, -2, 0, 2, 4, 6, 7, 10, 12, 14, 16, 20, 
@@ -37,7 +37,7 @@ System = {
         2.40, 2.92, 3.40, 3.60, 4.14, 4.74, 5.28, 5.58, 5.7, 
         5.85, 5.92, 6.64, 7.12, 7.44, 7.50, 8.30, 9.30
     ])
-    # ! Els bons són els primers
+    # The valid entries are the first ones
 
     # "SINRThreshold": np.array([
     #     -np.inf, -6.5, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.5, 10.5, 
@@ -47,18 +47,18 @@ System = {
     #     0, 0.15, 0.23, 0.38, 0.60, 0.88, 1.18, 1.48, 1.91, 2.41, 
     #     2.73, 3.32, 3.90, 4.52, 5.12, 5.55
     # ])
-    # ! Aquests últims NO són els bons
+    # These last entries are NOT the valid ones
 }
 
-# Parámetros temporales
+# Time parameters
 Time = {
     "TotalSimTime": 60,         # 60 segundos
     "TimeStep": 10e-3           # 1 ms
 }
 
-# Parámetros de BS
-BS = {"Number": 7}  # 20 BS (CANVIAR A 7 SI ES FA SERVIR LES CEL·LES HEXAGONALS)
-NBS = BS["Number"] * 3  # 3 sectores por BS
+# BS parameters
+BS = {"Number": 7}  # set to 7 for the hexagonal-cell layout
+NBS = BS["Number"] * 3  # 3 sectors per BS
 HO = {}
 
 # HO["Prep"] = {
@@ -79,10 +79,10 @@ HO["Prep"] = {
     "PreparationPowerOffset": -3,             # dB
     "PreparationTime": 40e-3,                 # 40 ms
     "ExecPowerOffset": 3,                     # dB
-    "MaxNumberPreparedBS": 5                  # Tutor explicit instruction (2026-05-19)
+    "MaxNumberPreparedBS": 5                  # reference value (see CLAUDE.md parity notes)
 }
 HO["Prep"]["alphaIIRfilter"] = 2 ** (-HO["Prep"]["kL3"] / 4)      # 2^(-kL3/4)
-# ! Confirmat: aquests de baix també
+# Confirmed against the reference (the constants below too)
 
 # Time variables
 Time_PingPong = 1 # Ping-pong event: HO is successful, but UE HO to previous cell within 1 second
@@ -175,7 +175,7 @@ def MCSEvaluation(serving_sector, channels, System, Sync):
     #     print(f"MCS: {MCS:.2f}, SNIR: {SNIR:.2f} dB, ICIC: {'ON' if icic_on else 'OFF'}, idx={idx}")
 
     # print(f"SNIR (dB): {SNIR:.2f}, MCS: {MCS:.2f}")
-    # Sincronización
+    # Synchronization
     if SNIR <= 0:
         Sync["out_sync_count"] += 1
         Sync["in_sync_count"] = 0
@@ -277,8 +277,8 @@ def run_simulation():
         np.random.seed(42 + indUE + 1)
         filename = os.path.join(ChannelDirectory, f"ChannelGainBSUE_User{indUE+1}.mat")
         mat_data = loadmat(filename)
-        # Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectores)
-        Channel = mat_data['ChannelBS2UE_noRIS'] # shape = (T, BS, sectores) # ! Fan servir aquest pels gràfics
+        # Channel = mat_data['ChannelBS2UE'] # shape = (T, BS, sectors)
+        Channel = mat_data['ChannelBS2UE_noRIS'] # shape = (T, BS, sectors) # the reference uses this channel for its figures
 
         NBS = BS["Number"] * 3
         ChBS2UE = np.zeros((NBS, Channel.shape[0]))
@@ -304,7 +304,7 @@ def run_simulation():
         PL1 = np.repeat(L1, M, axis=1)[:, :ChBS2UE.shape[1]] # PL1 = RSRP filtrat
         PL3 = np.repeat(L3, M, axis=1)[:, :ChBS2UE.shape[1]] # PL3 = PL1 filtrat
 
-        # Inicialización de métricas
+        # Metric initialization
         # ServingBSSector = np.zeros(Max_iter, dtype=int)
         # Initialize an array of length Max_iter filled with -1
         ServingBSSector = np.full(Max_iter, -1, dtype=int)
@@ -341,7 +341,6 @@ def run_simulation():
             # print(f"sample={t}, ServingBSSector={ServingBSSector[t]}")
             if ServingBSSector[t] >= 0 and not RLF[t]:
                 # cell search
-                # ! 
 
                 MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
                 if RLF[t]:
@@ -364,7 +363,7 @@ def run_simulation():
                     if MCS[t] == 0:
                         NextBSSector = -1
                     else:
-                        # Resetear contadores de sincronización al cambiar de célula
+                        # Reset synchronization counters on cell change
                         Sync["out_sync_count"] = 0
                         Sync["in_sync_count"] = 0
                         Sync["t310_running"] = False
@@ -377,7 +376,7 @@ def run_simulation():
             # Serving sector at current time
             ServingBSSector[t] = NextBSSector
 
-            # Métricas
+            # Metrics
             ReservedBSSectors[:, t] = ListBSPrepared
             MCS[t], RLF[t], Sync = MCSEvaluation(ServingBSSector[t], ChBS2UE[:, t], System, Sync)
             if RLF[t]:
@@ -430,10 +429,10 @@ def run_simulation():
 
             # Reduce list if too long
             if np.sum(ListBSPrepared) > HO["Prep"]["MaxNumberPreparedBS"]:
-                # Potencia efectiva solo en las preparadas
+                # Effective power only on the prepared cells
                 metric = (10 ** (PL3_report / 10)) * ListBSPrepared
                 I_sorted = np.argsort(metric)[::-1]
-                # Poner a 0 las peores
+                # Zero out the weakest ones
                 ListBSPrepared[I_sorted[HO["Prep"]["MaxNumberPreparedBS"]:]] = 0
 
             # 4 & 5. RRC configuration
@@ -458,10 +457,9 @@ def run_simulation():
             PL1_report = PL1[:, t]
 
             HO_condition = np.logical_and(
-                ListBSPrepared, # ! TODO: no passa res per no filtrar per prepared
+                ListBSPrepared, # note: not pre-filtering by prepared has no effect here
                 PL1_report > (PL1_report[ServingBSSector[t]] + HO["Prep"]["ExecPowerOffset"])
             )
-            # !
 
             Tf = min(t + int(np.ceil((Time_MeasReportL1_67 + Time_HOdecision_8) / Time["TimeStep"])), Max_iter-1)
             while t < Tf:
@@ -513,14 +511,14 @@ def run_simulation():
                     ReservedBSSectors[:, t0:t + 1] = np.tile(ListBSPrepared.reshape(-1, 1), (1, t - t0 + 1))
                     ListBSPrepared[NextBSSector] = 0
                 else:
-                    NextBSSector = -1  # HOF: conexión perdida
+                    NextBSSector = -1  # HOF: connection lost
 
                 # Ping-pong
                 ping_pong[t0] = (NextBSSector == former_BS) and ((t0 - former_HO_time) < int(np.floor(Time_PingPong / Time["TimeStep"])))
                 former_BS = ServingBSSector[t0]
                 former_HO_time = t0
 
-        # Evaluación final
+        # Final evaluation
         Performance = PerformanceEvaluation(MCS, ServingBSSector, ping_pong, ReservedBSSectors, HOF, HO_event, RLF, Time)
         Performance_all.append(Performance)
 
@@ -537,11 +535,11 @@ def run_simulation():
 
 
 # ============================================================
-# EJECUCIÓN
+# EXECUTION
 # ============================================================
 
 def network_loader(net_file):
-    # Aquí se cargaría la topología de la red, posiciones de BS, etc.
+    # Would load the network topology, BS positions, etc.
     import sumolib.net as net
     net = net.readNet(net_file)
     G = nx.DiGraph()
@@ -554,14 +552,14 @@ def network_loader(net_file):
         x1, y1 = from_node.getCoord()
         x2, y2 = to_node.getCoord()
 
-        # Añadir nodos con posición
+        # Add nodes with position
         G.add_node(from_node.getID(), pos=(x1, y1))
         G.add_node(to_node.getID(), pos=(x2, y2))
 
-        # Añadir edge con longitud
+        # Add edge with length
         G.add_edge(from_node.getID(), to_node.getID(), length=edge.getLength())
 
-    min_x, min_y, max_x, max_y = net.getBoundary()  # también devuelve (min_x, min_y, max_x, max_y)
+    min_x, min_y, max_x, max_y = net.getBoundary()  # also returns (min_x, min_y, max_x, max_y)
     pos = nx.get_node_attributes(G, "pos")
     off_x, off_y = net.getLocationOffset()
     return G, pos, (min_x, min_y, max_x, max_y), off_x, off_y
@@ -573,7 +571,7 @@ if __name__ == "__main__":
     import networkx as nx    
     import pandas as pd
     Performance_all, Metrics = run_simulation()
-    print("Simulación completada.")
+    print("Simulation complete.")
     
     # Minimal check for optional SUMO files
     net_file = "data/SUMO_Network/osm.net.xml"
