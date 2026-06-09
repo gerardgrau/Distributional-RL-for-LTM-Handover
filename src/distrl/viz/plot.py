@@ -156,7 +156,7 @@ def plot_metrics_grid(
     agents = all_data['agent'].unique()
 
     panels = [
-        ("reward",          "Episode reward",        "reward (sum of per-step Ainna)"),
+        ("reward",          "Episode reward",        "reward (sum of per-step rewards)"),
         ("capacity",        "Capacity",              "bps/Hz"),
         ("reliability",     "Reliability",           "%"),
         ("ho_rate",         "HO rate",               "events/min"),

@@ -417,7 +417,7 @@ class LTMEnv(gym.Env):
         return self._finish_step(t_start, terminated)
 
     def _compute_step_reward(self, t_start: int, t_end: int) -> tuple[float, float]:
-        """Multiplicative-Ainna reward over the simulator tick range
+        """Multiplicative reward over the simulator tick range
         [t_start, t_end).
 
         Returns (reward, throughput) where `throughput` = avg_MCS x reliability

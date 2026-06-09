@@ -8,7 +8,7 @@ import numpy as np
 # ============================================================
 # BS LAYOUT CONSTANTS
 # ------------------------------------------------------------
-# Derived from Ainna's MATLAB reference. The 7-site hexagonal
+# Derived from the MATLAB reference. The 7-site hexagonal
 # layout sits inside a 600 m x 600 m area; adjacent BS sites
 # are spaced 200 m apart (InterBSHSpacing). Sector orientation
 # vectors follow the standard 3GPP tri-sector convention
@@ -34,7 +34,7 @@ class MobilityDashboard:
 
     Renders three side-by-side panels:
       * Mobility map with hexagonal cells, sector boresights and antenna
-        patterns (matches Ainna's MATLAB reference plot).
+        patterns (matches the MATLAB reference plot).
       * Real-time RSRP trace per BS (strongest sector).
       * Real-time MCS trace per BS — the spectral efficiency the UE
         would get if connected, i.e. *why* the agent picks one BS over
@@ -333,7 +333,7 @@ class MobilityDashboard:
 # ============================================================
 # BS site / sector orientation defaults
 # ------------------------------------------------------------
-# These match Ainna's MATLAB reference: 7 sites in a hexagonal
+# These match the MATLAB reference: 7 sites in a hexagonal
 # cluster centred at (300, 300) with InterBSHSpacing = 200 m.
 # Sectors share the 3GPP convention (30 deg, 150 deg, 270 deg).
 # Replace via constructor args when a .mat with the exact
