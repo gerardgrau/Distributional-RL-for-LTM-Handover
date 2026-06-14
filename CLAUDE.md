@@ -123,7 +123,7 @@ Stick to the `bmk_YYYY-MM-DD_num_description` naming when creating folders manua
 Training and final evaluation both use **all 1,000 trajectories** (no train/test split). Final evaluation is invoked automatically at the end of each seed in `src/distrl/utils/evaluation.py` with ε=0 and frozen weights. The 8 metrics (Capacity, RLF, HO, PP, Reliability, Prep, ResReservation, HOF) are computed by `src/distrl/utils/metrics.py`; the prep/resource-reservation math is non-trivial and shared between live tracking and retroactive computation.
 
 ### Master comparison
-`results/final_metrics/` aggregates the final summaries from this project (`dqn_summary.csv`, `qrdqn_summary.csv`, `baseline_summary.csv`, `legacy_baseline_summary.csv`) alongside the paper reference numbers (`paper_ltm.csv`, `paper_lmmse.csv`, `paper_ltm_cmab.csv`, `paper_lmmse_cmab.csv`). `src/tools/generate_final_plots.py` consumes that folder to produce the master bar/radial plots.
+`results/final_metrics/` is organized as: the **top level** holds the canonical CSVs only — the final summaries from this project (`dqn_summary.csv`, `qrdqn_summary.csv`, `baseline_summary.csv`, `legacy_baseline_summary.csv`, …) alongside the paper reference numbers (`paper_ltm.csv`, `paper_lmmse.csv`, `paper_ltm_cmab.csv`, `paper_lmmse_cmab.csv`); **`plots/`** holds every generated figure (`master_bar_plots*.png`, `master_radial_plot.png`, `risk_frontier*.png`, the sweep/quantile/atari PNGs, …); **`sweeps/`** holds the archived sweep/study CSVs. `src/tools/generate_final_plots.py` globs the top-level `*.csv` and writes the master bar/radial plots into `plots/`. (All the `src/tools/plot_*.py` figure scripts write into `plots/`; the few sweep-CSV writers write into `sweeps/`.)
 
 ## Conventions
 

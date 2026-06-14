@@ -133,7 +133,7 @@ def main() -> int:
     args = parser.parse_args()
 
     save_path = os.path.join(
-        "results", "final_metrics", f"atari_{args.game}_study.png",
+        "results", "final_metrics", "plots", f"atari_{args.game}_study.png",
     )
     finals = plot_atari(args.game, save_path)
 

@@ -100,7 +100,8 @@ def main() -> None:
     fig.suptitle('CVaR Risk Fraction Sweep (cvar_truncated, N=25, v2 physics)',
                  fontsize=13, y=1.02)
     fig.tight_layout()
-    out = 'results/final_metrics/cvar_alpha_sweep_2026-05-24.png'
+    out = 'results/final_metrics/plots/cvar_alpha_sweep_2026-05-24.png'
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.savefig(out, dpi=120, bbox_inches='tight')
     print(f"Saved {out}")
 

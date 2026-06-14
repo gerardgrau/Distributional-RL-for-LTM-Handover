@@ -94,7 +94,8 @@ def main() -> None:
     ax.legend(loc="lower right", fontsize=9)
     ax.grid(alpha=0.3)
 
-    out = "results/final_metrics/headline_curves_2026-05-24.png"
+    out = "results/final_metrics/plots/headline_curves_2026-05-24.png"
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.tight_layout()
     fig.savefig(out, dpi=130, bbox_inches="tight")
     print(f"Saved {out}")
