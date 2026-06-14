@@ -214,7 +214,9 @@ def generate_plots():
     plt.suptitle("LTM-HO Comparative Analysis: RL Agents vs. State-of-the-Art Baselines", fontsize=24, fontweight='bold', y=0.98)
     plt.tight_layout(rect=[0, 0.05, 1, 0.95])
     
-    bar_path = os.path.join(results_dir, "master_bar_plots.png")
+    plots_dir = os.path.join(results_dir, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+    bar_path = os.path.join(plots_dir, "master_bar_plots.png")
     plt.savefig(bar_path, dpi=300)
     plt.close()
     print(f"  Saved {bar_path}")
@@ -258,7 +260,7 @@ def generate_plots():
     plt.title("Master Performance Profile: Global Comparison", fontsize=20, fontweight='bold', y=1.08)
     plt.legend(loc='upper right', bbox_to_anchor=(1.25, 1.1), fontsize=10)
     
-    radar_path = os.path.join(results_dir, "master_radial_plot.png")
+    radar_path = os.path.join(plots_dir, "master_radial_plot.png")
     plt.savefig(radar_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  Saved {radar_path}")
@@ -340,7 +342,9 @@ def generate_single_column_bars():
                    frameon=True, handlelength=1.4, borderpad=0.6)
 
     fig.tight_layout(h_pad=0.3, w_pad=0.8)
-    out = os.path.join(results_dir, "master_bar_plots_1col.png")
+    plots_dir = os.path.join(results_dir, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+    out = os.path.join(plots_dir, "master_bar_plots_1col.png")
     fig.savefig(out, dpi=400, bbox_inches="tight")
     plt.close()
     print(f"  Saved {out}")

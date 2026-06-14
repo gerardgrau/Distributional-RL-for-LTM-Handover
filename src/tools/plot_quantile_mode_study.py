@@ -5,9 +5,9 @@ Auto-discovers the most recent `bmk_*_qmode_<variant>/` folders under
 
     1. Prints a comparison table to stdout.
     2. Saves a 3x3 grid of bar charts (one per metric) to
-       ``results/final_metrics/quantile_mode_study.png``.
+       ``results/final_metrics/plots/quantile_mode_study.png``.
     3. Optionally appends a row per variant to
-       ``results/final_metrics/quantile_mode_study.csv`` for later
+       ``results/final_metrics/sweeps/quantile_mode_study.csv`` for later
        master-comparison plotting.
 
 Usage:
@@ -224,8 +224,9 @@ def main() -> int:
     print_table(results)
 
     out_dir = os.path.join("results", "final_metrics")
-    plot_grid(results, baseline, os.path.join(out_dir, "quantile_mode_study.png"))
-    write_csv(results, os.path.join(out_dir, "quantile_mode_study.csv"))
+    plot_grid(results, baseline,
+              os.path.join(out_dir, "plots", "quantile_mode_study.png"))
+    write_csv(results, os.path.join(out_dir, "sweeps", "quantile_mode_study.csv"))
     return 0
 
 

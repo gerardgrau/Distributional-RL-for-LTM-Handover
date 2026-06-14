@@ -12,8 +12,8 @@ package — they're command-line tools you run by hand. Group them by purpose:
 ## Final-comparison plots (master results)
 - **`generate_final_plots.py`** — Read every `*_summary.csv` in
   `results/final_metrics/` and produce `master_bar_plots.png` +
-  `master_radial_plot.png`. The canonical comparison against the paper
-  numbers (`paper_ltm.csv` etc.).
+  `master_radial_plot.png` in `results/final_metrics/plots/`. The canonical
+  comparison against the paper numbers (`paper_ltm.csv` etc.).
 - **`generate_legacy_summary.py`** — Run `legacy_simulation.py` over all
   1000 UEs and write `results/final_metrics/legacy_baseline_summary.csv`.
 

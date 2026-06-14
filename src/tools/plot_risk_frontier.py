@@ -12,8 +12,8 @@ canonical tf=8 backbone:
 
 RN (n25_tb) and DQN (dqn_tf8) are reference anchors at the same budget; the
 efficient frontier is the upper-left (more reward, fewer failures). The paper
-figure is the single HOF panel (results/final_metrics/risk_frontier.png); a two-panel
-PP+HOF version is also written for our own analysis.
+figure is the single HOF panel (results/final_metrics/plots/risk_frontier.png); a
+two-panel PP+HOF version is also written for our own analysis.
 
 Run (PYTHONPATH must include src):
     ./venv-RL/bin/python3 src/tools/plot_risk_frontier.py
@@ -123,7 +123,7 @@ def _draw(ax, d: dict, key: str, xlab: str, annotate: bool) -> None:
 
 def main() -> None:
     d = _load()
-    os.makedirs("results/final_metrics", exist_ok=True)
+    os.makedirs("results/final_metrics/plots", exist_ok=True)
 
     # --- Paper figure: single panel, reward vs. HO-failure. ---
     fig, ax = plt.subplots(figsize=(5.25, 3.1))
@@ -133,7 +133,7 @@ def main() -> None:
                 fontsize=8, style="italic", color="0.35")
     ax.legend(fontsize=7.0, loc="lower right", framealpha=0.9)
     fig.tight_layout()
-    out = "results/final_metrics/risk_frontier.png"
+    out = "results/final_metrics/plots/risk_frontier.png"
     fig.savefig(out, dpi=300, bbox_inches="tight", pad_inches=0.02)
     print(f"saved {out}")
 
@@ -146,7 +146,7 @@ def main() -> None:
     axes[1].legend(fontsize=8.5, loc="lower right")
     fig2.suptitle("Risk frontier (efficient = upper-left)", fontsize=12)
     fig2.tight_layout(rect=(0, 0, 1, 0.95))
-    out2 = "results/final_metrics/risk_frontier_2panel.png"
+    out2 = "results/final_metrics/plots/risk_frontier_2panel.png"
     fig2.savefig(out2, dpi=160)
     print(f"saved {out2}")
 

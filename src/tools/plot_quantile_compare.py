@@ -75,7 +75,8 @@ def main() -> None:
     p.add_argument("--ue-idx", type=int, default=500)
     p.add_argument("--n-steps", type=int, default=100)
     p.add_argument(
-        "--out", default="results/final_metrics/quantile_compare_v3_2026-05-24.png",
+        "--out",
+        default="results/final_metrics/plots/quantile_compare_v3_2026-05-24.png",
     )
     args = p.parse_args()
 

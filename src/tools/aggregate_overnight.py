@@ -18,7 +18,7 @@ from pathlib import Path
 
 DATE = "2026-05-19"
 BENCHMARK_ROOT = Path("results/benchmarks")
-OUT_PATH = Path("results/final_metrics/overnight_2026-05-19.csv")
+OUT_PATH = Path("results/final_metrics/sweeps/overnight_2026-05-19.csv")
 
 # Metric order we care about (matches existing project conventions).
 METRICS = [

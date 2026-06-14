@@ -95,7 +95,7 @@ def main() -> None:
         fontsize=12,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    out = "results/final_metrics/per_ue_tails.png"
+    out = "results/final_metrics/plots/per_ue_tails.png"
     os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.savefig(out, dpi=160)
     print(f"saved {out}")
