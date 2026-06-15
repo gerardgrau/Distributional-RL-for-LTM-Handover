@@ -106,12 +106,12 @@ the KPI profile without sacrificing reward.
 1. **Problem** — dense 5G handover; failures/ping-pongs hurt reliability.
    (`07_animations/side_by_side/ltm_vs_qrdqn_ue500.mp4`)
 2. **Idea** — model the *distribution* of returns → risk-aware selection.
-   (`03_.../return_density_ue500.png`, `return_distributions.png`)
+   (`03_risk_and_distributions/return_density_ue500.png`, `.../return_distributions.png`)
 3. **Headline result** — RL beats LTM and CMAB. (`01_headline_results/*`)
-4. **On a single trajectory** — (`09_head_to_head/ltm_vs_rn_ue900.png` / `.mp4`)
-5. **Step by step** — DQN→RN→RA. (`09_head_to_head/dqn_vs_rn_ue250.png`, `rn_vs_ra_ue650.png`)
-6. **Risk frontier + unlucky users** — (`03_.../risk_frontier_2panel.png`, `per_ue_tails.png`)
-7. **They learn / risk is free** — (`02_.../finals_learning_overlay.png`)
+4. **On a single trajectory** — (`09_head_to_head/ltm_vs_rn/ltm_vs_rn_ue900.png` / `.mp4`)
+5. **Step by step** — DQN→RN→RA. (`09_head_to_head/dqn_vs_rn/dqn_vs_rn_ue250.png`, `09_head_to_head/rn_vs_ra/rn_vs_ra_ue650.png`)
+6. **Risk frontier + unlucky users** — (`03_risk_and_distributions/risk_frontier_2panel.png`, `.../per_ue_tails.png`)
+7. **They learn / risk is free** — (`02_learning_curves/finals_learning_overlay.png`)
 8. **Robustness + generalization** — (`04_parameter_studies/*`, `06_atari_validation/*`)
 
 ---
@@ -143,6 +143,11 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 ./venv-RL/bin/python3 src/tools/plot_risk_frontier.py
 ./venv-RL/bin/python3 src/tools/plot_return_distributions.py
 ./venv-RL/bin/python3 src/tools/plot_per_ue_tails.py
+
+# Parameter / quantile-mode / Atari studies (04_* and 06_*)
+./venv-RL/bin/python3 src/tools/plot_quantile_mode_study.py
+./venv-RL/bin/python3 src/tools/plot_atari_study.py --game Pong
+./venv-RL/bin/python3 src/tools/plot_atari_study.py --game Boxing
 ```
 
 Other figures were copied from `results/final_metrics/plots/`,

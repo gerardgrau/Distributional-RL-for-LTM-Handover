@@ -5,10 +5,10 @@ All training / evaluation YAMLs. Pick one with `--config <path>` on `main.py`.
 ## Canonical
 - **`config.yaml`** — Default. 500-episode multi-seed dev config, balanced
   hyperparameters. Use this for normal development.
-- **`definitive-10h.yaml`** — Long benchmark (2000 episodes × 2 seeds). The
-  intended config for the paper-parity definitive run. Run on `--device cpu`
-  (`main.py` parallelizes seeds across cores — see `CLAUDE.md` on why CPU beats
-  the XPU path here).
+- **`definitive-10h.yaml`** — Long multi-seed benchmark (1000 episodes ×
+  2 seeds). Run on `--device cpu` (`main.py` parallelizes seeds across cores —
+  see `CLAUDE.md` on why CPU beats the XPU path here). The *canonical* paper
+  finals live under `masked/no_gate/finals_n25/` (see below), not here.
 
 ## Ablations / studies
 - **`definitive-comparison.yaml`** — DQN vs QR-DQN comparison at moderate
