@@ -170,7 +170,8 @@ comparison.
 
 This repository accompanies the manuscript **"Risk-Aware Distributional
 Reinforcement Learning for 5G-Advanced Handover Decisions"** (G. Grau Garcia).
-The LaTeX source and figures are in [`paper/`](paper/).
+The LaTeX source and figures are in [`paper/`](paper/), along with the talk
+deck ([`paper/slides.pdf`](paper/slides.pdf)).
 
 ## License
 
