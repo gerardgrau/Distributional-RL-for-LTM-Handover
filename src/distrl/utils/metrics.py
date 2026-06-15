@@ -37,9 +37,10 @@ def calculate_8_metrics(
     reliability = 100.0 - (np.mean(mcs_history == 0) * 100.0)
 
     # 6. Preparation EVENTS per minute: each 0->1 transition of the reservation
-    # grid (a sector newly entering the prepared list). This is the reference's
-    # `Number_cell_preparations` (ltm_ho_reference.py:241) with its `>= 0` bug
-    # corrected to `> 0`. It is NOT occupancy -- res_reservation_pct is occupancy.
+    # grid (a sector newly entering the prepared list). This matches the legacy
+    # MATLAB simulator's `Number_cell_preparations` count, with its `>= 0`
+    # threshold corrected to `> 0` (`>= 0` counts every non-decreasing tick).
+    # It is NOT occupancy -- res_reservation_pct is occupancy.
     reserved_int = reserved_history.astype(np.int8)
     prep_events = int(np.sum(np.diff(reserved_int, axis=1) > 0)) if total_steps > 1 else 0
     prep_rate = prep_events / minutes if minutes > 0 else 0.0
