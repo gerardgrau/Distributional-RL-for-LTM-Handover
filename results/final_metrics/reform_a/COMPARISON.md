@@ -1,6 +1,12 @@
 # Reformed finals (decline + prepared-mask + (a) HO_condition gate)
 
-Canonical runs: 2000 ep × 5 seeds, backbones identical to the pre-reform
+> **Archived intermediate study.** This is an earlier "gate-(a)" environment
+> variant kept for the record; its numbers are **not** the canonical results.
+> The figures and tables in the paper use the later *no-gate* finals
+> (`configs/masked/no_gate/finals_n25/`), summarized in the top-level
+> `results/final_metrics/*_summary.csv`. Read this file as historical context.
+
+Runs in this study: 2000 ep × 5 seeds, backbones identical to the pre-reform
 finals. Env reform = reward fix (a stay incurs no α_HO penalty) + execution
 masked to the baseline's exact +3 dB candidate set (gate-only (a)). All
 columns are on the SAME reward scale (the baseline is bit-identical under the

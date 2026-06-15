@@ -24,8 +24,9 @@ agents beat both a standardized LTM heuristic and a published contextual-bandit
 <tr>
 <td width="50%" valign="top">
   <img src="docs/assets/master_bar_plots.png"><br>
-  <sub><b>Headline KPIs.</b> All nine metrics vs. the LTM heuristic and the
-  published CMAB bandit — the learned agents lead the envelope (fewer handovers,
+  <sub><b>Headline KPIs.</b> All nine KPIs (reward + the eight metrics) vs. the
+  LTM heuristic and the published CMAB bandit — the learned agents lead the
+  envelope (fewer handovers,
   ping-pongs and failures at equal-or-better capacity &amp; reliability).</sub>
 </td>
 <td width="50%" valign="top">
@@ -135,6 +136,14 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 Outputs land in `results/benchmarks/bmk_<date>_<num>_<desc>/`; frozen-weight
 post-training evaluation runs automatically at the end of each seed.
 
+## Data availability
+
+The raw 5G channel-gain dataset (`data/ChannelGains/*.mat`) and its precomputed
+cache (`data/Precomputed/*.npz`) are **not distributed in this repository** (size
+and source-licensing constraints). Step 3 above assumes the raw `.mat` files are
+already present under `data/ChannelGains/`. To obtain them, please contact the
+author — see the manuscript in [`paper/`](paper/) for the data description.
+
 ## Reproducing the figures
 
 The graphics above are all regenerable from the committed results (export
@@ -172,6 +181,20 @@ This repository accompanies the manuscript **"Risk-Aware Distributional
 Reinforcement Learning for 5G-Advanced Handover Decisions"** (G. Grau Garcia).
 The LaTeX source and figures are in [`paper/`](paper/), along with the talk
 deck ([`paper/slides.pdf`](paper/slides.pdf)).
+
+## Citation
+
+If you use this work, please cite the manuscript:
+
+```bibtex
+@misc{graugarcia2026riskaware,
+  author = {Grau Garcia, Gerard},
+  title  = {Risk-Aware Distributional Reinforcement Learning for
+            5G-Advanced Handover Decisions},
+  year   = {2026},
+  note   = {\url{https://github.com/gerardgrau/Distributional-RL-for-LTM-Handover}}
+}
+```
 
 ## License
 
