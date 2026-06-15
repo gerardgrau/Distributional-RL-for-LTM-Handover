@@ -76,6 +76,7 @@ predates the precomputed dataset + seed-parallelism and no longer holds.
 ./venv-RL/bin/python3 src/scripts/run_dashboard.py              # MP4 agent-behavior animation (uses src/distrl/viz/dashboard.py)
 ./venv-RL/bin/python3 src/scripts/test_quantile_vis.py          # QR-DQN learned return-distribution viewer
 ```
+Conceptual figures for the talk (slide-ready transparent PNGs into the git-ignored `figures/`): `src/tools/plot_qrdqn_explainer.py` (network-head diagrams), `plot_quantile_representation.py` (PDF→quantiles, CVaR tail, risk motivation), `plot_pinball_loss.py` (pinball + Huber loss). The deck itself is `paper/slides.pdf`.
 
 ### Multi-run orchestrators (sweep configs under `configs/`)
 ```bash
