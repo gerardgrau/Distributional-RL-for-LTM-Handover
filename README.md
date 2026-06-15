@@ -66,9 +66,9 @@ agents beat both a standardized LTM heuristic and a published contextual-bandit
 </tr>
 </table>
 
-> More figures and the animations for every policy pair live in
-> [`figures/`](figures/) (generated locally; see its README). The two figures in
-> the paper are in [`paper/`](paper/).
+> The full figure gallery lives in [`figures/`](figures/) (PNGs tracked; the
+> per-policy MP4 animations are git-ignored and regenerate locally — see its
+> README). The two figures in the paper are in [`paper/`](paper/).
 
 ## The idea in one minute
 
