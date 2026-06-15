@@ -9,10 +9,122 @@ def load_summary(path):
     if not os.path.exists(path):
         return None
     df = pd.read_csv(path)
-    df.columns = [c.strip() for c in df.columns] 
+    df.columns = [c.strip() for c in df.columns]
     df = df.set_index('metric')
     df.index = [i.strip() for i in df.index]
     return df['mean']
+
+
+# Canonical KPI order, used across every table and plot in the paper:
+# benefits (higher is better) -> mobility outcomes by increasing severity
+# -> resource cost.
+METRICS_TO_PLOT = [
+    "reward", "capacity_avg", "reliability_pct",
+    "ho_rate", "pp_rate", "hof_rate",
+    "rlf_rate", "prep_rate", "res_reservation_pct",
+]
+NICE_NAMES = {
+    "reward": "Reward / Decision",
+    "capacity_avg": "Capacity (bps/Hz)",
+    "reliability_pct": "Reliability (%)",
+    "ho_rate": "HO Rate (/min)",
+    "pp_rate": "PP Rate (/min)",
+    "hof_rate": "HOF Rate (/min)",
+    "rlf_rate": "RLF Rate (/min)",
+    "prep_rate": "Preparations (/min)",
+    "res_reservation_pct": "Res. Reservation (%)",
+}
+
+
+def _load_data(mapping):
+    """Load every summary CSV whose file-key is in `mapping`, keyed by label.
+
+    Returns a DataFrame indexed by the nice label, columns = metrics.
+    """
+    results_dir = "results/final_metrics"
+    all_data = {}
+    for f in glob.glob(os.path.join(results_dir, "*.csv")):
+        key = os.path.basename(f).replace(".csv", "")
+        # Handle specific naming like dqn_2k-ep_summary.
+        if "qrdqn_2k-ep" in key:
+            key = "qrdqn_summary"
+        elif "dqn_2k-ep" in key:
+            key = "dqn_summary"
+        if key in mapping:
+            series = load_summary(f)
+            if series is not None:
+                all_data[mapping[key]] = series
+    return pd.DataFrame(all_data).transpose()
+
+
+def _draw_bar_grid(data, agents, agent_color, agent_hatch, title, out_name,
+                   legend_handles, bar_width=0.8, metrics=None,
+                   grid=(3, 3), figsize=(22, 18)):
+    """Grid of KPI bar charts for the given agent order.
+
+    Every panel starts at zero (no broken axes); missing values (e.g. CMAB has
+    no reward) leave a reserved-but-empty slot so the x-axis stays aligned
+    across panels.
+
+    Args:
+        metrics: KPI keys to plot (defaults to all nine, in canonical order).
+        grid: (nrows, ncols) of the subplot layout.
+        figsize: overall figure size.
+    """
+    if metrics is None:
+        metrics = METRICS_TO_PLOT
+    fig, axes = plt.subplots(grid[0], grid[1], figsize=figsize)
+    axes = axes.flatten()
+    colors = [agent_color[a] for a in agents]
+    hatches = [agent_hatch[a] for a in agents]
+    x_pos = np.arange(len(agents))
+
+    for idx, metric in enumerate(metrics):
+        ax = axes[idx]
+        if metric not in data.columns:
+            ax.set_visible(False)
+            continue
+        series = data[metric].reindex(agents)
+        bars = ax.bar(x_pos, series.values, width=bar_width,
+                      color=colors, alpha=0.8, edgecolor='black')
+        # Per-bar hatch (older matplotlib rejects a list for `hatch=`).
+        for bar, hatch in zip(bars, hatches):
+            if hatch:
+                bar.set_hatch(hatch)
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(agents)
+        ax.set_xlim(-0.6, len(agents) - 0.4)
+        ax.set_title(NICE_NAMES[metric], fontsize=15, fontweight='bold', pad=10)
+        ax.grid(axis='y', linestyle='--', alpha=0.3)
+        ax.tick_params(axis='x', rotation=35, labelsize=9)
+        for bar, yval in zip(bars, series.values):
+            if yval is None or pd.isna(yval):
+                continue
+            fmt = '.3f' if yval < 1 else '.2f'
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                yval + abs(yval) * 0.01,
+                f'{yval:{fmt}}',
+                ha='center', va='bottom', fontsize=9, fontweight='bold',
+            )
+
+    # Hide any leftover panels (when metrics < grid cells).
+    for j in range(len(metrics), len(axes)):
+        axes[j].set_visible(False)
+
+    fig.legend(
+        handles=legend_handles, loc='lower center', ncol=len(legend_handles),
+        fontsize=15, frameon=True, bbox_to_anchor=(0.5, 0.012),
+    )
+    plt.suptitle(title, fontsize=24, fontweight='bold', y=0.98)
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+
+    plots_dir = "results/final_metrics/plots"
+    os.makedirs(plots_dir, exist_ok=True)
+    out_path = os.path.join(plots_dir, out_name)
+    plt.savefig(out_path, dpi=300)
+    plt.close()
+    print(f"  Saved {out_path}")
 
 def generate_plots():
     results_dir = "results/final_metrics"
@@ -57,147 +169,19 @@ def generate_plots():
     paper_sourced = {"CMAB"}
     agent_hatch = {a: ("///" if a in paper_sourced else "") for a in desired_order}
     
-    all_data = {}
-    csv_files = glob.glob(os.path.join(results_dir, "*.csv"))
-    
-    for f in csv_files:
-        file_key = os.path.basename(f).replace(".csv", "")
-        # Handle specific naming like dqn_2k-ep_summary
-        if "qrdqn_2k-ep" in file_key:
-            file_key = "qrdqn_summary"
-        elif "dqn_2k-ep" in file_key:
-            file_key = "dqn_summary"
-            
-        if file_key in mapping:
-            name = mapping[file_key]
-            series = load_summary(f)
-            if series is not None:
-                all_data[name] = series
-
-    # Convert to DataFrame and REINDEX to enforce the requested order.
-    # Keep ALL agents from `desired_order` (filling missing rows with NaN)
-    # so the x-axis layout stays consistent across every subplot,
-    # even when a CSV is missing for some agent.
-    data = pd.DataFrame(all_data).transpose()
-    data = data.reindex(desired_order)
+    # Load the summaries and enforce the requested order. Keep ALL agents from
+    # `desired_order` (filling missing rows with NaN) so the x-axis layout
+    # stays consistent across every subplot, even when a CSV is missing.
+    data = _load_data(mapping).reindex(desired_order)
     agents = desired_order
-
-    # Canonical KPI order, used across every table and plot in the paper:
-    # benefits (higher is better) -> mobility outcomes by increasing severity
-    # -> resource cost.
-    metrics_to_plot = [
-        "reward", "capacity_avg", "reliability_pct",
-        "ho_rate", "pp_rate", "hof_rate",
-        "rlf_rate", "prep_rate", "res_reservation_pct"
-    ]
-
-    nice_names = {
-        "reward": "Reward / Decision",
-        "capacity_avg": "Capacity (bps/Hz)",
-        "rlf_rate": "RLF Rate (/min)",
-        "hof_rate": "HOF Rate (/min)",
-        "ho_rate": "HO Rate (/min)",
-        "pp_rate": "PP Rate (/min)",
-        "reliability_pct": "Reliability (%)",
-        "prep_rate": "Preparations (/min)",
-        "res_reservation_pct": "Res. Reservation (%)"
-    }
-
     # Group-coded colours, shared by the bar and radar charts.
     colors = [agent_color[a] for a in agents]
 
     # --- 2. CONSOLIDATED BAR SUBPLOTS ---
-    print(f"Generating 3x3 bar plots for agents in order: {agents}")
-    fig, axes = plt.subplots(3, 3, figsize=(22, 18))
-    axes = axes.flatten()
-
-    # Every panel starts at zero -- no broken axes. (The reward row in the
-    # final_metrics CSVs is the mean reward PER DECISION, not the total.)
-    broken_ylim: dict[str, tuple[float, float | None]] = {}
-
-    def _draw_axis_break(ax_) -> None:
-        """Flag a broken (non-zero-anchored) y-axis with a visible indicator.
-
-        Draws the universal "≈" symbol at the bottom-left of the axis and a
-        thicker double-slash zigzag on the y-axis spine just above the
-        bottom tick — together these are unambiguous "this axis does not
-        start at zero".
-        """
-        # ≈ symbol just below the axis bottom-left
-        ax_.text(
-            -0.06, -0.04, "≈",
-            transform=ax_.transAxes,
-            fontsize=20, fontweight='bold',
-            ha='center', va='center',
-            clip_on=False,
-        )
-        # Two short diagonal segments on the y-axis spine for the zigzag
-        d_x = 0.025
-        d_y = 0.022
-        kw = dict(transform=ax_.transAxes, color='k',
-                  clip_on=False, linewidth=2.0)
-        ax_.plot([-d_x, d_x], [0.005, 0.005 + 1.6 * d_y], **kw)
-        ax_.plot([-d_x, d_x], [0.005 + 2 * d_y, 0.005 + 3.6 * d_y], **kw)
-
-    # Per-agent colours / hatches and uniform x-positions (computed once;
-    # identical across every subplot). Colour already separates the groups, so
-    # no extra spacing between them is needed.
-    current_colors = [agent_color[a] for a in agents]
-    current_hatches = [agent_hatch[a] for a in agents]
-    x_pos = np.arange(len(agents))
-
-    for idx, metric in enumerate(metrics_to_plot):
-        ax = axes[idx]
-        if metric not in data.columns:
-            ax.set_visible(False)
-            continue
-
-        # Keep all agents on the x-axis (NaN -> invisible bar but reserved
-        # slot). Use numeric positions so matplotlib doesn't drop empty
-        # categories and the bar widths stay consistent across panels.
-        series = data[metric].reindex(agents)
-
-        bars = ax.bar(
-            x_pos, series.values,
-            color=current_colors, alpha=0.8,
-            edgecolor='black',
-        )
-        # Apply hatches per-bar — older matplotlib versions don't accept
-        # `hatch=` as a list, so set it on each bar individually.
-        for bar, hatch in zip(bars, current_hatches):
-            if hatch:
-                bar.set_hatch(hatch)
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels(agents)
-        ax.set_xlim(-0.6, len(agents) - 0.4)
-        ax.set_title(nice_names[metric], fontsize=15, fontweight='bold', pad=10)
-        ax.grid(axis='y', linestyle='--', alpha=0.3)
-        ax.tick_params(axis='x', rotation=35, labelsize=9)
-
-        for bar, yval in zip(bars, series.values):
-            if yval is None or pd.isna(yval):
-                continue
-            fmt = '.3f' if yval < 1 else '.2f'
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                yval + abs(yval) * 0.01,
-                f'{yval:{fmt}}',
-                ha='center', va='bottom', fontsize=9, fontweight='bold',
-            )
-
-        # (The reward panel's data-source note lives in the figure caption,
-        # not inside the axes.)
-
-        # Broken y-axis: clip the visible range and mark the break visually
-        if metric in broken_ylim:
-            ymin, ymax = broken_ylim[metric]
-            ax.set_ylim(bottom=ymin, top=ymax)
-            _draw_axis_break(ax)
-
     # Figure-level legend: colour encodes the algorithm family, the hatched
-    # swatch explains that paper-sourced bars are striped.
-    # CMAB is the only literature-sourced (hatched) bar, so its grey-hatched
-    # swatch doubles as the "published" key -- no separate hatch entry needed.
+    # swatch explains that paper-sourced bars are striped. CMAB is the only
+    # literature-sourced (hatched) bar, so its grey-hatched swatch doubles as
+    # the "published" key -- no separate hatch entry needed.
     legend_handles = [
         Patch(facecolor="#3182bd", edgecolor='black', alpha=0.8,
               label="LTM baseline (our simulator)"),
@@ -206,22 +190,15 @@ def generate_plots():
         Patch(facecolor="#de2d26", edgecolor='black', alpha=0.8,
               label="Learned RL agents (ours)"),
     ]
-    fig.legend(
-        handles=legend_handles, loc='lower center', ncol=3,
-        fontsize=15, frameon=True, bbox_to_anchor=(0.5, 0.012),
+    print(f"Generating 3x3 bar plots for agents in order: {agents}")
+    _draw_bar_grid(
+        data, agents, agent_color, agent_hatch,
+        "LTM-HO Comparative Analysis: RL Agents vs. State-of-the-Art Baselines",
+        "master_bar_plots.png", legend_handles,
     )
 
-    plt.suptitle("LTM-HO Comparative Analysis: RL Agents vs. State-of-the-Art Baselines", fontsize=24, fontweight='bold', y=0.98)
-    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
-    
-    plots_dir = os.path.join(results_dir, "plots")
-    os.makedirs(plots_dir, exist_ok=True)
-    bar_path = os.path.join(plots_dir, "master_bar_plots.png")
-    plt.savefig(bar_path, dpi=300)
-    plt.close()
-    print(f"  Saved {bar_path}")
-
     # --- 3. CONSOLIDATED RADAR CHART ---
+    plots_dir = "results/final_metrics/plots"
     print("Generating master radial chart...")
     # Canonical order (radar omits reward / prep / reservation):
     # benefits -> mobility outcomes by increasing severity.
@@ -264,6 +241,95 @@ def generate_plots():
     plt.savefig(radar_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  Saved {radar_path}")
+
+def generate_ltm_cmab():
+    """2x4 KPI bar grid for ONLY the two prior-art baselines (LTM vs CMAB).
+
+    Wide 2-row x 4-col layout (the 8 KPIs except reward) so it fits a single
+    slide. Same colours as the full master plot: our LTM baseline (blue) and
+    the published CMAB bandit (grey, hatched).
+    """
+    mapping = {"ltm_ours_summary": "LTM", "paper_ltm_cmab": "CMAB"}
+    order = ["LTM", "CMAB"]
+    agent_color = {"LTM": "#3182bd", "CMAB": "#969696"}
+    agent_hatch = {"LTM": "", "CMAB": "///"}
+    data = _load_data(mapping).reindex(order)
+
+    legend_handles = [
+        Patch(facecolor="#3182bd", edgecolor='black', alpha=0.8,
+              label="LTM baseline (our simulator)"),
+        Patch(facecolor="#969696", edgecolor='black', alpha=0.8, hatch='///',
+              label="CMAB (published)"),
+    ]
+    # 2x4 layout (8 KPIs, reward dropped) so it sits nicely on one slide.
+    metrics = ["capacity_avg", "reliability_pct", "ho_rate", "pp_rate",
+               "hof_rate", "rlf_rate", "prep_rate", "res_reservation_pct"]
+    print(f"Generating LTM-vs-CMAB 2x4 bar plots: {order}")
+    _draw_bar_grid(
+        data, order, agent_color, agent_hatch,
+        "Prior-Art Baselines: LTM vs CMAB",
+        "master_bar_plots_ltm_cmab.png", legend_handles, bar_width=0.5,
+        metrics=metrics, grid=(2, 4), figsize=(24, 11),
+    )
+
+
+def generate_distributional(include_rn1q=True,
+                            out_name="master_bar_plots_distributional.png"):
+    """3x3 KPI bar grid for the SECTION-4 result: does the distribution help?
+
+    With ``include_rn1q`` (default) the five models isolate the source of the
+    gain (paper Table II + the two references): the LTM and CMAB baselines,
+    scalar DQN, a single-quantile risk-neutral head (RN-1q, N=1 median) that
+    reproduces DQN, and the full 25-quantile risk-neutral head (RN). The story:
+    DQN ~ RN-1q < RN, all at equal reward -> the gain comes from the *full
+    distribution*, not the loss. Set ``include_rn1q=False`` for the leaner
+    four-model version (just DQN vs RN against the two references).
+
+    Colours reuse the final master plot exactly (LTM blue, CMAB grey-hatched,
+    DQN and RN in the red family), with RN-1q assigned a new, distinct colour
+    (purple) since it is not part of the master roster.
+    """
+    mapping = {
+        "ltm_ours_summary": "LTM",
+        "paper_ltm_cmab": "CMAB",
+        "dqn_summary": "DQN",
+        "qrdqn_rn_1q_summary": "RN-1q",
+        "qrdqn_riskneutral_summary": "RN",
+    }
+    order = ["LTM", "CMAB", "DQN", "RN-1q", "RN"]
+    agent_color = {
+        "LTM": "#3182bd",        # blue, our baseline (master)
+        "CMAB": "#969696",       # grey, published (master)
+        "DQN": "#fcae91",        # red, lightest (master)
+        "RN-1q": "#984ea3",      # purple, NEW (not in the master roster)
+        "RN": "#fb6a4a",         # red (master)
+    }
+    legend_by_agent = {
+        "LTM": Patch(facecolor="#3182bd", edgecolor='black', alpha=0.8,
+                     label="LTM baseline (our simulator)"),
+        "CMAB": Patch(facecolor="#969696", edgecolor='black', alpha=0.8,
+                      hatch='///', label="CMAB (published)"),
+        "DQN": Patch(facecolor="#fcae91", edgecolor='black', alpha=0.8,
+                     label="DQN"),
+        "RN-1q": Patch(facecolor="#984ea3", edgecolor='black', alpha=0.8,
+                       label="RN-1q (single quantile)"),
+        "RN": Patch(facecolor="#fb6a4a", edgecolor='black', alpha=0.8,
+                    label="RN (full distribution)"),
+    }
+    if not include_rn1q:
+        order = [a for a in order if a != "RN-1q"]
+        mapping = {k: v for k, v in mapping.items() if v != "RN-1q"}
+
+    agent_hatch = {a: ("///" if a == "CMAB" else "") for a in order}
+    data = _load_data(mapping).reindex(order)
+    legend_handles = [legend_by_agent[a] for a in order]
+    print(f"Generating 3x3 distributional bar plots: {order}")
+    _draw_bar_grid(
+        data, order, agent_color, agent_hatch,
+        "Distributional Learning on the Handover Task: DQN vs QR-DQN",
+        out_name, legend_handles, bar_width=0.7,
+    )
+
 
 def generate_single_column_bars():
     """Column-width variant of the master bar plot (single IEEE text column).
@@ -352,4 +418,8 @@ def generate_single_column_bars():
 
 if __name__ == "__main__":
     generate_plots()
+    generate_ltm_cmab()
+    generate_distributional()
+    generate_distributional(include_rn1q=False,
+                            out_name="master_bar_plots_distributional_no1q.png")
     generate_single_column_bars()
